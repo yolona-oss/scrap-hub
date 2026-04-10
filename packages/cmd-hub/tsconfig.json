@@ -1,0 +1,21 @@
+{
+    "extends": "../../tsconfig.base.json",
+
+    "compilerOptions": {
+        "outDir": "./build",
+        "baseUrl": "./",
+        "rootDir": "./",
+        "paths": {
+            "@core/*":    ["./src/*"],
+            "@logger":    ["./src/application/logger"],
+            "@config":    ["./src/config"],
+            "@utils/*":   ["./src/utils/*"]
+        }
+    },
+    "include": [
+        "./src/**/*"
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}

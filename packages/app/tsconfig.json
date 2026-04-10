@@ -1,0 +1,23 @@
+{
+    "extends": "../../tsconfig.base.json",
+
+    "compilerOptions": {
+        "outDir": "./build",
+        "baseUrl": "./",
+        "declaration": false,
+        "paths": {
+            "@core/*":        ["../cmd-hub/src/*"],
+            "@logger":        ["../cmd-hub/src/application/logger"],
+            "@config":        ["./src/config"],
+            "@utils/*":       ["../cmd-hub/src/utils/*"],
+            "org-scraper":    ["../org-scraper/src"],
+            "org-scraper/*":  ["../org-scraper/src/*"]
+        }
+    },
+    "include": [
+        "./src/**/*"
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}

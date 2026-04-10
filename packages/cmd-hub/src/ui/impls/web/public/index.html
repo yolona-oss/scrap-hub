@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CmdHub</title>
+<style>
+:root {
+    --bg: #0c0c0c;
+    --surface: #141414;
+    --surface2: #1c1c1c;
+    --accent: #5fda5f;
+    --accent2: #3a9a3a;
+    --text: #cccccc;
+    --text-bright: #e0e0e0;
+    --text-muted: #666;
+    --border: #2a2a2a;
+    --prompt: #5fda5f;
+    --user-text: #d0d0d0;
+    --error-fg: #f55;
+    --error-bg: #1a0808;
+    --success: #5fda5f;
+    --mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', 'Liberation Mono', monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--mono); background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+
+/* Auth screens */
+.auth-overlay { display: flex; align-items: center; justify-content: center; height: 100vh; background: var(--bg); }
+.auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 28px; width: 360px; }
+.auth-card h2 { margin-bottom: 14px; color: var(--accent); font-size: 15px; font-weight: 700; }
+.auth-card input { width: 100%; padding: 8px 10px; margin-bottom: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-size: 13px; font-family: var(--mono); }
+.auth-card input:focus { outline: none; border-color: var(--accent); }
+.auth-card button { width: 100%; padding: 8px; background: var(--accent2); color: #fff; border: 1px solid var(--accent); border-radius: 3px; font-size: 13px; font-family: var(--mono); cursor: pointer; }
+.auth-card button:hover { background: var(--accent); color: var(--bg); }
+.auth-card .error { color: var(--error-fg); font-size: 11px; margin-bottom: 6px; min-height: 14px; }
+
+/* Main app — terminal style */
+#app-screen { display: none; flex-direction: column; height: 100vh; background: var(--bg); }
+header { background: var(--surface); padding: 6px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); font-size: 12px; }
+header .title { font-weight: 700; color: var(--accent); }
+header .user-info { color: var(--text-muted); }
+header button { background: none; border: 1px solid var(--border); color: var(--text-muted); padding: 2px 10px; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: var(--mono); }
+header button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Terminal output — continuous scroll like stdout */
+#messages { flex: 1; overflow-y: auto; padding: 6px 12px; }
+.line { word-wrap: break-word; white-space: pre-wrap; font-size: 13px; line-height: 1.45; color: var(--text); }
+.line.line-input .line-prompt { color: var(--prompt); font-weight: 700; }
+.line.line-input .line-text { color: var(--text-bright); }
+.line.line-output { color: var(--text); }
+.line.line-error { color: var(--error-fg); }
+.line.line-system { color: var(--text-muted); font-style: italic; }
+.line pre { margin: 0; white-space: pre-wrap; font-size: 13px; color: var(--text); }
+.line .buttons { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0; }
+.line .buttons button { background: var(--surface); border: 1px solid var(--border); color: var(--accent); padding: 2px 8px; border-radius: 2px; cursor: pointer; font-size: 11px; font-family: var(--mono); }
+.line .buttons button:hover { border-color: var(--accent); background: var(--surface2); }
+
+/* Input bar — shell prompt style */
+#input-bar { background: var(--surface); padding: 0; border-top: 1px solid var(--border); display: flex; align-items: flex-end; position: relative; }
+.prompt-label { color: var(--prompt); font-weight: 700; padding: 8px 0 8px 12px; font-size: 13px; user-select: none; flex-shrink: 0; align-self: flex-start; margin-top: 1px; }
+#cmd-input { flex: 1; padding: 8px 8px; background: transparent; border: none; color: var(--text-bright); font-size: 13px; font-family: var(--mono); resize: none; line-height: 1.45; min-height: 32px; max-height: 160px; overflow-y: auto; }
+#cmd-input:focus { outline: none; }
+.input-hints { color: var(--text-muted); font-size: 10px; padding: 4px 12px 4px 0; align-self: flex-end; white-space: nowrap; flex-shrink: 0; }
+.input-hints kbd { background: var(--surface2); border: 1px solid var(--border); border-radius: 2px; padding: 0 3px; font-size: 9px; }
+
+/* Autocomplete */
+#ac-popup { display: none; position: absolute; bottom: 100%; left: 0; right: 0; max-height: 240px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-bottom: none; z-index: 10; }
+.ac-item { padding: 4px 12px; cursor: pointer; display: flex; align-items: baseline; gap: 10px; font-size: 12px; }
+.ac-item:hover, .ac-item.active { background: var(--surface2); }
+.ac-item .ac-cmd { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.ac-item .ac-desc { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-item .ac-tag { font-size: 9px; color: var(--text-muted); opacity: 0.5; margin-left: auto; white-space: nowrap; }
+.ac-item.ac-hint { opacity: 0.4; cursor: default; }
+.ac-item.ac-hint:hover { background: inherit; }
+
+/* Builder panel */
+#builder-panel { display: none; background: var(--surface); border-top: 1px solid var(--border); padding: 0; overflow: hidden; }
+#builder-panel.open { display: block; }
+.builder-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: var(--surface2); border-bottom: 1px solid var(--border); }
+.builder-header .builder-title { font-weight: 700; font-size: 13px; color: var(--accent); }
+.builder-header .builder-actions { display: flex; gap: 4px; }
+.builder-header button { padding: 3px 12px; border-radius: 2px; border: 1px solid var(--border); cursor: pointer; font-size: 11px; font-family: var(--mono); }
+.builder-header .btn-run { background: var(--accent2); color: #fff; border-color: var(--accent); }
+.builder-header .btn-run:hover { background: var(--accent); color: var(--bg); }
+.builder-header .btn-cancel { background: none; color: var(--text-muted); }
+.builder-fields { padding: 6px 12px; display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
+.builder-field { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.builder-field .bf-label { min-width: 100px; color: var(--text-muted); font-size: 11px; text-align: right; white-space: nowrap; }
+.builder-field .bf-label .bf-req { color: var(--accent); }
+.builder-field input, .builder-field select { flex: 1; padding: 4px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 2px; color: var(--text); font-size: 12px; font-family: var(--mono); }
+.builder-field input:focus, .builder-field select:focus { outline: none; border-color: var(--accent); }
+.builder-field select { appearance: auto; }
+.builder-field .bf-check { display: flex; align-items: center; gap: 6px; }
+.builder-field .bf-check input[type=checkbox] { width: 14px; height: 14px; accent-color: var(--accent); }
+.builder-field .bf-desc { font-size: 10px; color: var(--text-muted); opacity: 0.6; }
+.builder-ctx-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; padding: 4px 0 2px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
+</style>
+</head>
+<body>
+
+<div id="login-screen" class="auth-overlay">
+    <div class="auth-card">
+        <h2>CmdHub Login</h2>
+        <div class="error" id="login-error"></div>
+        <input id="login-name" type="text" placeholder="Username" autocomplete="username">
+        <input id="login-password" type="password" placeholder="Password" autocomplete="current-password">
+        <button onclick="doLogin()">Sign In</button>
+    </div>
+</div>
+
+<div id="invite-screen" class="auth-overlay" style="display:none">
+    <div class="auth-card">
+        <h2>Accept Invitation</h2>
+        <div class="error" id="invite-error"></div>
+        <input id="invite-name" type="text" placeholder="Choose a username" autocomplete="username">
+        <input id="invite-password" type="password" placeholder="Choose a password" autocomplete="new-password">
+        <button onclick="doAcceptInvite()">Create Account</button>
+    </div>
+</div>
+
+<div id="setpw-screen" class="auth-overlay" style="display:none">
+    <div class="auth-card">
+        <h2>Set Your Password</h2>
+        <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px">First login — please set a password for your account.</p>
+        <div class="error" id="setpw-error"></div>
+        <input id="setpw-password" type="password" placeholder="New password" autocomplete="new-password">
+        <input id="setpw-confirm" type="password" placeholder="Confirm password" autocomplete="new-password">
+        <button onclick="doSetPassword()">Set Password</button>
+    </div>
+</div>
+
+<div id="app-screen">
+    <header>
+        <span class="title">CmdHub</span>
+        <span class="user-info" id="user-info"></span>
+        <button onclick="doLogout()">Logout</button>
+    </header>
+    <div id="messages"></div>
+    <div id="builder-panel"></div>
+    <div id="input-bar">
+        <div id="ac-popup"></div>
+        <span class="prompt-label">$</span>
+        <textarea id="cmd-input" rows="1" placeholder="command..." autocomplete="off" spellcheck="false"></textarea>
+        <span class="input-hints"><kbd>Enter</kbd> send <kbd>C-Enter</kbd> newline <kbd>C-w</kbd> del word <kbd>C-c</kbd> cancel</span>
+    </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const state = { socket: null, sessionToken: null, userId: null, commands: [], history: [], historyIdx: -1 };
+
+// Check for invitation link
+const inviteMatch = location.pathname.match(/^\/invite\/(.+)$/);
+if (inviteMatch) {
+    state.inviteToken = inviteMatch[1];
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('invite-screen').style.display = 'flex';
+}
+
+// Check saved session
+const saved = localStorage.getItem('cmdhub_session');
+if (saved && !inviteMatch) {
+    try {
+        const s = JSON.parse(saved);
+        state.sessionToken = s.sessionToken;
+        state.userId = s.userId;
+        connectSocket();
+    } catch (_) { localStorage.removeItem('cmdhub_session'); }
+}
+
+async function doLogin() {
+    const name = document.getElementById('login-name').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!name) return;
+
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, password: password || undefined }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        state.sessionToken = data.sessionToken;
+        state.userId = data.userId;
+
+        if (data.requirePasswordChange) {
+            showSetPassword();
+            return;
+        }
+
+        localStorage.setItem('cmdhub_session', JSON.stringify({ sessionToken: data.sessionToken, userId: data.userId }));
+        connectSocket();
+    } catch (e) {
+        document.getElementById('login-error').textContent = e.message;
+    }
+}
+
+async function doSetPassword() {
+    const password = document.getElementById('setpw-password').value;
+    const confirm = document.getElementById('setpw-confirm').value;
+    if (!password) return;
+    if (password !== confirm) {
+        document.getElementById('setpw-error').textContent = 'Passwords do not match';
+        return;
+    }
+    if (password.length < 8) {
+        document.getElementById('setpw-error').textContent = 'Password must be at least 8 characters';
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/auth/set-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionToken: state.sessionToken, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        localStorage.setItem('cmdhub_session', JSON.stringify({ sessionToken: state.sessionToken, userId: state.userId }));
+        connectSocket();
+    } catch (e) {
+        document.getElementById('setpw-error').textContent = e.message;
+    }
+}
+
+async function doAcceptInvite() {
+    const name = document.getElementById('invite-name').value.trim();
+    const password = document.getElementById('invite-password').value;
+    if (!name || !password) return;
+
+    try {
+        const res = await fetch('/api/invite/' + state.inviteToken + '/accept', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        state.sessionToken = data.sessionToken;
+        state.userId = data.userId;
+        localStorage.setItem('cmdhub_session', JSON.stringify({ sessionToken: data.sessionToken, userId: data.userId }));
+        history.replaceState(null, '', '/');
+        connectSocket();
+    } catch (e) {
+        document.getElementById('invite-error').textContent = e.message;
+    }
+}
+
+async function doLogout() {
+    if (state.sessionToken) {
+        fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionToken: state.sessionToken }),
+        }).catch(() => {});
+    }
+    if (state.socket) state.socket.disconnect();
+    localStorage.removeItem('cmdhub_session');
+    location.reload();
+}
+
+function connectSocket() {
+    const socket = io({ auth: { sessionToken: state.sessionToken } });
+    state.socket = socket;
+
+    socket.on('connect_error', (err) => {
+        document.getElementById('login-error').textContent = err.message;
+        localStorage.removeItem('cmdhub_session');
+        showLogin();
+    });
+
+    socket.on('connected', (data) => {
+        state.userId = data.userId;
+        state.commands = data.commands || [];
+        document.getElementById('user-info').textContent = data.name + (data.isAdmin ? ' (admin)' : '');
+        showApp();
+    });
+
+    socket.on('message', (msg) => addMessage(msg));
+    socket.on('message:edit', (msg) => editMessage(msg));
+    socket.on('message:delete', (msg) => deleteMessage(msg.id));
+    socket.on('disconnect', () => addSystemMessage('Disconnected from server'));
+    socket.on('builder:data', (data) => builderRender(data));
+}
+
+function showLogin() {
+    document.getElementById('login-screen').style.display = 'flex';
+    document.getElementById('invite-screen').style.display = 'none';
+    document.getElementById('setpw-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'none';
+}
+
+function showSetPassword() {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('invite-screen').style.display = 'none';
+    document.getElementById('setpw-screen').style.display = 'flex';
+    document.getElementById('app-screen').style.display = 'none';
+    document.getElementById('setpw-password').focus();
+}
+
+function showApp() {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('invite-screen').style.display = 'none';
+    document.getElementById('setpw-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'flex';
+    document.getElementById('cmd-input').focus();
+}
+
+function sendCommand() {
+    const text = cmdInput.value.replace(/\n/g, ' ').trim();
+    if (!text || !state.socket) return;
+    acHide();
+
+    // Check if this is a service command — open builder instead
+    const cmdName = text.split(/\s+/)[0];
+    const cmdDef = state.commands.find(c => c.command === cmdName);
+    const hasOnlyCmdName = text.split(/\s+/).length === 1;
+    if (cmdDef && cmdDef.isService && hasOnlyCmdName) {
+        builderOpen(cmdName);
+        cmdInput.value = '';
+        autoResize();
+        return;
+    }
+
+    state.history.push(text);
+    state.historyIdx = state.history.length;
+    addMessage({ id: 'user-' + Date.now(), text, type: 'user' });
+    state.socket.emit('command', { text });
+    cmdInput.value = '';
+    autoResize();
+}
+
+function sendRawCommand(text) {
+    if (!text || !state.socket) return;
+    state.history.push(text);
+    state.historyIdx = state.history.length;
+    addMessage({ id: 'user-' + Date.now(), text, type: 'user' });
+    state.socket.emit('command', { text });
+}
+
+function addMessage(msg) {
+    const container = document.getElementById('messages');
+    const el = document.createElement('div');
+    el.className = 'line';
+    el.id = 'msg-' + msg.id;
+
+    if (msg.type === 'user') {
+        el.className = 'line line-input';
+        el.innerHTML = '<span class="line-prompt">$ </span><span class="line-text">' + escText(msg.text) + '</span>';
+    } else if (msg.type === 'error') {
+        el.className = 'line line-error';
+        setLineContent(el, msg);
+    } else if (msg.type === 'system') {
+        el.className = 'line line-system';
+        el.textContent = msg.text;
+    } else {
+        el.className = 'line line-output';
+        setLineContent(el, msg);
+    }
+
+    appendButtons(el, msg.markup);
+    container.appendChild(el);
+    container.scrollTop = container.scrollHeight;
+}
+
+function editMessage(msg) {
+    const el = document.getElementById('msg-' + msg.id);
+    if (!el) return addMessage(msg);
+    el.className = 'line line-output';
+    setLineContent(el, msg);
+    appendButtons(el, msg.markup);
+}
+
+function deleteMessage(id) {
+    const el = document.getElementById('msg-' + id);
+    if (el) el.remove();
+}
+
+function addSystemMessage(text) {
+    addMessage({ id: 'sys-' + Date.now(), text, type: 'system' });
+}
+
+// Sanitize HTML — allow only safe tags used by the server (<pre>)
+function sanitizeHtml(html) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    // Remove all script, iframe, object, embed, form, style tags
+    const dangerous = tmp.querySelectorAll('script,iframe,object,embed,form,style,link,meta,base');
+    dangerous.forEach(el => el.remove());
+    // Remove event handler attributes from all elements
+    tmp.querySelectorAll('*').forEach(el => {
+        for (const attr of [...el.attributes]) {
+            if (attr.name.startsWith('on') || attr.name === 'href' && attr.value.startsWith('javascript:')) {
+                el.removeAttribute(attr.name);
+            }
+        }
+        // Remove src attributes that could execute (except data: for images)
+        if (el.tagName === 'IMG' && el.getAttribute('src') && !el.getAttribute('src').startsWith('data:')) {
+            el.removeAttribute('src');
+        }
+    });
+    return tmp.innerHTML;
+}
+
+function setLineContent(el, msg) {
+    if (msg.parseMode === 'HTML' || (msg.text && msg.text.includes('<pre>'))) {
+        el.innerHTML = sanitizeHtml(msg.text);
+    } else {
+        el.textContent = msg.text;
+    }
+}
+
+function appendButtons(el, markup) {
+    if (!markup || markup.length === 0) return;
+    const btns = document.createElement('div');
+    btns.className = 'buttons';
+    for (const btn of markup) {
+        const b = document.createElement('button');
+        b.textContent = btn.text;
+        b.onclick = () => state.socket.emit('callback', { action: btn.data });
+        btns.appendChild(b);
+    }
+    el.appendChild(btns);
+}
+
+// --- Builder ---
+const builderPanel = document.getElementById('builder-panel');
+let builderState = null; // { command, fields, savedConfig }
+
+function builderOpen(command) {
+    if (!state.socket) return;
+    builderState = { command, loading: true };
+    builderPanel.className = 'open';
+    builderPanel.id = 'builder-panel';
+    builderPanel.innerHTML = `<div class="builder-header"><span class="builder-title">${escText(command)}</span><span style="color:var(--text-muted);font-size:12px">Loading...</span></div>`;
+    state.socket.emit('builder:open', { command });
+}
+
+function builderClose() {
+    builderState = null;
+    builderPanel.className = '';
+    builderPanel.innerHTML = '';
+    builderPanel.style.display = 'none';
+    cmdInput.focus();
+}
+
+function builderRender(data) {
+    if (data.error) {
+        builderPanel.innerHTML = `<div class="builder-header"><span class="builder-title">${escText(data.command)}</span><span style="color:var(--error);font-size:12px">${escText(data.error)}</span></div>`;
+        return;
+    }
+
+    builderState = { command: data.command, fields: data.fields, savedConfig: data.savedConfig || {}, isService: data.isService };
+    builderPanel.style.display = 'block';
+    builderPanel.className = 'open';
+
+    let html = `<div class="builder-header">
+        <span class="builder-title">${escText(data.command)}</span>
+        <div class="builder-actions">
+            <button class="btn-cancel" onclick="builderClose()">Cancel</button>
+            <button class="btn-run" onclick="builderRun()">Run</button>
+        </div>
+    </div><div class="builder-fields">`;
+
+    // Group fields by context
+    const ctxOrder = ['config', 'params', 'args', 'message'];
+    const ctxLabels = { config: 'Config', params: 'Params', args: 'Arguments', message: 'Messages' };
+    const grouped = {};
+    for (const f of data.fields) {
+        const ctx = f.ctx || 'args';
+        if (!grouped[ctx]) grouped[ctx] = [];
+        grouped[ctx].push(f);
+    }
+
+    for (const ctx of ctxOrder) {
+        const fields = grouped[ctx];
+        if (!fields || fields.length === 0) continue;
+
+        if (Object.keys(grouped).length > 1) {
+            html += `<div class="builder-ctx-label">${ctxLabels[ctx] || ctx}</div>`;
+        }
+
+        // Sort: positionals by position, then pairs, then standalone
+        fields.sort((a, b) => {
+            if (a.type === 'positional' && b.type === 'positional') return (a.position || 0) - (b.position || 0);
+            if (a.type === 'positional') return -1;
+            if (b.type === 'positional') return 1;
+            if (a.type === 'standalone' && b.type !== 'standalone') return 1;
+            if (b.type === 'standalone' && a.type !== 'standalone') return -1;
+            return 0;
+        });
+
+        for (const f of fields) {
+            // Get saved value from config
+            const savedVal = builderGetSaved(f, data.savedConfig);
+            const val = savedVal ?? f.defaultValue ?? '';
+            const reqMark = f.required ? '<span class="bf-req">*</span>' : '';
+            const id = `bf-${f.ctx}-${f.name}`;
+
+            if (f.type === 'standalone') {
+                html += `<div class="builder-field">
+                    <span class="bf-label">${reqMark}${escText(f.name)}</span>
+                    <div class="bf-check">
+                        <input type="checkbox" id="${id}" ${savedVal ? 'checked' : ''}>
+                        <span class="bf-desc">${escText(f.description)}</span>
+                    </div>
+                </div>`;
+            } else if (f.options && f.options.length > 0) {
+                const opts = f.options.map(o =>
+                    `<option value="${escText(o)}" ${o === val ? 'selected' : ''}>${escText(o)}</option>`
+                ).join('');
+                html += `<div class="builder-field">
+                    <span class="bf-label">${reqMark}${escText(f.name)}</span>
+                    <select id="${id}">${opts}</select>
+                </div>`;
+            } else {
+                html += `<div class="builder-field">
+                    <span class="bf-label">${reqMark}${escText(f.name)}</span>
+                    <input type="text" id="${id}" value="${escText(String(val))}" placeholder="${escText(f.description)}">
+                </div>`;
+            }
+        }
+    }
+
+    html += '</div>';
+    builderPanel.innerHTML = html;
+
+    // Focus first empty required field
+    const firstReq = data.fields.find(f => f.required && !builderGetSaved(f, data.savedConfig));
+    if (firstReq) {
+        const el = document.getElementById(`bf-${firstReq.ctx}-${firstReq.name}`);
+        if (el) el.focus();
+    }
+}
+
+function builderGetSaved(field, savedConfig) {
+    if (!savedConfig) return undefined;
+    // Positional args use decoded names in saved config
+    const val = savedConfig[field.name];
+    if (val !== undefined && val !== null && val !== '') return String(val);
+    return undefined;
+}
+
+function builderRun() {
+    if (!builderState || !builderState.fields) return;
+    const { command, fields } = builderState;
+
+    // Build command string: command positional1 positional2 --pair1 val1 -standalone
+    const parts = [command];
+    const positionals = fields.filter(f => f.type === 'positional').sort((a, b) => (a.position || 0) - (b.position || 0));
+    const pairs = fields.filter(f => f.type === 'pair');
+    const standalones = fields.filter(f => f.type === 'standalone');
+
+    for (const f of positionals) {
+        const el = document.getElementById(`bf-${f.ctx}-${f.name}`);
+        const val = el ? (el.value || '').trim() : '';
+        if (val) parts.push(val);
+    }
+
+    for (const f of pairs) {
+        const el = document.getElementById(`bf-${f.ctx}-${f.name}`);
+        const val = el ? (el.tagName === 'SELECT' ? el.value : (el.value || '').trim()) : '';
+        if (val) parts.push('--' + f.name, val);
+    }
+
+    for (const f of standalones) {
+        const el = document.getElementById(`bf-${f.ctx}-${f.name}`);
+        if (el && el.checked) parts.push('-' + f.name);
+    }
+
+    const text = parts.join(' ');
+    builderClose();
+    sendRawCommand(text);
+}
+
+// --- Autocomplete Engine ---
+const ac = { items: [], idx: -1, visible: false };
+const acPopup = document.getElementById('ac-popup');
+const cmdInput = document.getElementById('cmd-input');
+
+function acFindCommand(name) {
+    return state.commands.find(c => c.command === name);
+}
+
+// Parse input tokens to understand current context
+function acParseInput(text) {
+    const trimmed = text.trimStart();
+    const tokens = trimmed.split(/\s+/);
+    const cmdName = tokens[0] || '';
+    const cmd = acFindCommand(cmdName);
+    const trailingSpace = text.endsWith(' ');
+    const rest = tokens.slice(1);
+
+    // Track which args are already used
+    const usedPairs = new Set();
+    const usedStandalone = new Set();
+    let positionalCount = 0;
+    let lastPairName = null;
+
+    for (let i = 0; i < rest.length; i++) {
+        const t = rest[i];
+        if (t.startsWith('--')) {
+            lastPairName = t.slice(2);
+            usedPairs.add(lastPairName);
+            // Next token is the value (skip it)
+            if (i + 1 < rest.length && !rest[i + 1].startsWith('-')) i++;
+        } else if (t.startsWith('-') && t.length > 1) {
+            usedStandalone.add(t.slice(1));
+        } else {
+            positionalCount++;
+        }
+    }
+
+    // Determine what user is currently typing
+    const currentToken = trailingSpace ? '' : (rest[rest.length - 1] || '');
+    const prevToken = trailingSpace ? (rest[rest.length - 1] || '') : (rest[rest.length - 2] || '');
+    const isTypingPairValue = prevToken.startsWith('--') && trailingSpace;
+    const isTypingPairName = currentToken.startsWith('--');
+    const isTypingStandalone = currentToken.startsWith('-') && !currentToken.startsWith('--');
+    const pairNameBeingCompleted = isTypingPairValue ? prevToken.slice(2) : null;
+
+    return {
+        cmdName, cmd, tokens, rest, trailingSpace, currentToken, prevToken,
+        usedPairs, usedStandalone, positionalCount,
+        isTypingPairValue, isTypingPairName, isTypingStandalone, pairNameBeingCompleted,
+    };
+}
+
+function acGetSuggestions(text) {
+    const trimmed = text.trimStart();
+    if (!trimmed) return [];
+
+    const tokens = trimmed.split(/\s+/);
+    const isTypingFirstWord = tokens.length === 1 && !text.endsWith(' ');
+
+    if (isTypingFirstWord) {
+        return acGetCommandSuggestions(tokens[0]);
+    }
+
+    return acGetArgSuggestions(text);
+}
+
+function acGetCommandSuggestions(prefix) {
+    const results = [];
+    const pfx = prefix.toLowerCase();
+    for (const c of state.commands) {
+        if (c.command.toLowerCase().startsWith(pfx)) {
+            results.push({ text: c.command, desc: c.description, tag: 'cmd', insert: c.command + ' ' });
+        }
+    }
+    const seen = new Set(results.map(r => r.text));
+    for (let i = state.history.length - 1; i >= 0; i--) {
+        const h = state.history[i];
+        const hCmd = h.split(/\s+/)[0];
+        if (hCmd.toLowerCase().startsWith(pfx) && !seen.has(h)) {
+            seen.add(h);
+            results.push({ text: h, desc: '', tag: 'history', insert: h });
+        }
+        if (results.length >= 15) break;
+    }
+    return results;
+}
+
+function acGetArgSuggestions(text) {
+    const p = acParseInput(text);
+    if (!p.cmd || !p.cmd.args) return acGetHistorySuggestions(text);
+
+    const results = [];
+    const args = p.cmd.args;
+
+    // 1. Typing a pair VALUE (after --argname )
+    if (p.isTypingPairValue && p.pairNameBeingCompleted) {
+        const arg = args.find(a => a.name === p.pairNameBeingCompleted);
+        if (arg) {
+            if (arg.options) {
+                for (const opt of arg.options) {
+                    results.push({ text: opt, desc: arg.description, tag: 'value', insert: null });
+                }
+            }
+            if (arg.defaultValue && !results.some(r => r.text === arg.defaultValue)) {
+                results.push({ text: arg.defaultValue, desc: 'default', tag: 'default', insert: null });
+            }
+        }
+        return results;
+    }
+
+    // 2. Typing --pairName prefix
+    if (p.isTypingPairName) {
+        const partial = p.currentToken.slice(2).toLowerCase();
+        for (const a of args) {
+            if (a.type === 'pair' && !p.usedPairs.has(a.name) && a.name.toLowerCase().startsWith(partial)) {
+                results.push({
+                    text: '--' + a.name,
+                    desc: a.description + (a.required ? ' (required)' : ''),
+                    tag: 'arg',
+                    insert: null,
+                });
+            }
+        }
+        return results;
+    }
+
+    // 3. Typing -standalone prefix
+    if (p.isTypingStandalone) {
+        const partial = p.currentToken.slice(1).toLowerCase();
+        for (const a of args) {
+            if (a.type === 'standalone' && !p.usedStandalone.has(a.name) && a.name.toLowerCase().startsWith(partial)) {
+                results.push({
+                    text: '-' + a.name,
+                    desc: a.description,
+                    tag: 'flag',
+                    insert: null,
+                });
+            }
+        }
+        return results;
+    }
+
+    // 4. Trailing space or typing positional value — suggest next positional, available pairs/flags
+    const nextPos = args
+        .filter(a => a.type === 'positional')
+        .sort((a, b) => a.position - b.position)
+        .find(a => a.position > p.positionalCount);
+
+    if (nextPos) {
+        if (nextPos.options) {
+            for (const opt of nextPos.options) {
+                results.push({ text: opt, desc: nextPos.description, tag: 'value', insert: null });
+            }
+        }
+        if (nextPos.defaultValue && !results.some(r => r.text === nextPos.defaultValue)) {
+            results.push({ text: nextPos.defaultValue, desc: nextPos.description + ' (default)', tag: 'default', insert: null });
+        }
+        if (results.length === 0) {
+            results.push({ text: '<' + nextPos.name + '>', desc: nextPos.description + (nextPos.required ? ' (required)' : ''), tag: 'hint', insert: null });
+        }
+    }
+
+    // Available pair args
+    for (const a of args) {
+        if (a.type === 'pair' && !p.usedPairs.has(a.name)) {
+            results.push({
+                text: '--' + a.name,
+                desc: a.description + (a.required ? ' (required)' : ''),
+                tag: 'arg',
+                insert: null,
+            });
+        }
+    }
+    // Available standalone flags
+    for (const a of args) {
+        if (a.type === 'standalone' && !p.usedStandalone.has(a.name)) {
+            results.push({
+                text: '-' + a.name,
+                desc: a.description,
+                tag: 'flag',
+                insert: null,
+            });
+        }
+    }
+
+    // Also add history matches
+    const histResults = acGetHistorySuggestions(text);
+    const seen = new Set(results.map(r => r.text));
+    for (const h of histResults) {
+        if (!seen.has(h.text)) results.push(h);
+    }
+
+    return results.slice(0, 15);
+}
+
+function acGetHistorySuggestions(text) {
+    const partial = text.trimStart().toLowerCase();
+    const results = [];
+    const seen = new Set();
+    for (let i = state.history.length - 1; i >= 0; i--) {
+        const h = state.history[i];
+        if (h.toLowerCase().startsWith(partial) && h !== text.trimStart() && !seen.has(h)) {
+            seen.add(h);
+            results.push({ text: h, desc: '', tag: 'history', insert: h });
+        }
+        if (results.length >= 5) break;
+    }
+    return results;
+}
+
+
+function acShow(items) {
+    if (items.length === 0) { acHide(); return; }
+    ac.items = items;
+    ac.idx = -1;
+    ac.visible = true;
+
+    acPopup.innerHTML = '';
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const el = document.createElement('div');
+        el.className = 'ac-item' + (item.tag === 'hint' || item.tag === 'info' ? ' ac-hint' : '');
+        el.innerHTML = `<span class="ac-cmd">${escText(item.text)}</span>`
+            + (item.desc ? `<span class="ac-desc">${escText(item.desc)}</span>` : '')
+            + `<span class="ac-tag">${item.tag}</span>`;
+        el.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            acSelect(i);
+        });
+        acPopup.appendChild(el);
+    }
+    acPopup.style.display = 'block';
+}
+
+function acHide() {
+    ac.visible = false;
+    ac.items = [];
+    ac.idx = -1;
+    acPopup.style.display = 'none';
+}
+
+function acSelect(idx) {
+    if (idx < 0 || idx >= ac.items.length) return;
+    const item = ac.items[idx];
+    if (item.tag === 'hint' || item.tag === 'info') return; // non-selectable
+
+    if (item.insert !== undefined && item.insert !== null) {
+        // Full replacement (command or history)
+        cmdInput.value = item.insert;
+    } else {
+        // Append/replace current token
+        const text = cmdInput.value;
+        const trailingSpace = text.endsWith(' ');
+        const tokens = text.trimStart().split(/\s+/);
+
+        if (trailingSpace) {
+            // Append new token
+            cmdInput.value = text + item.text + ' ';
+        } else {
+            // Replace last token
+            tokens[tokens.length - 1] = item.text;
+            cmdInput.value = tokens.join(' ') + ' ';
+        }
+    }
+    acHide();
+    cmdInput.focus();
+    // Trigger re-evaluation after selection
+    setTimeout(() => {
+        const suggestions = acGetSuggestions(cmdInput.value);
+        if (suggestions.length > 0) acShow(suggestions);
+    }, 50);
+}
+
+function acHighlight(idx) {
+    ac.idx = idx;
+    const children = acPopup.children;
+    for (let i = 0; i < children.length; i++) {
+        children[i].classList.toggle('active', i === idx);
+    }
+    if (idx >= 0 && children[idx]) {
+        children[idx].scrollIntoView({ block: 'nearest' });
+    }
+}
+
+function escText(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+// --- Input event handlers ---
+// Auto-resize textarea
+function autoResize() {
+    cmdInput.style.height = 'auto';
+    cmdInput.style.height = Math.min(cmdInput.scrollHeight, 160) + 'px';
+}
+
+cmdInput.addEventListener('input', () => {
+    autoResize();
+    const text = cmdInput.value;
+    if (!text.trim()) { acHide(); return; }
+    acShow(acGetSuggestions(text));
+});
+
+cmdInput.addEventListener('keydown', (e) => {
+    // --- Ctrl+C: interrupt / clear input ---
+    if (e.ctrlKey && e.key === 'c') {
+        if (cmdInput.value.trim()) {
+            // Clear input and show ^C in output
+            const partial = cmdInput.value;
+            addMessage({ id: 'sys-' + Date.now(), text: '$ ' + partial + '^C', type: 'system' });
+            cmdInput.value = '';
+            autoResize();
+            acHide();
+            builderClose();
+            e.preventDefault();
+        }
+        return;
+    }
+
+    // --- Ctrl+W: delete word backward (to delimiter) ---
+    if (e.ctrlKey && e.key === 'w') {
+        e.preventDefault();
+        const pos = cmdInput.selectionStart;
+        const text = cmdInput.value;
+        const before = text.slice(0, pos);
+        // Skip trailing whitespace, then delete to previous delimiter
+        const delimiters = /[\s"'`;,(){}\[\]<>|&]/;
+        let i = before.length - 1;
+        while (i >= 0 && delimiters.test(before[i])) i--;
+        while (i >= 0 && !delimiters.test(before[i])) i--;
+        const newText = text.slice(0, i + 1) + text.slice(pos);
+        cmdInput.value = newText;
+        cmdInput.selectionStart = cmdInput.selectionEnd = i + 1;
+        autoResize();
+        return;
+    }
+
+    // --- Ctrl+Enter: insert newline ---
+    if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault();
+        const pos = cmdInput.selectionStart;
+        const text = cmdInput.value;
+        cmdInput.value = text.slice(0, pos) + '\n' + text.slice(pos);
+        cmdInput.selectionStart = cmdInput.selectionEnd = pos + 1;
+        autoResize();
+        return;
+    }
+
+    // --- Autocomplete navigation ---
+    if (ac.visible) {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            acHighlight(ac.idx < ac.items.length - 1 ? ac.idx + 1 : 0);
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            acHighlight(ac.idx > 0 ? ac.idx - 1 : ac.items.length - 1);
+            return;
+        }
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            if (ac.idx >= 0) acSelect(ac.idx);
+            else if (ac.items.length > 0) acSelect(0);
+            return;
+        }
+        if (e.key === 'Enter') {
+            if (ac.idx >= 0) {
+                e.preventDefault();
+                acSelect(ac.idx);
+                return;
+            }
+            e.preventDefault();
+            acHide();
+            sendCommand();
+            return;
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            acHide();
+            return;
+        }
+    } else {
+        // --- Enter: send command ---
+        if (e.key === 'Enter' && !e.ctrlKey && !e.shiftKey) {
+            e.preventDefault();
+            sendCommand();
+            return;
+        }
+        // --- History navigation (only when input is single-line and empty/at start) ---
+        if (e.key === 'ArrowUp' && cmdInput.selectionStart === 0) {
+            if (state.historyIdx > 0) { state.historyIdx--; cmdInput.value = state.history[state.historyIdx] || ''; autoResize(); }
+            e.preventDefault();
+            return;
+        }
+        if (e.key === 'ArrowDown' && cmdInput.selectionStart >= cmdInput.value.length) {
+            if (state.historyIdx < state.history.length - 1) { state.historyIdx++; cmdInput.value = state.history[state.historyIdx] || ''; }
+            else { state.historyIdx = state.history.length; cmdInput.value = ''; }
+            autoResize();
+            e.preventDefault();
+            return;
+        }
+    }
+});
+
+cmdInput.addEventListener('blur', () => { setTimeout(acHide, 150); });
+
+// Enter on login/invite forms
+document.getElementById('login-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('invite-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') doAcceptInvite(); });
+document.getElementById('setpw-confirm').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSetPassword(); });
+</script>
+</body>
+</html>

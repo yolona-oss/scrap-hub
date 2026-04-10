@@ -1,0 +1,17 @@
+{
+    "private": true,
+    "workspaces": ["packages/*"],
+    "scripts": {
+        "build": "npm run build --workspaces",
+        "build:sdk": "npm run build --workspace=@cmd-hub/core",
+        "build:scraper": "npm run build --workspace=org-scraper",
+        "build:app": "npm run build --workspace=scrap-hub",
+        "start": "npm run start:ts --workspace=scrap-hub",
+        "test": "npm run test --workspace=@cmd-hub/core"
+    },
+    "devDependencies": {
+        "@swc/core": "^1.10.18",
+        "@swc/helpers": "^0.5.15",
+        "tsconfig-paths": "^4.2.0"
+    }
+}
