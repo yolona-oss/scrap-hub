@@ -85,7 +85,8 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
             (msg) => this.sendToWorld(msg),
             (name, current, total) => this.emit('progress' as any, name, current, total),
             (name, status) => this.emit('progressStatus' as any, name, status),
-            () => this.isPaused
+            () => this.isPaused,
+            this.getServiceContext(),
         )
 
         for await (const _org of generator) {

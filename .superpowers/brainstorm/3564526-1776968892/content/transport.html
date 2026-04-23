@@ -1,0 +1,80 @@
+<h2>Gateway ↔ Service-node transport</h2>
+<p class="subtitle">Both sides need: bidirectional streams (events + intercom), short RPC calls (manifest/health/invoke), auth, TLS, reconnect, works over VPN + public internet. Pick the wire.</p>
+
+<div class="options">
+  <div class="option" data-choice="grpc" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>gRPC + Protocol Buffers <span class="label">recommended</span></h3>
+      <p>HTTP/2 streams, bidirectional by default. Well-understood auth (mTLS, bearer). Code-gen for TS from a <code>.proto</code> file makes the manifest literally the schema. Handles reconnect, backpressure, message framing for you.</p>
+      <div class="pros-cons" style="margin-top:10px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Streaming RPC is the primitive — fits your event model 1:1</li>
+          <li>Typed contract shared between gateway and node</li>
+          <li>Battle-tested libraries, load-balancer friendly</li>
+          <li>Works over any TCP path (VPN, public, Docker overlay)</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Adds a protoc build step</li>
+          <li>Binary wire — harder to eyeball with tcpdump</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="ws" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>WebSocket + JSON (or MessagePack)</h3>
+      <p>One long-lived WS connection per node. You define a tiny envelope <code>{type, id, payload}</code> and route event types over it. Plays well with HTTP proxies, easy to debug, easy to add a web UI plugin later that talks the same protocol.</p>
+      <div class="pros-cons" style="margin-top:10px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Zero code-gen, text-friendly</li>
+          <li>Same transport can serve a future web UI</li>
+          <li>Traverses most firewalls/proxies cleanly</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>You design your own RPC framing, correlation IDs, flow control</li>
+          <li>No native typing — contract lives in docs or hand-written types</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="nats" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>NATS (broker between gateway and nodes)</h3>
+      <p>Run a NATS server. Gateway and nodes are both clients; gateway publishes <code>invoke.node42</code>, subscribes to <code>events.session123</code>. JetStream gives you retry/replay for free.</p>
+      <div class="pros-cons" style="margin-top:10px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Broker handles discovery, load, replay</li>
+          <li>Nodes don't need reachable addresses — they dial NATS outbound</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Adds a required third component to deploy (NATS server)</li>
+          <li>Indirection: you're debugging a broker, not a direct stream</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="raw" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Custom raw-TCP protocol</h3>
+      <p>You invent the framing, handshake, auth, backpressure, reconnect, heartbeats, error model. Typed by you, from scratch.</p>
+      <div class="pros-cons" style="margin-top:10px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Zero dependencies; total control of wire bytes</li>
+          <li>Educational</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>You will re-implement poorly what gRPC/WS already solved</li>
+          <li>Every production edge case (half-close, keepalive, TLS renegotiation, flow control) is yours to debug</li>
+          <li>Months of yak-shaving before your first scraper streams</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</div>

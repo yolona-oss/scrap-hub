@@ -338,7 +338,11 @@ export class TelegramUI extends BaseUI<TgContext> {
                     if (!manager.useGreeting) {
                         continue
                     }
-                    await this.notifyManagers(manager.userId, `${UiUnicodeSymbols.info} Service now online`)
+                    try {
+                        await this.notifyManagers(manager.userId, `${UiUnicodeSymbols.info} Service now online`)
+                    } catch (e: any) {
+                        log.warn(`Failed to send startup greeting to manager ${manager.userId}: ${e.message ?? e}`)
+                    }
                 }
             }
             log.info("** Telegram-bot service started")
@@ -371,7 +375,11 @@ export class TelegramUI extends BaseUI<TgContext> {
         let managers = await Manager.find()
         for (let manager of managers) {
             if (!manager.useGreeting) { continue }
-            await this.notifyManagers(manager.userId, `${UiUnicodeSymbols.info} Service going offline`)
+            try {
+                await this.notifyManagers(manager.userId, `${UiUnicodeSymbols.info} Service going offline`)
+            } catch (e: any) {
+                log.warn(`Failed to send shutdown greeting to manager ${manager.userId}: ${e.message ?? e}`)
+            }
         }
         await this.terminatePlugins()
         await this.dispatcher.stopAllServices()

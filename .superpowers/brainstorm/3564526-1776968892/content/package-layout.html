@@ -1,0 +1,90 @@
+<h2>Monorepo package layout after the split</h2>
+<p class="subtitle">All three options use gRPC+Protobuf, shared MongoDB+GridFS, mTLS, and the cmd-hub/cmd-node naming. They differ only in where code lives.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Split <code>cmd-hub</code> into three packages <span class="label">recommended</span></h3>
+      <pre style="background:rgba(0,0,0,0.15);padding:10px;border-radius:6px;font-size:12px;line-height:1.5;overflow:auto">packages/
+  cmd-hub-core/        shared types, BaseCommandService, ConfigRegistry,
+                       message-lifecycle, UI interfaces, protobuf-generated code
+  cmd-hub/             the gateway process:
+                       UI host, CmdDispatcher (now routing),
+                       CmdNodeRegistry, gRPC server, FileService (GridFS)
+  cmd-node/            the node runtime:
+                       gRPC client, manifest builder, metrics collector,
+                       command/service host (reuses BaseCommandService)
+  cmd-node-system/     a cmd-node that exposes built-ins (/help /config
+                       /sconfig /node); bundled as its own Docker image
+  org-scraper/         unchanged public API, now consumed by a cmd-node
+  app/                 the deployable. Composes: cmd-hub + telegram UI
+                       plugin. Runs docker-compose with cmd-node-system
+                       and org-scraper's cmd-node.</pre>
+      <div class="pros-cons" style="margin-top:10px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>One package = one role. Easy to reason about.</li>
+          <li><code>cmd-hub-core</code> is importable by both sides without pulling server code into nodes or client code into gateway</li>
+          <li>Each image has a minimal dep graph → smaller Docker images</li>
+          <li>Plugin authors depend on <code>cmd-node</code> (small) not <code>cmd-hub</code> (heavy)</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Five packages instead of three. More tsconfig wiring up front</li>
+          <li>Moving BaseCommandService to cmd-hub-core touches many files</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Keep <code>cmd-hub</code> monolithic; add <code>cmd-node</code> sibling</h3>
+      <pre style="background:rgba(0,0,0,0.15);padding:10px;border-radius:6px;font-size:12px;line-height:1.5;overflow:auto">packages/
+  cmd-hub/             BOTH the gateway and the shared core:
+                       UI interfaces, BaseCommandService, ConfigRegistry,
+                       CmdDispatcher, CmdNodeRegistry, gRPC server.
+                       Nodes import from here too.
+  cmd-node/            gRPC client, manifest, metrics. Imports cmd-hub
+                       for types/BaseCommandService.
+  org-scraper/         same
+  app/                 same</pre>
+      <div class="pros-cons" style="margin-top:10px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Fewer packages, less tsconfig work</li>
+          <li>No big file moves in cmd-hub</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>cmd-node transitively pulls in gateway-only code (UI, Telegraf, Mongo, gRPC server) → bloated node image</li>
+          <li>Fuzzy boundary: anyone editing cmd-hub has to know "does this run on the gateway, the node, or both?"</li>
+          <li>Plugins like org-scraper depend on the whole cmd-hub</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>One package, two entry points</h3>
+      <pre style="background:rgba(0,0,0,0.15);padding:10px;border-radius:6px;font-size:12px;line-height:1.5;overflow:auto">packages/
+  cmd-hub/             everything. Two bins:
+                         cmd-hub-gateway  (starts the hub)
+                         cmd-hub-node     (starts a node)
+                       Conditional imports / subpath exports.
+  org-scraper/         same
+  app/                 same</pre>
+      <div class="pros-cons" style="margin-top:10px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Minimum ceremony</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>npm publishes one artifact for two very different runtimes</li>
+          <li>Tree-shaking won't save Docker images: install pulls everything</li>
+          <li>Hard to spot when server-only code leaks into the node runtime</li>
+          <li>Dishonest boundary — everyone has to read imports to know what runs where</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -4,6 +4,7 @@ import { ExporterRegistry } from "../exporters/registry"
 import { ExportResult, ServiceContext } from "../exporters/types"
 import log from "@logger"
 
+
 function normalizeString(s: string | null): string {
     if (!s) return ''
     return s.toLowerCase().replace(/[^\wа-яё]/gi, '').trim()
@@ -60,7 +61,8 @@ export class OrgScraper {
         onProgress: (msg: string) => void,
         onProgressBar: (name: string, current: number, total: number) => void,
         onProgressStatus: (name: string, status: 'active' | 'done' | 'failed' | 'skipped') => void,
-        isPaused: () => boolean
+        isPaused: () => boolean,
+        context?: ServiceContext,
     ): AsyncGenerator<OrgData> {
         const sourceNames = this.query.sources.length > 0
             ? this.query.sources
@@ -85,7 +87,7 @@ export class OrgScraper {
                 const gen = source.search(this.query, (n) => {
                     sourceCount = n
                     onProgressBar(`scraping.${sourceName}`, Math.min(n, sourceLimit), sourceLimit)
-                })
+                }, context)
 
                 for await (const org of gen) {
                     if (!this._isRunning) break
