@@ -57,3 +57,96 @@ export type { ConfigModuleDef } from './config-registry'
 export { TableDesigner, escapeHtml } from './utils/table-designer'
 export { isValidConfigPath } from './utils/validation'
 export type { TableField, TextField, MarkupField } from './utils/table-designer'
+
+// --- Distributed framework (Phase 1+) ---
+// Protobuf contracts (namespaced to avoid name clashes with core types)
+export * as CmdHubProto from './grpc/generated/cmd_node'
+
+// Core domain types
+export type {
+    FileHandle,
+    WriteGrant,
+    NodeState,
+    NodeRecord,
+    SessionContext,
+} from './distributed/types'
+export { isFileHandle } from './distributed/types'
+
+// File service
+export type {
+    FileServiceBackend,
+    WriteGrantInput,
+    IFileService,
+} from './distributed/files/types'
+export { FileService } from './distributed/files/file-service'
+export { GridFSBackend } from './distributed/files/gridfs-backend'
+export type { GridFSBackendOptions } from './distributed/files/gridfs-backend'
+
+// Auth seams
+export type {
+    ICertVerifier,
+    ITokenVerifier,
+    CertVerificationInput,
+} from './distributed/auth/types'
+export { InternalCertVerifier } from './distributed/auth/internal-cert-verifier'
+export { InternalTokenVerifier } from './distributed/auth/internal-token-verifier'
+
+// Node registry + manifest aggregation
+export { CmdNodeRegistry } from './distributed/registry/cmd-node-registry'
+export type {
+    ProvisionInput,
+    ProvisionOutput,
+    MarkRegisteredInput,
+} from './distributed/registry/cmd-node-registry'
+export { CommandPool } from './distributed/pool/command-pool'
+export type { PoolCommand, PoolMember, PoolJoinResult } from './distributed/pool/command-pool'
+export { ManifestAggregator } from './distributed/pool/manifest-aggregator'
+export type { AggregatedManifest, AttachResult } from './distributed/pool/manifest-aggregator'
+
+// Dispatch + session index
+export { HubDispatcher } from './distributed/dispatcher/hub-dispatcher'
+export type {
+    HandleInput,
+    HandleResult,
+    BuiltInHandler,
+} from './distributed/dispatcher/hub-dispatcher'
+export { SessionIndex } from './distributed/session/session-index'
+export type { SessionEntry } from './distributed/session/session-index'
+
+// Node-client abstraction
+export type { ICmdNodeClient, InvocationHandle } from './distributed/client/cmd-node-client'
+export { FakeCmdNodeClient } from './distributed/client/fake-cmd-node-client'
+export type { FakeHandler } from './distributed/client/fake-cmd-node-client'
+
+// DB models (re-exported for advanced use)
+export { NodeRecordModel } from './distributed/db/node-record.model'
+export { FileMetadataModel } from './distributed/db/file-metadata.model'
+export type { FileMetadataDoc } from './distributed/db/file-metadata.model'
+
+// Built-in factories (for custom CmdHubApp assemblies)
+export { makeNodeBuiltIn } from './distributed/builtins/node'
+export type { NodeBuiltInDeps } from './distributed/builtins/node'
+export { makeHelpBuiltIn } from './distributed/builtins/help'
+export type { HelpBuiltInDeps } from './distributed/builtins/help'
+export { makeConfigBuiltIn } from './distributed/builtins/config'
+export type { ConfigBuiltInDeps, ConfigReloadCallback } from './distributed/builtins/config'
+export { makeSConfigBuiltIn } from './distributed/builtins/sconfig'
+export type { SConfigBuiltInDeps } from './distributed/builtins/sconfig'
+export { makeServiceCtrlBuiltIn } from './distributed/builtins/service-ctrl'
+export type { ServiceCtrlBuiltInDeps } from './distributed/builtins/service-ctrl'
+
+// Config/sconfig stores
+export {
+    MongoSystemConfigStore,
+    SystemConfigModel,
+} from './distributed/builtins/config-store'
+export type { ISystemConfigStore } from './distributed/builtins/config-store'
+export {
+    MongoAccountModuleStore,
+    AccountConfigModel,
+} from './distributed/builtins/sconfig-store'
+export type { IAccountModuleStore } from './distributed/builtins/sconfig-store'
+
+// Top-level app
+export { CmdHubApp } from './distributed/app/cmd-hub-app'
+export type { CmdHubAppOptions, IHubUIPlugin } from './distributed/app/cmd-hub-app'

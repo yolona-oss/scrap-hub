@@ -1,0 +1,218 @@
+syntax = "proto3";
+package cmdhub.v1;
+
+service CmdHubService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Heartbeat(stream HeartbeatClient) returns (stream HeartbeatServer);
+  rpc CreateWriteGrant(WriteGrantRequest) returns (WriteGrant);
+}
+
+service CmdNodeService {
+  rpc Invoke(stream InvokeClient) returns (stream InvokeServer);
+  rpc ConfigReload(ConfigReloadRequest) returns (ConfigReloadResponse);
+  rpc GetManifest(GetManifestRequest) returns (NodeManifest);
+}
+
+enum NodeState {
+  PENDING = 0;
+  ACTIVE = 1;
+  DISABLED = 2;
+}
+
+message RegisterRequest {
+  string node_id = 1;
+  string token = 2;
+  NodeManifest manifest = 3;
+}
+message RegisterResponse {
+  string session_token = 1;
+  uint32 poll_interval_ms = 2;
+  NodeState assigned_state = 3;
+}
+
+message NodeManifest {
+  string node_id = 1;
+  string node_name = 2;
+  string version = 3;
+  repeated Command commands = 4;
+  repeated Service services = 5;
+  repeated ConfigModule configs = 6;
+  HardwareInfo hardware = 7;
+  MetricsSchema metrics = 8;
+}
+
+message Command {
+  string name = 1;
+  string compatibility_id = 2;
+  string version = 3;
+  string description = 4;
+  repeated ArgSpec args = 5;
+  repeated string aliases = 6;
+}
+message ArgSpec {
+  string name = 1;
+  uint32 position = 2;
+  bool required = 3;
+  string type = 4;
+  string description = 5;
+  repeated string enum_values = 6;
+  string default_value = 7;
+}
+message Service {
+  Command command = 1;
+  repeated IntercomAction intercom_actions = 2;
+  ServiceCapabilities caps = 3;
+}
+message IntercomAction {
+  string id = 1;
+  string label = 2;
+  string icon = 3;
+}
+message ServiceCapabilities {
+  bool supports_pause = 1;
+  bool supports_stop = 2;
+}
+
+message ConfigModule {
+  string name = 1;
+  string scope = 2;
+  repeated FieldSpec fields = 3;
+}
+message FieldSpec {
+  string name = 1;
+  string type = 2;
+  bool sensitive = 3;
+  string description = 4;
+  string default_value = 5;
+}
+
+message HardwareInfo {
+  uint32 cpu_cores = 1;
+  uint64 total_memory_bytes = 2;
+  string os = 3;
+  string arch = 4;
+  string hostname = 5;
+}
+message MetricsSchema {
+  repeated MetricSpec gauges = 1;
+  repeated MetricSpec counters = 2;
+  repeated MetricSpec histograms = 3;
+}
+message MetricSpec {
+  string name = 1;
+  string unit = 2;
+  string description = 3;
+}
+
+message HeartbeatClient {
+  uint64 timestamp_ms = 1;
+  repeated MetricSample samples = 2;
+}
+message HeartbeatServer {
+  uint64 timestamp_ms = 1;
+  ShutdownSignal shutdown = 2;
+}
+message MetricSample {
+  string name = 1;
+  double value = 2;
+  uint64 at_ms = 3;
+}
+message ShutdownSignal {
+  string reason = 1;
+}
+
+message ConfigReloadRequest {
+  string node_id = 1;
+  string module_name = 2;
+}
+message ConfigReloadResponse {
+  bool acknowledged = 1;
+}
+message GetManifestRequest {
+  string node_id = 1;
+}
+
+message InvokeClient {
+  oneof kind {
+    InvokeStart start = 1;
+    Intercom intercom = 2;
+    CancelSession cancel = 3;
+  }
+}
+message InvokeStart {
+  string session_id = 1;
+  string user_id = 2;
+  string command_name = 3;
+  map<string, string> args = 4;
+  bytes service_data_blob = 5;
+}
+message Intercom {
+  string action_id = 1;
+  repeated string args = 2;
+}
+message CancelSession {
+  string reason = 1;
+}
+
+message InvokeServer {
+  uint64 seq = 1;
+  oneof kind {
+    StreamMessage message = 2;
+    StreamError error = 3;
+    Progress progress = 4;
+    ProgressStatus progress_status = 5;
+    IntercomUpdate intercom = 6;
+    FileEmitted file = 7;
+    Done done = 8;
+  }
+}
+message StreamMessage {
+  string text = 1;
+}
+message StreamError {
+  string text = 1;
+}
+message Progress {
+  string name = 1;
+  uint64 current = 2;
+  uint64 total = 3;
+}
+message ProgressStatus {
+  string name = 1;
+  string status = 2;
+}
+message IntercomUpdate {
+  repeated IntercomAction actions = 1;
+}
+message FileEmitted {
+  FileHandle handle = 1;
+}
+message Done {
+  string final_message = 1;
+}
+
+message FileHandle {
+  string file_id = 1;
+  string backend = 2;
+  uint64 size = 3;
+  string name = 4;
+  string mime = 5;
+  bool permanent = 6;
+}
+
+message WriteGrantRequest {
+  string session_id = 1;
+  string node_id = 2;
+  string name = 3;
+  string mime = 4;
+  uint32 ttl_seconds = 5;
+  bool permanent = 6;
+  uint64 max_bytes = 7;
+}
+message WriteGrant {
+  string grant_id = 1;
+  string upload_url = 2;
+  string token = 3;
+  uint64 expires_at_ms = 4;
+  FileHandle prospective_handle = 5;
+}

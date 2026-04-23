@@ -1,0 +1,19 @@
+syntax = "proto3";
+package cmdhub.v1;
+import "cmd_node.proto";
+
+service FileReadService {
+  rpc Stat(FileHandleRef) returns (FileStat);
+  rpc Read(FileHandleRef) returns (stream FileChunk);
+}
+message FileHandleRef {
+  FileHandle handle = 1;
+}
+message FileStat {
+  FileHandle handle = 1;
+  uint64 size = 2;
+}
+message FileChunk {
+  bytes data = 1;
+  uint32 offset = 2;
+}

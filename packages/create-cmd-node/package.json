@@ -1,0 +1,6 @@
+{
+    "name": "create-cmd-node",
+    "version": "0.0.1",
+    "private": true,
+    "description": "Template for scaffolding a new cmd-node plugin. Populated in Phase 4."
+}
