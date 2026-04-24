@@ -1,6 +1,5 @@
 import type { IRunnable } from '../types/runnable'
 import type { IWithInit } from '../types/with-init'
-import type { AvailableUIsType } from './available-uis-type'
 import type { BaseUIContext } from './context'
 import type { IMarkupOption } from './markup'
 
@@ -42,7 +41,9 @@ export interface IUI<CtxType extends BaseUIContext = BaseUIContext, Dispatcher =
 
     max_message_width(): number
 
-    ContextType(): AvailableUIsType
+    /** Short identity tag returned by the concrete UI (e.g. `"telegram"`,
+     *  `"cli"`, `"web"`). No registry enforcement — UIs pick their own tag. */
+    ContextType(): string
 
     consolePrintCommands(): void
 

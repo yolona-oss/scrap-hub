@@ -1,0 +1,26 @@
+{
+    "name": "@cmd-hub/ui-cli",
+    "version": "0.0.1",
+    "main": "./build/src/index.js",
+    "types": "./build/src/index.d.ts",
+    "scripts": {
+        "build": "tsc --build --pretty",
+        "clean": "rm -rf build",
+        "test": "jest --forceExit --passWithNoTests"
+    },
+    "license": "ISC",
+    "description": "CLI (readline) UI implementation for cmd-hub",
+    "dependencies": {
+        "@cmd-hub/common": "*",
+        "@cmd-hub/core": "*",
+        "multi-progress-bars": "^5.0.3",
+        "progress": "^2.0.3"
+    },
+    "devDependencies": {
+        "@types/jest": "^30.0.0",
+        "@types/node": "^20.0.0",
+        "jest": "^30.3.0",
+        "ts-jest": "^29.4.9",
+        "typescript": "^5.7.3"
+    }
+}

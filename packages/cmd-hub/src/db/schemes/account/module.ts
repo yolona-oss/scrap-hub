@@ -1,8 +1,8 @@
 import mongoose, { Document, HydratedDocument, HydratedDocumentFromSchema, Model, QueryWithHelpers, Schema } from "mongoose";
-import { DbModelsEnum } from "@core/db/models-enum";
+import { DbModelsEnum } from "../../../db/models-enum";
 import { AccountModelType } from "./account";
 import { AccountSession, AccountSessionHydratedDocument, DEFAULT_ACCOUNT_SESSION_NAME, IAccountSession, IAccountSessionCreateDto, IAccountSessionCtrl } from "./session";
-import { UiUnicodeSymbols } from "@core/ui";
+import { UiUnicodeSymbols } from "../../../ui";
 
 export interface IAccountModuleCreateDto {
     name: string,

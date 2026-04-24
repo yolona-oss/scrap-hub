@@ -1,4 +1,4 @@
-import { LowerCaseLatinLatter, NumberLatter, UpperCaseLatinLatter } from "@core/constants/alphabets"
+import { LowerCaseLatinLatter, NumberLatter, UpperCaseLatinLatter } from "../constants/alphabets"
 import crypto from "crypto"
 
 export const isNumberPositive = (v: number) => v > 0

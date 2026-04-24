@@ -1,9 +1,9 @@
-import { CmdArgument } from "@core/ui/types/command"
+import { CmdArgument } from "../../../ui/types/command"
 import { BuiltInAliasCommandsEnum } from "../constants"
 import {CmdDispatcher } from "../dispatcher"
 import { BuiltInCommand } from "../types/built-in-cmd"
-import { CmdAlias } from "@core/db"
-import { UiUnicodeSymbols } from "@core/ui"
+import { CmdAlias } from "../../../db"
+import { UiUnicodeSymbols } from "../../../ui"
 import { CmdArgumentProxy } from "../arg-proxy"
 
 export const MAX_ALIAS_NAME_LEN = 32

@@ -1,7 +1,7 @@
 import { CmdDispatcher } from "../dispatcher"
-import { Chain, IChainHandler } from "@core/utils/chain"
+import { Chain, IChainHandler } from "../../../utils/chain"
 import { IHandleResult } from "../types"
-import { BaseUIContext, IUI } from "@core/ui"
+import { BaseUIContext, IUI } from "../../../ui"
 
 export type ICmdHandlerResponce = IHandleResult
 export interface ICmdHandlerRequest<Ctx extends BaseUIContext> {

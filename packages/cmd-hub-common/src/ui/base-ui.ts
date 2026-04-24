@@ -3,7 +3,6 @@ import type { IUI, ILockManagerLike, MessageOptions } from './types'
 import type { BaseUIContext } from './context'
 import type { IUIPlugin } from './plugin'
 import type { IMarkupOption } from './markup'
-import type { AvailableUIsType } from './available-uis-type'
 
 /**
  * Common framework base for UI implementations. Generic in the dispatcher type
@@ -118,7 +117,7 @@ export abstract class BaseUI<CtxType extends BaseUIContext, Dispatcher = unknown
 
     // IUI members that subclasses must implement
     abstract max_message_width(): number
-    abstract ContextType(): AvailableUIsType
+    abstract ContextType(): string
     abstract consolePrintCommands(): void
     abstract lock(lockManager: ILockManagerLike): boolean
     abstract unlock(lockManager: ILockManagerLike): boolean

@@ -1,4 +1,4 @@
-import type { CmdDispatcher } from "@core/ui/command-processor"
+import type { CmdDispatcher } from "../../ui/command-processor"
 import type { BaseUIContext, IUI as CommonIUI, MessageOptions } from '@cmd-hub/common'
 
 // Re-export what the rest of cmd-hub imports.

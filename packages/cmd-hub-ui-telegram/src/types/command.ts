@@ -1,10 +1,10 @@
-import { IUICommand } from "@core/ui/types";
+import { IUICommand } from '@cmd-hub/core';
 
 import { TgContext } from "./context";
 import { TelegramUI } from "../telegram-ui";
 
 import { NarrowedContext, Types } from "telegraf";
-import { CmdArgumentProxy } from "@core/ui/command-processor/arg-proxy";
+import { CmdArgumentProxy } from '@cmd-hub/core';
 
 export type TextContext = NarrowedContext<TgContext, Types.MountMap['text']>;
 

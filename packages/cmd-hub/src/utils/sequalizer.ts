@@ -1,11 +1,11 @@
-import { IRunnable } from "@core/types/runnable"
-import { ICommand } from '@core/types/command'
-import { AbstractState } from "@core/types/state"
-import { asId, Identificable, isIdentifiable } from "@core/types/identificable"
+import { IRunnable } from "../types/runnable"
+import { ICommand } from '../types/command'
+import { AbstractState } from "../types/state"
+import { asId, Identificable, isIdentifiable } from "../types/identificable"
 
 import { HMSTime, sleep } from './time'
 
-import log from '@logger'
+import log from '../application/logger'
 
 import EventEmitter from "events"
 

@@ -1,7 +1,7 @@
-import { BaseUIContext, IUI } from "@core/ui/types";
-import { IMarkupButton } from "@core/ui/command-processor/types/markup";
+import { BaseUIContext, IUI } from "../../../ui/types";
+import { IMarkupButton } from "../../../ui/command-processor/types/markup";
 
-import { TableDesigner, MarkupField } from "@core/utils/table-designer";
+import { TableDesigner, MarkupField } from "../../../utils/table-designer";
 
 export interface IMessageBonderMarkup {
     title: string

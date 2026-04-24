@@ -1,27 +1,38 @@
-import { getConfig, getInitialConfig } from '@core/config'
-import { BaseUI } from '@core/ui/base-ui'
-import { MessageType } from '@core/ui/message-lifecycle'
-import { AvailableUIsEnum, AvailableUIsType } from '..'
-import { FilesWrapper, Manager } from '@core/db'
+import { getConfig, getInitialConfig } from '@cmd-hub/core'
+import { BaseUI } from '@cmd-hub/core'
+import { MessageType } from '@cmd-hub/core'
+import { FilesWrapper, Manager } from '@cmd-hub/core'
 
 import { TelegramUI_BuiltIns, toRegister } from './constants/commands'
 import { TgContext } from "./types"
 import { ITelegramPlugin } from './types/plugin'
 
-import { LockManager } from '@utils/lock-manager'
-import log from '@logger'
+import { LockManager } from '@cmd-hub/core'
+import { log } from '@cmd-hub/common'
 
 import crypto from 'crypto'
 import * as telegraf from 'telegraf'
 import chalk from 'chalk'
-import { anyToString } from '@core/utils/misc'
-import { IUICommandProcessed } from '@core/ui/types/command'
+import { anyToString } from '@cmd-hub/core'
+import { IUICommandProcessed } from '@cmd-hub/core'
 import { InlineKeyboardButton } from 'telegraf/typings/core/types/typegram'
-import { UiUnicodeSymbols } from '@core/ui/ui-unicode-symbols'
-import { fromTgContext } from '@core/db/schemes/messages-history'
+import { UiUnicodeSymbols, handleCalibrationCallback } from '@cmd-hub/core'
+import type { IMsgHistoryDto, MessageOptions } from '@cmd-hub/core'
 
-import { CmdDispatcher, IHandleResult } from '@core/ui/command-processor'
-import { IBaseMarkup, IMarkupOption } from '@core/ui/command-processor/types/markup'
+/** Telegram-specific adapter: turn a TgContext into the common
+ *  message-history DTO. Inlined here because cmd-hub's db schema
+ *  shouldn't know about telegram context shapes. */
+function fromTgContext(ctx: TgContext): IMsgHistoryDto {
+    return {
+        chatId: ctx.chat!.id,
+        userId: ctx.from!.id,
+        text: ctx.text ?? "",
+        message_id: ctx.message!.message_id,
+    }
+}
+
+import { CmdDispatcher, IHandleResult } from '@cmd-hub/core'
+import { IBaseMarkup, IMarkupOption } from '@cmd-hub/core'
 
 import {
     auth_cb_prefix
@@ -61,7 +72,7 @@ export class TelegramUI extends BaseUI<TgContext> {
 
     // Platform-specific implementations for BaseUI
 
-    protected async sendMessageImpl(user_id: string, message: string, mk_opts?: IMarkupOption[], options?: import("@core/ui/types/ui").MessageOptions): Promise<string> {
+    protected async sendMessageImpl(user_id: string, message: string, mk_opts?: IMarkupOption[], options?: MessageOptions): Promise<string> {
         const extra: any = {}
         if (mk_opts) {
             extra.reply_markup = { inline_keyboard: this.createCommonKeyboard(mk_opts) }
@@ -72,7 +83,7 @@ export class TelegramUI extends BaseUI<TgContext> {
         return String((await this.bot.telegram.sendMessage(user_id, message, Object.keys(extra).length > 0 ? extra : undefined)).message_id)
     }
 
-    protected async editMessageImpl(user_id: string, message_id: string, message: string, mk_opts?: IMarkupOption[], options?: import("@core/ui/types/ui").MessageOptions): Promise<void> {
+    protected async editMessageImpl(user_id: string, message_id: string, message: string, mk_opts?: IMarkupOption[], options?: MessageOptions): Promise<void> {
         const extra: any = {}
         if (mk_opts) {
             extra.reply_markup = { inline_keyboard: this.createCommonKeyboard(mk_opts) }
@@ -114,7 +125,6 @@ export class TelegramUI extends BaseUI<TgContext> {
         this.bot.action(RegExp("calibrate_*"), async (ctx) => {
             const width = parseInt(ctx.match.input.slice("calibrate_".length))
             if (!isNaN(width)) {
-                const { handleCalibrationCallback } = await import('@core/ui/command-processor/built-in-cmd/calibrate-cmd')
                 const result = await handleCalibrationCallback(ctx.from!.id, width)
                 await ctx.answerCbQuery(result)
                 await ctx.deleteMessage()
@@ -222,7 +232,7 @@ export class TelegramUI extends BaseUI<TgContext> {
         this.bot.use(async (ctx, next) => {
             const manager = await Manager.findOne({ userId: ctx.from!.id })
             if (manager) {
-                ctx.type = AvailableUIsEnum.Telegram
+                ctx.type = 'telegram'
                 ctx.manager = manager
                 return await next()
             } else if (ctx.updateType == 'callback_query') {
@@ -546,8 +556,8 @@ export class TelegramUI extends BaseUI<TgContext> {
 
     // VV Specials VV
 
-    ContextType(): AvailableUIsType {
-        return AvailableUIsEnum.Telegram
+    ContextType(): string {
+        return 'telegram'
     }
 
     public lock(lockManager: LockManager): boolean {

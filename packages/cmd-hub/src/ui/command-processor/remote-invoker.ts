@@ -5,7 +5,7 @@ import type {
     CmdHubProto,
 } from '@cmd-hub/transport'
 import type { IUI, BaseUIContext } from '@cmd-hub/common'
-import type { ICommandCompiled } from '@core/ui/types/command'
+import type { ICommandCompiled } from '../../ui/types/command'
 import type { ServiceDashboard, DashboardEvent } from './dashboard/service-dashboard'
 
 type InvokeServer = CmdHubProto.InvokeServer

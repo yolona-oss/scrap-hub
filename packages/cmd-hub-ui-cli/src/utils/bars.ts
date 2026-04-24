@@ -1,4 +1,4 @@
-import { Identificable } from '@core/types/identificable'
+import { Identificable } from '@cmd-hub/core'
 
 import { MultiProgressBars  } from 'multi-progress-bars';
 import chalk from 'chalk';

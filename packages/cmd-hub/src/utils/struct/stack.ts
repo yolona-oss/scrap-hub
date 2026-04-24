@@ -1,4 +1,4 @@
-import { IStack } from "@core/types/stack"
+import { IStack } from "../../types/stack"
 export type { IStack }
 
 export class Stack<T> implements IStack<T> {

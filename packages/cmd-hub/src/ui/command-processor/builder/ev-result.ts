@@ -1,7 +1,7 @@
 import { BuilderMarkuper } from "./builder-markuper"
 import { IBaseMarkup } from "../types/markup"
 import { CBParser } from "./interpreter/parser"
-import { ICommandCompiled } from "@core/ui/types/command"
+import { ICommandCompiled } from "../../../ui/types/command"
 
 export class EvaluationResult {
     private done: boolean

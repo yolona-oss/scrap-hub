@@ -1,15 +1,15 @@
-import { CmdArgument, IArgumentCompiled } from "@core/ui/types/command"
+import { CmdArgument, IArgumentCompiled } from "../../../ui/types/command"
 import { BuiltInAccountCommandsEnum } from "../constants"
-import { Account, Manager } from "@core/db"
-import log from '@logger';
+import { Account, Manager } from "../../../db"
+import log from '../../../application/logger';
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdDispatcher } from "../dispatcher"
 
 import "reflect-metadata";
-import { extractValueFromObject } from "@core/utils/object"
-import { UiUnicodeSymbols } from "@core/ui"
+import { extractValueFromObject } from "../../../utils/object"
+import { UiUnicodeSymbols } from "../../../ui"
 import { CmdArgumentProxy } from "../arg-proxy";
-import { isValidConfigPath } from "@core/utils/validation";
+import { isValidConfigPath } from "../../../utils/validation";
 
 async function getAllUserModules(accountId: string): Promise<string[]> {
     const account = await Account.findById(accountId)

@@ -1,5 +1,5 @@
-import { AbstractCtx } from "@core/types/state";
-import log from '@logger';
+import { AbstractCtx } from "../../../../types/state";
+import log from '../../../../application/logger';
 import { CBParser } from "./parser";
 import { EvaluationResult } from "./../ev-result";
 import { BaseInterpreterComponent } from "./modes";

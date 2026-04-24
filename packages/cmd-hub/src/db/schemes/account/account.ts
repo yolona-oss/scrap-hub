@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document, Model, QueryWithHelpers, HydratedDocumentFromSchema } from 'mongoose';
-import { DbModelsEnum } from '@core/db/models-enum';
+import { DbModelsEnum } from '../../../db/models-enum';
 
 import { AccountModuleHydratedDocument, AccountModule, AccountModuleModelType, AccountModuleSchema, IAccountModule } from './module';
 

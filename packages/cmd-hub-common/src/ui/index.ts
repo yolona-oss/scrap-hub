@@ -1,5 +1,4 @@
 export * from './markup'
-export * from './available-uis-type'
 export * from './context'
 export * from './handle-result'
 export * from './types'

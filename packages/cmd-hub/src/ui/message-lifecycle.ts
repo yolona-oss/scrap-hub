@@ -1,7 +1,7 @@
 import { BaseUIContext } from "./types/context"
 import { IUI } from "./types/ui"
-import { PendingDelete } from "@core/db"
-import log from "@logger"
+import { PendingDelete } from "../db"
+import log from "../application/logger"
 import type { MessageType } from '@cmd-hub/common'
 
 export type { MessageType }

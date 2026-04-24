@@ -1,6 +1,6 @@
-import { BaseUIContext } from "@core/ui"
+import { BaseUIContext } from "../../../ui"
 import { ICmdHandler, ICmdHandlerRequest, ICmdHandlerResponce } from "./types"
-//import log from "@core/application/logger"
+//import log from "../../../application/logger"
 
 export * from './types'
 

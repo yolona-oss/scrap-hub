@@ -1,8 +1,8 @@
-import { CqContext } from "@core/ui/impls/telegram/types";
-import { getInitialConfig } from "@core/config";
-import { Manager, FilesWrapper } from "@core/db";
-import log from "@logger";
-import { anyToString } from "@core/utils/misc";
+import { CqContext } from '../types';
+import { getInitialConfig } from '@cmd-hub/core';
+import { Manager, FilesWrapper } from '@cmd-hub/core';
+import { log } from '@cmd-hub/common';
+import { anyToString } from '@cmd-hub/core';
 
 import { TelegramUI } from "../telegram-ui";
 import { auth_cb_prefix, decodeCbData } from "./../constants/callback";

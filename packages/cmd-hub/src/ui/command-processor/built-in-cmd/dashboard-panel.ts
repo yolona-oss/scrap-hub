@@ -2,9 +2,9 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { CmdArgument } from "@core/ui/types/command"
-import { UiUnicodeSymbols } from "@core/ui"
-import { IManager } from "@core/db"
+import { CmdArgument } from "../../../ui/types/command"
+import { UiUnicodeSymbols } from "../../../ui"
+import { IManager } from "../../../db"
 
 class DashboardArgs {
     @CmdArgument({

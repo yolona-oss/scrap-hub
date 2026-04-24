@@ -1,14 +1,14 @@
 import { Application, MongoMiddleware, ApplicationOptions } from "@cmd-hub/common";
-import { getInitialConfig } from "@core/config";
-import { IUI } from "@core/ui";
+import { getInitialConfig } from "../config";
+import { IUI } from "../ui";
 
-import log from '@logger';
+import log from '../application/logger';
 import { z } from 'zod';
 
-import { clearScreen } from '@utils/console'
-import { FIGLET_LOGO, WELCOME_TEXT } from '@core/constants'
-import { BaseCommandService } from "@core/ui/types/command/service";
-import { MongoServiceStore } from "@core/db/mongo-service-store";
+import { clearScreen } from '../utils/console'
+import { FIGLET_LOGO, WELCOME_TEXT } from '../constants'
+import { BaseCommandService } from "../ui/types/command/service";
+import { MongoServiceStore } from "../db/mongo-service-store";
 
 // TODO(phase-4): tighten this schema to describe the actual hub config shape.
 const HUB_CONFIG_SCHEMA = z.object({}).passthrough()

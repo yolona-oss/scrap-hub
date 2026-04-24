@@ -1,7 +1,7 @@
 import assert from 'assert'
 
-import { AlphabetOrderType } from "@core/constants/alphabets"
-import { LowerCaseLatinLatter, UpperCaseLatinLatter, NumberLatter, SpecialCharacter } from "@core/constants/alphabets"
+import { AlphabetOrderType } from "../constants/alphabets"
+import { LowerCaseLatinLatter, UpperCaseLatinLatter, NumberLatter, SpecialCharacter } from "../constants/alphabets"
 
 const alphabets = [
     {

@@ -1,8 +1,8 @@
-import { DefaultAssets, File } from '@core/db'
-import { DefaultAssetsEnum } from '@core/db/schemes/default-assets'
-import { getConfig, getInitialConfig } from '@core/config'
-import { genRandomString } from '@utils/random'
-import log from '@logger';
+import { DefaultAssets, File } from '../db'
+import { DefaultAssetsEnum } from '../db/schemes/default-assets'
+import { getConfig, getInitialConfig } from '../config'
+import { genRandomString } from '../utils/random'
+import log from '../application/logger';
 
 import * as mime from 'mime-types'
 import download from 'download'

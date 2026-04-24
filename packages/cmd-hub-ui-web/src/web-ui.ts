@@ -5,41 +5,21 @@ import { Server as SocketIOServer, Socket } from 'socket.io'
 
 import { WebContext } from './types/context'
 import { IWebUIPlugin } from './types/plugin'
-import { BaseUI } from '@core/ui/base-ui'
-import { CmdDispatcher } from '@core/ui/command-processor'
-import { IMarkupOption } from '@core/ui/command-processor/types/markup'
-import { MessageOptions } from '@core/ui/types/ui'
-import { AvailableUIsType } from '@core/ui/impls'
-import { exposeCmdArgumentOptions } from '@core/ui/types/command/argument/option'
-import { CBDescriptorCompiler } from '@core/ui/command-processor/builder/desc-compiler'
-import { FilesWrapper, IManager, Manager, Account } from '@core/db'
-import { LockManager } from '@utils/lock-manager'
-import log from '@logger'
+import { BaseUI } from '@cmd-hub/core'
+import { CmdDispatcher } from '@cmd-hub/core'
+import { IMarkupOption } from '@cmd-hub/core'
+import { MessageOptions } from '@cmd-hub/core'
+import { exposeCmdArgumentOptions } from '@cmd-hub/core'
+import { CBDescriptorCompiler } from '@cmd-hub/core'
+import { FilesWrapper, IManager, Manager, Account, InvitationLink } from '@cmd-hub/core'
+import type { IInvitationLink } from '@cmd-hub/core'
+import { LockManager } from '@cmd-hub/core'
+import { log } from '@cmd-hub/common'
 import crypto from 'crypto'
 
-// --- Invitation Link Model ---
-import mongoose, { Schema, Document } from 'mongoose'
-
-export interface IInvitationLink extends Document {
-    token: string
-    createdBy: number | string
-    usedBy?: number | string
-    used: boolean
-    expiresAt?: Date
-}
-
-const InvitationLinkSchema = new Schema<IInvitationLink>({
-    token: { type: String, required: true, unique: true },
-    createdBy: { type: Schema.Types.Mixed, required: true },
-    usedBy: { type: Schema.Types.Mixed, default: null },
-    used: { type: Boolean, default: false },
-    expiresAt: { type: Date, default: null },
-})
-
-const InvitationLink = mongoose.models.InvitationLink as mongoose.Model<IInvitationLink>
-    || mongoose.model<IInvitationLink>('InvitationLink', InvitationLinkSchema)
-
+// InvitationLink moved to @cmd-hub/core/db; re-export for back-compat.
 export { InvitationLink }
+export type { IInvitationLink }
 
 // --- Password hashing ---
 
@@ -163,7 +143,7 @@ export class WebUI extends BaseUI<WebContext> {
 
     lock(_: LockManager): boolean { return true }
     unlock(_: LockManager): boolean { return true }
-    ContextType(): AvailableUIsType { return 'web' }
+    ContextType(): string { return 'web' }
     isRunning(): boolean { return this.isActive }
 
     // --- Lifecycle ---
@@ -492,7 +472,7 @@ export class WebUI extends BaseUI<WebContext> {
                     const descriptor = await compiler.compile(data.command, userId, this.dispatcher, ctx)
 
                     // Serialize args for the client
-                    const fields = descriptor.args.map(a => ({
+                    const fields = descriptor.args.map((a: any) => ({
                         name: a.name,
                         ctx: a.ctx,
                         type: a.position != null ? 'positional' as const : a.standalone ? 'standalone' as const : 'pair' as const,

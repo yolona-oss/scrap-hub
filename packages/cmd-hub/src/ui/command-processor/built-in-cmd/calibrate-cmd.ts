@@ -2,8 +2,8 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { Manager } from "@core/db"
-import { UiUnicodeSymbols } from "@core/ui"
+import { Manager } from "../../../db"
+import { UiUnicodeSymbols } from "../../../ui"
 import { IMarkupButton } from "../types/markup"
 
 const CALIBRATE_WIDTHS = [30, 35, 40, 45, 48, 52, 56, 60, 64, 68, 72]

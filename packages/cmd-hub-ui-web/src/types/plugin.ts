@@ -1,4 +1,4 @@
-import { IUIPlugin } from "@core/ui/types/plugin"
+import { IUIPlugin } from '@cmd-hub/core'
 import { WebContext } from "./context"
 
 export interface IWebUIPlugin extends IUIPlugin<WebContext> {

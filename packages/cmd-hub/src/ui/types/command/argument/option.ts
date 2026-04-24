@@ -8,9 +8,9 @@ import {
     isOptionSetterFunc as commonIsOptionSetterFunc,
     isOptionSetterString,
 } from "@cmd-hub/common"
-import { IManager } from "@core/db"
-import { BaseUIContext } from "@core/ui"
-import { CmdDispatcher } from "@core/ui/command-processor"
+import { IManager } from "../../../../db"
+import { BaseUIContext } from "../../../../ui"
+import { CmdDispatcher } from "../../../../ui/command-processor"
 
 export type CmdArgumentOptionSetter = CmdArgumentOptionSetterGeneric<CmdDispatcher<any>, IManager>
 export type CmdArgumentPairOptionsType<

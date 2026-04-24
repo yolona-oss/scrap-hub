@@ -1,5 +1,5 @@
-import { UiUnicodeSymbols } from "@core/ui"
-import { IArgumentCompiled } from "@core/ui/types"
+import { UiUnicodeSymbols } from "../../../ui"
+import { IArgumentCompiled } from "../../../ui/types"
 import { CBParser, ICBParserStateRaw } from './interpreter/parser'
 import { BuilderMarkups } from './default-markup'
 import { BuilderActionSigns } from './default-callbacks'

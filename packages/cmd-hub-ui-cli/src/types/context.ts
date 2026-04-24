@@ -1,9 +1,8 @@
-import { IManager } from "@core/db";
-import { BaseUIContext } from "@core/ui";
-import { AvailableUIsEnum } from "@core/ui";
+import { IManager } from '@cmd-hub/core';
+import { BaseUIContext } from '@cmd-hub/core';
 
 export interface CLIContext extends BaseUIContext<IManager & { userId: number|string }> {
-    type: AvailableUIsEnum.CLI;
+    type: 'cli';
     manager: IManager & { userId: number|string }
     userSession: {
         state: string;

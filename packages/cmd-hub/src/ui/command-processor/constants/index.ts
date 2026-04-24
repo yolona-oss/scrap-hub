@@ -1,4 +1,4 @@
-import { asId } from "@core/types/identificable"
+import { asId } from "../../../types/identificable"
 import {
     BuiltInAccountCommandsEnum,
     BuiltInHelpCommandsEnum,

@@ -1,4 +1,4 @@
-import { inCenter } from "@utils/console"
+import { inCenter } from "../utils/console"
 import chalk from 'chalk'
 
 const bar = (fill: string = "#") => new Array(process.stdout.columns).fill(fill).join("")

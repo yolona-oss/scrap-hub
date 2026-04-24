@@ -1,5 +1,5 @@
-import { BaseUIContext, IUICommand } from "@core/ui"
-import { IvokeableType, IUI_InvokableCommand } from "@core/ui/types/command"
+import { BaseUIContext, IUICommand } from "../../../ui"
+import { IvokeableType, IUI_InvokableCommand } from "../../../ui/types/command"
 export type { IHandleResult } from '@cmd-hub/common'
 
 export interface IUICommandEntry<Ctx extends BaseUIContext> extends Omit<IUI_InvokableCommand<Ctx>, 'command'> {

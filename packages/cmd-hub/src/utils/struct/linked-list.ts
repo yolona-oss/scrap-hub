@@ -1,4 +1,4 @@
-import { ILinkedList, Node } from "@core/types/linked-list";
+import { ILinkedList, Node } from "../../types/linked-list";
 export { Node, type ILinkedList }
 
 export class LinkedList<T> implements ILinkedList<T> {

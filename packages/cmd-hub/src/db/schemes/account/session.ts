@@ -1,5 +1,5 @@
-import { DbModelsEnum } from '@core/db/models-enum';
-//import { extractValueFromObject, removeFieldFromObject } from '@core/utils/object'
+import { DbModelsEnum } from '../../../db/models-enum';
+//import { extractValueFromObject, removeFieldFromObject } from '../../../utils/object'
 import mongoose, { Schema, Document, Model } from 'mongoose';
 import { HydratedDocumentFromSchema } from 'mongoose';
 

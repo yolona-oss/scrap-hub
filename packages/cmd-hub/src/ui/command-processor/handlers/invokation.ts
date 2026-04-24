@@ -1,8 +1,8 @@
-import log from '@logger';
+import log from '../../../application/logger';
 import { AbstractCmdHandler, ICmdHandlerRequest, ICmdHandlerResponce } from "./abstract-handler"
-import { BaseUIContext } from "@core/ui"
-import { anyToString } from "@core/utils/misc"
-import { UiUnicodeSymbols } from "@core/ui"
+import { BaseUIContext } from "../../../ui"
+import { anyToString } from "../../../utils/misc"
+import { UiUnicodeSymbols } from "../../../ui"
 
 export class HandleInvokation<Ctx extends BaseUIContext> extends AbstractCmdHandler<Ctx> {
 

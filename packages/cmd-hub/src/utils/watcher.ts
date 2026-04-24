@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events'
 import { sleep } from './time'
-import log from '@logger'
-import { IWatcher } from '@core/types/watcher'
+import log from '../application/logger'
+import { IWatcher } from '../types/watcher'
 
 export interface WatcherOpts {
         freq: number

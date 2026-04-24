@@ -1,4 +1,4 @@
-import { IQueue } from "@core/types/queue"
+import { IQueue } from "../../types/queue"
 export type { IQueue }
 
 export class Queue<T> implements IQueue<T> {

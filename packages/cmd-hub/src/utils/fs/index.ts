@@ -1,8 +1,8 @@
 import * as fs from 'fs'
 import path from 'path'
 
-import log from '@logger';
-import { getInitialConfig } from '@core/config'
+import log from '../../application/logger';
+import { getInitialConfig } from '../../config'
 
 const cfg = getInitialConfig()
 

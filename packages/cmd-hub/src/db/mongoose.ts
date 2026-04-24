@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 
-import log from '@logger';
-import { timeouted } from '@core/utils/async-tools';
+import log from '../application/logger';
+import { timeouted } from '../utils/async-tools';
 
 export const MongoConnect = (uri: string, options: any, timeout = 5000): Promise<void> => {
     const conn_promise = new Promise<void>(resolve => {

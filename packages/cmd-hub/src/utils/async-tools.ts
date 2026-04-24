@@ -1,6 +1,6 @@
 import { sleep } from "./time"
 import { mergeDefaults } from "./mergeDefaults"
-import log from '@logger'
+import log from '../application/logger'
 
 export interface RetrierOpts {
     retries: number

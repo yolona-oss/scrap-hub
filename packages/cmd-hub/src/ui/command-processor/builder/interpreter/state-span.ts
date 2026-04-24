@@ -1,5 +1,5 @@
-import { CmdArgumentContextType, IArgumentCompiled } from "@core/ui/types"
-import { Stack } from "@core/utils/struct/stack"
+import { CmdArgumentContextType, IArgumentCompiled } from "../../../../ui/types"
+import { Stack } from "../../../../utils/struct/stack"
 import { ParserStateType } from "./parser"
 
 export class StateSnap {

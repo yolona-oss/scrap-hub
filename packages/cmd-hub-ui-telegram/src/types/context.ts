@@ -1,12 +1,11 @@
-import { IManager } from "@core/db";
-import { BaseUIContext } from "@core/ui/types";
-import { AvailableUIsEnum } from "../..";
+import { IManager } from '@cmd-hub/core';
+import { BaseUIContext } from '@cmd-hub/core';
 
 import { NarrowedContext, Context, Types } from "telegraf";
 import { CallbackQuery, Update } from "telegraf/typings/core/types/typegram";
 
 export interface TgContext extends NarrowedContext<Context, Update>, BaseUIContext<IManager & { userId: number | string }> {
-    type: AvailableUIsEnum.Telegram
+    type: 'telegram'
 
     manager: IManager & { userId: number | string }
     text: string

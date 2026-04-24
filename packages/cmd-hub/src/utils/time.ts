@@ -1,4 +1,4 @@
-import { Range } from "@core/types/range"
+import { Range } from "../types/range"
 
 export type TimeRange = Range
 

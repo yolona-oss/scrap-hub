@@ -1,7 +1,7 @@
-import { WithNeighbors } from "@core/types/with-neighbors"
+import { WithNeighbors } from "../../../types/with-neighbors"
 import { ICmdArgumentDefinition, IArgumentDescriptor, IArgumentCompiled, CmdArgumentMetadataRaw } from "./argument"
 import { BaseCommandService } from './service'
-import { BaseUIContext, IUI } from "@core/ui"
+import { BaseUIContext, IUI } from "../../../ui"
 
 /**
  * @description Describes the UI command base definition mapping
@@ -25,7 +25,7 @@ export interface IUICommandProcessed extends IUICommand {
 /** RENAME IT! */
 export type IUICommandWithOutArgs = Omit<CommandSklet, "args">
 
-import { CmdArgumentProxy } from "@core/ui/command-processor/arg-proxy"
+import { CmdArgumentProxy } from "../../../ui/command-processor/arg-proxy"
 
 export interface ICommandCompiled {
     readonly command: string

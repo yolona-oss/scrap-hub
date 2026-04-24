@@ -1,6 +1,6 @@
 import { assignToCustomPath, extractValueFromObject } from "./object"
 
-import { IBuilder } from "@core/types/builder"
+import { IBuilder } from "../types/builder"
 
 type OPQBuilderFinalizeType = Record<string, any>
 

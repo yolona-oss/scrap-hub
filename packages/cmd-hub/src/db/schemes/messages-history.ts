@@ -1,4 +1,3 @@
-import { TgContext } from '@core/ui/impls/telegram';
 import { Schema, Document } from 'mongoose';
 
 export interface IMsgHistory extends Document {
@@ -17,15 +16,6 @@ export interface IMsgHistoryDto {
     text: string,
     isEdited?: boolean
     timestamp?: number
-}
-
-export function fromTgContext(ctx: TgContext): IMsgHistoryDto {
-    return {
-        chatId: ctx.chat!.id,
-        userId: ctx.from!.id,
-        text: ctx.text ?? "",
-        message_id: ctx.message!.message_id
-    }
 }
 
 export const MsgHistorySchema: Schema<IMsgHistory> = new Schema( {

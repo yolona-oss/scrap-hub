@@ -2,10 +2,10 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { CmdArgument } from "@core/ui/types/command"
-import { UiUnicodeSymbols } from "@core/ui"
-import { TableDesigner } from "@core/utils/table-designer"
-import { InvitationLink } from "@core/ui/impls/web"
+import { CmdArgument } from "../../../ui/types/command"
+import { UiUnicodeSymbols } from "../../../ui"
+import { TableDesigner } from "../../../utils/table-designer"
+import { InvitationLink } from "../../../db"
 import crypto from 'crypto'
 
 class InviteArgs {

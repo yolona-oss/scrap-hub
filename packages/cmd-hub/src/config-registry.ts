@@ -1,6 +1,6 @@
 import * as fs from 'fs'
-import { main_config_path } from '@core/constants/path'
-import { isValidConfigPath } from '@core/utils/validation'
+import { main_config_path } from './constants/path'
+import { isValidConfigPath } from './utils/validation'
 
 // Lazy logger to avoid circular dependency (logger → config → config-registry → logger)
 function getLog() {

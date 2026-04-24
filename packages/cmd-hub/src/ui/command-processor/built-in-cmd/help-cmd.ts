@@ -1,12 +1,12 @@
-import { CmdArgument, ICmdService, isService, IUICommandProcessed, CommandMetadata } from "@core/ui/types/command"
+import { CmdArgument, ICmdService, isService, IUICommandProcessed, CommandMetadata } from "../../../ui/types/command"
 import { BuiltInHelpCommandsEnum } from "../constants"
 import { CmdDispatcher } from "../dispatcher"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { IUICommandEntry } from "../types"
-import { anyToString } from "@core/utils/misc"
-import { BaseUIContext, UiUnicodeSymbols } from "@core/ui"
+import { anyToString } from "../../../utils/misc"
+import { BaseUIContext, UiUnicodeSymbols } from "../../../ui"
 import { CmdArgumentProxy } from "../arg-proxy"
-import { TableDesigner } from "@core/utils/table-designer"
+import { TableDesigner } from "../../../utils/table-designer"
 
 const designer = new TableDesigner()
 const DEFAULT_WIDTH = 72

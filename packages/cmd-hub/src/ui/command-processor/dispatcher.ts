@@ -1,13 +1,13 @@
-import { WithInit } from "@core/types/with-init";
-import { validateWithNeighborsMap } from "@core/types/with-neighbors";
-import { BaseUIContext } from "@core/ui/types";
+import { WithInit } from "../../types/with-init";
+import { validateWithNeighborsMap } from "../../types/with-neighbors";
+import { BaseUIContext } from "../../ui/types";
 
-import log from '@logger';
+import log from '../../application/logger';
 
 import { CommandSequenceHandler } from "./sequence-handler";
-import { BaseCommandService } from "@core/ui/types/command/service";
+import { BaseCommandService } from "../../ui/types/command/service";
 
-import { Chain } from "@core/utils/chain";
+import { Chain } from "../../utils/chain";
 import {
     IUICommandEntry,
     IHandleResult,
@@ -20,10 +20,10 @@ import {
     HandleCmdBuilder,
     HandleSequenceCommand
 } from "./handlers";
-import { isContainsAll } from "@core/utils/array";
-import { anyToString } from "@core/utils/misc";
-import { Account, IAccountSession, Manager } from "@core/db";
-import { CmdArgumentMetadataRaw, getCmdArgMetadata, isFunc, isService, IUICommandProcessed } from "@core/ui/types/command";
+import { isContainsAll } from "../../utils/array";
+import { anyToString } from "../../utils/misc";
+import { Account, IAccountSession, Manager } from "../../db";
+import { CmdArgumentMetadataRaw, getCmdArgMetadata, isFunc, isService, IUICommandProcessed } from "../../ui/types/command";
 
 import {
     SetVariableCommand,
@@ -58,7 +58,7 @@ import 'reflect-metadata'
 
 import { BuiltInCommandNames, toRegister } from "./built-in-cmd";
 import { RemoteCmdInvoker } from "./remote-invoker"
-import { IUI, UiUnicodeSymbols } from "@core/ui";
+import { IUI, UiUnicodeSymbols } from "../../ui";
 import { HandleCommandAlias } from "./handlers/alias";
 import { ICommandHandlerChain } from "./handlers/abstract-handler";
 import { ServiceDashboard } from "./dashboard";

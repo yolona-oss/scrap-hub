@@ -1,9 +1,9 @@
-import { BaseUIContext, IUI } from "@core/ui/types"
+import { BaseUIContext, IUI } from "../../../ui/types"
 import { IMarkupButton } from "../types/markup"
-import { UiUnicodeSymbols } from "@core/ui/ui-unicode-symbols"
+import { UiUnicodeSymbols } from "../../../ui/ui-unicode-symbols"
 import { ProgressTracker } from "./progress"
-import { escapeHtml } from "@core/utils/table-designer"
-import log from "@logger"
+import { escapeHtml } from "../../../utils/table-designer"
+import log from "../../../application/logger"
 
 export type ChannelName = 'message' | 'error' | 'log' | 'progress' | 'ctrl'
 

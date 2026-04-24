@@ -1,4 +1,4 @@
-import { BaseUIContext, IvokeableType, IUICommand, IUI } from "@core/ui";
+import { BaseUIContext, IvokeableType, IUICommand, IUI } from "../../../ui";
 import { CmdDispatcher } from "../dispatcher";
 import { CmdArgumentProxy } from "../arg-proxy";
 

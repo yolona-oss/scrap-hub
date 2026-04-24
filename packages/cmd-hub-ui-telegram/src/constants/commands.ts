@@ -1,14 +1,14 @@
-import { FilesWrapper, Manager } from '@core/db';
+import { FilesWrapper, Manager } from '@cmd-hub/core';
 
 import { TelegramUI } from '../telegram-ui'
 import { TgCommand, TextContext, TgContext } from '../types'
-import { shuffle } from '@core/utils/array';
-import { CmdArgument } from '@core/ui/types/command';
-import log from '@logger';
-import { anyToString } from '@core/utils/misc';
-import { ICmdRegisterEntry } from '@core/ui/command-processor';
-import { BaseUIContext } from '@core/ui';
-import { CmdArgumentProxy } from '@core/ui/command-processor/arg-proxy';
+import { shuffle } from '@cmd-hub/core';
+import { CmdArgument } from '@cmd-hub/core';
+import { log } from '@cmd-hub/common';
+import { anyToString } from '@cmd-hub/core';
+import { ICmdRegisterEntry } from '@cmd-hub/core';
+import { BaseUIContext } from '@cmd-hub/core';
+import { CmdArgumentProxy } from '@cmd-hub/core';
 
 export function toRegister(cmd: TgCommand): ICmdRegisterEntry<TgContext> {
     return {

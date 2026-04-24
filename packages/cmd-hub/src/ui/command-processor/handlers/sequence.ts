@@ -1,8 +1,8 @@
-import { anyToString } from "@core/utils/misc"
+import { anyToString } from "../../../utils/misc"
 import { AbstractCmdHandler, ICmdHandlerRequest, ICmdHandlerResponce } from "./abstract-handler"
-import { BaseUIContext } from "@core/ui"
+import { BaseUIContext } from "../../../ui"
 
-import log from '@logger';
+import log from '../../../application/logger';
 
 export class HandleSequenceCommand<Ctx extends BaseUIContext> extends AbstractCmdHandler<Ctx> {
     public async handle(request: ICmdHandlerRequest<Ctx>): Promise<ICmdHandlerResponce> {

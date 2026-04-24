@@ -5,15 +5,11 @@
         "outDir": "./build",
         "baseUrl": "./",
         "rootDir": "./",
-        "paths": {
-            "@core/*":    ["./src/*"],
-            "@logger":    ["./src/application/logger"],
-            "@config":    ["./src/config"],
-            "@utils/*":   ["./src/utils/*"]
-        }
+        "declaration": true
     },
     "include": [
-        "./src/**/*"
+        "./src/**/*",
+        "./src/**/*.json"
     ],
     "exclude": [
         "node_modules"

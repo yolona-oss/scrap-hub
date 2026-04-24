@@ -1,13 +1,12 @@
 import { CLIContext } from './types';
 import { ICLIPlugin } from './types/plugin';
-import { CmdDispatcher, CLI_USER_ID, CLI_USER_NAME } from '@core/ui/command-processor';
+import { CmdDispatcher, CLI_USER_ID, CLI_USER_NAME } from '@cmd-hub/core';
 
-import { BaseUI } from '@core/ui/base-ui';
-import { AvailableUIsEnum, AvailableUIsType } from '@core/ui/impls';
-import { FilesWrapper, IManager, Manager } from '@core/db';
+import { BaseUI } from '@cmd-hub/core';
+import { FilesWrapper, IManager, Manager } from '@cmd-hub/core';
 
-import { LockManager } from '@utils/lock-manager';
-import log from '@logger';
+import { LockManager } from '@cmd-hub/core';
+import { log } from '@cmd-hub/common';
 
 import readline from 'readline';
 
@@ -22,7 +21,7 @@ export class CLIUI extends BaseUI<CLIContext> {
     ) {
         super()
         this.context = {
-            type: AvailableUIsEnum.CLI,
+            type: 'cli',
             manager: {} as IManager & { userId: number|string },
             userSession: { state: '', data: {} },
             text: "",
@@ -68,8 +67,8 @@ export class CLIUI extends BaseUI<CLIContext> {
         return true
     }
 
-    ContextType(): AvailableUIsType {
-        return AvailableUIsEnum.CLI
+    ContextType(): string {
+        return 'cli'
     }
 
     isRunning(): boolean {

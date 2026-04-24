@@ -1,9 +1,9 @@
-import log from '@logger';
+import log from '../../../application/logger';
 import { BuiltInSeqCommandsEnum } from "../constants"
 import { CmdDispatcher } from "../dispatcher"
 import { BuiltInCommand } from "../types/built-in-cmd"
-import { anyToString } from "@core/utils/misc"
-import { BaseUIContext } from "@core/ui"
+import { anyToString } from "../../../utils/misc"
+import { BaseUIContext } from "../../../ui"
 
 async function handle(this: CmdDispatcher<any>, ctx: BaseUIContext, cmd: string) {
     const userId = String(ctx.manager!.userId)

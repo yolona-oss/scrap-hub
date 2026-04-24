@@ -1,14 +1,14 @@
-import { deepClone } from "@core/utils/object"
-import { IArgumentCompiled, IUICommandDescriptor } from '@core/ui/types'
-import { CmdArgumentContextType, IArgumentDescriptor } from "@core/ui/types/command";
-import { decodePositionalName } from "@core/ui/types/command";
+import { deepClone } from "../../../../utils/object"
+import { IArgumentCompiled, IUICommandDescriptor } from '../../../../ui/types'
+import { CmdArgumentContextType, IArgumentDescriptor } from "../../../../ui/types/command";
+import { decodePositionalName } from "../../../../ui/types/command";
 import { StateSnaper } from "./state-span";
 import { CBLexerToken } from "./lexer";
 
-import log from "@core/application/logger";
-import { Chain, createChainFallbackHandler, chainHandlerFactory, IChainHandler } from "@core/utils/chain";
-import { removeObjectByFieldsMutate } from "@core/utils/array";
-import { getArgumentDescType, isArgumentDescPair, isArgumentDescPositional, isArgumentDescStandalone, compileArgumentFromDesc } from "@core/ui/types/command/argument/descriptor-helpers";
+import log from "../../../../application/logger";
+import { Chain, createChainFallbackHandler, chainHandlerFactory, IChainHandler } from "../../../../utils/chain";
+import { removeObjectByFieldsMutate } from "../../../../utils/array";
+import { getArgumentDescType, isArgumentDescPair, isArgumentDescPositional, isArgumentDescStandalone, compileArgumentFromDesc } from "../../../../ui/types/command/argument/descriptor-helpers";
 
 /**
  * @see ParserStateType to get more info

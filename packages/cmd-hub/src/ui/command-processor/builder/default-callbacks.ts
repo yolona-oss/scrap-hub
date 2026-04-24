@@ -1,5 +1,5 @@
 // TODO: rename file
-import { genRandId } from "@core/types/identificable";
+import { genRandId } from "../../../types/identificable";
 
 export const BuilderActionSigns = {
     execute:     genRandId(),

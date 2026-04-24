@@ -1,11 +1,11 @@
-import { BaseUIContext } from "@core/ui"
-import { IArgumentDescriptor, IUICommandDescriptor } from "@core/ui/types"
+import { BaseUIContext } from "../../../ui"
+import { IArgumentDescriptor, IUICommandDescriptor } from "../../../ui/types"
 import { IUICommandEntry } from "./../types"
-import { ICmdService } from "@core/ui/types/command";
-import { CmdArgumentContextType } from "@core/ui/types/command";
+import { ICmdService } from "../../../ui/types/command";
+import { CmdArgumentContextType } from "../../../ui/types/command";
 import { CmdDispatcher } from "./../dispatcher"
-import { IManager, Manager } from "@core/db"
-import { CmdArgumentMetadataRaw, exposeCmdArgumentOptions } from "@core/ui/types/command"
+import { IManager, Manager } from "../../../db"
+import { CmdArgumentMetadataRaw, exposeCmdArgumentOptions } from "../../../ui/types/command"
 
 export class CBDescriptorCompiler<UICtx extends BaseUIContext> {
     constructor() { }

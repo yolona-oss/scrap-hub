@@ -2,12 +2,12 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { CmdArgument } from "@core/ui/types/command"
-import { UiUnicodeSymbols } from "@core/ui"
-import { Account, Manager } from "@core/db"
-import { TableDesigner } from "@core/utils/table-designer"
-import { isValidConfigPath } from "@core/utils/validation"
-import log from "@logger"
+import { CmdArgument } from "../../../ui/types/command"
+import { UiUnicodeSymbols } from "../../../ui"
+import { Account, Manager } from "../../../db"
+import { TableDesigner } from "../../../utils/table-designer"
+import { isValidConfigPath } from "../../../utils/validation"
+import log from "../../../application/logger"
 
 class SConfigArgs {
     @CmdArgument({

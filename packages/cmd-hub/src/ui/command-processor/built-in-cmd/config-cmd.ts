@@ -2,10 +2,10 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { CmdArgument } from "@core/ui/types/command"
-import { UiUnicodeSymbols } from "@core/ui"
-import { ConfigRegistry } from "@core/config-registry"
-import { TableDesigner } from "@core/utils/table-designer"
+import { CmdArgument } from "../../../ui/types/command"
+import { UiUnicodeSymbols } from "../../../ui"
+import { ConfigRegistry } from "../../../config-registry"
+import { TableDesigner } from "../../../utils/table-designer"
 
 class ConfigArgs {
     @CmdArgument({

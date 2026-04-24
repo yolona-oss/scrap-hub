@@ -1,4 +1,4 @@
-import log from "@core/application/logger"
+import log from "../../../../../application/logger"
 import { EvaluationResult } from "../../ev-result"
 import { BaseInterpreterComponent } from "./base"
 

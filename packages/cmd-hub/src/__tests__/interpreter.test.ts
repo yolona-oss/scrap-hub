@@ -12,14 +12,8 @@ jest.mock('../db', () => ({
     MongoConnect: jest.fn(), FilesWrapper: { getDefaultAvatar: jest.fn() },
 }))
 jest.mock('../db/mongoose', () => ({ MongoConnect: jest.fn() }))
-jest.mock('../ui/impls/telegram', () => ({ TelegramUI: class {}, TgContext: {} }))
-jest.mock('../ui/impls/cli', () => ({ CLIUI: class {}, CLIContext: {} }))
-jest.mock('../ui/impls', () => ({
-    AvailableUIsEnum: { Telegram: 'telegram', CLI: 'cli' },
-    TelegramUI: class {}, CLIUI: class {},
-}))
-jest.mock('chalk', () => ({ __esModule: true, default: new Proxy({}, { get: () => (s: string) => s }) }))
-jest.mock('telegraf', () => ({}))
+// UI impls now live in sibling packages (@cmd-hub/ui-telegram, etc.).
+// The cmd-hub barrel no longer re-exports them.
 
 import { CBParser } from '../ui/command-processor/builder/interpreter/parser'
 import { CBInterpreter } from '../ui/command-processor/builder/interpreter/interpreter'

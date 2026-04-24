@@ -1,5 +1,3 @@
-import type { AvailableUIsType } from './available-uis-type'
-
 /**
  * Minimal shape the UI layer needs from whatever "manager" entity the app uses.
  * In cmd-hub the concrete `Manager` mongoose doc satisfies this automatically
@@ -26,7 +24,8 @@ export interface IBaseUIContextManager {
  * without forcing @cmd-hub/common to depend on a data layer.
  */
 export abstract class BaseUIContext<ManagerT extends IBaseUIContextManager = IBaseUIContextManager> {
-    abstract type: AvailableUIsType
+    /** Short identity tag declared by the concrete UI (e.g. `"telegram"`). */
+    abstract type: string
     abstract manager: ManagerT
     abstract reply: (...args: any) => Promise<any>
 }

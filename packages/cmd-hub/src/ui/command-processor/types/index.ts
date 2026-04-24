@@ -1,6 +1,6 @@
-import { IManager } from '@core/db'
+import { IManager } from '../../../db'
 import { CmdDispatcher } from '../dispatcher'
-import { CmdArgumentPairOptionsType } from '@core/ui/types/command'
+import { CmdArgumentPairOptionsType } from '../../../ui/types/command'
 
 export * from './handler'
 

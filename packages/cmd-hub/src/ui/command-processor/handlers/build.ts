@@ -1,12 +1,12 @@
 import { AbstractCmdHandler, ICmdHandlerRequest, ICmdHandlerResponce } from "./abstract-handler";
-import { BaseUIContext } from "@core/ui/types";
-import { BaseUI } from "@core/ui/base-ui";
+import { BaseUIContext } from "../../../ui/types";
+import { BaseUI } from "../../../ui/base-ui";
 import { CommandBuilder } from "../builder";
 import { CmdDispatcher } from "../dispatcher";
-import log from '@logger';
+import log from '../../../application/logger';
 import { CBDescriptorCompiler } from "../builder/desc-compiler";
-import { IUICommandDescriptor } from "@core/ui/types";
-import { Account, Manager } from "@core/db";
+import { IUICommandDescriptor } from "../../../ui/types";
+import { Account, Manager } from "../../../db";
 
 // TODO add completion for builtin commands
 

@@ -1,4 +1,4 @@
-import log from "@core/application/logger"
+import log from "../../../../application/logger"
 
 export type CBTokenType = 'TEXT' | 'SINGLE_DASH' | 'DOUBLE_DASH' // | 'EOF' - only incremental reading not need EOF
 

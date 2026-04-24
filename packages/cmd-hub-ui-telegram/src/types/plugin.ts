@@ -1,4 +1,4 @@
-import { IUIPlugin } from "@core/ui/types/plugin"
+import { IUIPlugin } from '@cmd-hub/core'
 import { TgContext } from "./context"
 import { Telegraf } from "telegraf"
 

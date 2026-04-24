@@ -34,3 +34,6 @@ export type { ISystemConfig }
 import { type IUserConfig, UserConfigSchema } from './schemes/user-config'
 export const UserConfig = mongoose.model<IUserConfig>(DbModelsEnum.UserConfigs, UserConfigSchema)
 export type { IUserConfig }
+
+export { InvitationLink } from './schemes/invitation-link'
+export type { IInvitationLink } from './schemes/invitation-link'

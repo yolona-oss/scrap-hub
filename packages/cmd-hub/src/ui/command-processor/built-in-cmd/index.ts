@@ -10,7 +10,7 @@ export * from './config-cmd'
 export * from './sinfo-cmd'
 export * from './invite-cmd'
 
-//import { BaseUIContext } from '@core/ui'
+//import { BaseUIContext } from '../../../ui'
 import { BuiltInSeqCommandsEnum, BuiltInHelpCommandsEnum, BuiltInAccountCommandsEnum, BuiltInServiceCommandsEnum, BuiltInAliasCommandsEnum, BuiltInUiCommandsEnum } from '../constants'
 import { ICmdRegisterEntry } from '../types'
 import { BuiltInCommand } from '../types/built-in-cmd'

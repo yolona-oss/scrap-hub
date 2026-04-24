@@ -1,18 +1,18 @@
-import { IUICommandDescriptor } from "@core/ui/types"
-import { BaseUIContext, UiUnicodeSymbols } from "@core/ui"
+import { IUICommandDescriptor } from "../../../ui/types"
+import { BaseUIContext, UiUnicodeSymbols } from "../../../ui"
 import { CBDescriptorCompiler } from "./desc-compiler"
 import { CmdDispatcher } from "./../dispatcher"
 import { CBInterpreter } from "./interpreter"
 import { BuilderMarkuper } from "./builder-markuper"
 import { IBaseMarkup } from "../types/markup"
 import { CBParser } from "./interpreter/parser"
-import { CmdArgumentContextType } from "@core/ui/types/command";
+import { CmdArgumentContextType } from "../../../ui/types/command";
 import { EvaluationResult } from "./ev-result"
-import { unique } from "@core/utils/array"
-import { anyToString } from "@core/utils/misc"
+import { unique } from "../../../utils/array"
+import { anyToString } from "../../../utils/misc"
 import { InterpreterMode } from "./interpreter/interpreter"
 import { BuilderActionSigns } from "./default-callbacks"
-import log from "@core/application/logger"
+import log from "../../../application/logger"
 
 // TODO mark readed args with * start line marker to make it easier to read
 export class CommandBuilder {

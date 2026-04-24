@@ -1,8 +1,8 @@
-import { Account, FilesWrapper, MsgHistory } from '@core/db';
-import { DbModelsEnum } from '@core/db/models-enum';
+import { Account, FilesWrapper, MsgHistory } from '../../db';
+import { DbModelsEnum } from '../../db/models-enum';
 import mongoose, { Schema, Document, Model } from 'mongoose';
 import { IMsgHistory, IMsgHistoryDto } from './messages-history';
-import log from '@logger';
+import log from '../../application/logger';
 
 export interface IManager extends Document {
     userId: number;

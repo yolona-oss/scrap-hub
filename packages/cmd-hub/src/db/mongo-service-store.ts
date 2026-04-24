@@ -1,4 +1,4 @@
-import { Account, Manager } from '@core/db'
+import { Account, Manager } from '../db'
 import type {
     IServiceStore,
     IServiceStoreLoadResult,

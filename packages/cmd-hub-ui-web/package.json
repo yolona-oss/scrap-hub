@@ -1,0 +1,31 @@
+{
+    "name": "@cmd-hub/ui-web",
+    "version": "0.0.1",
+    "main": "./build/src/index.js",
+    "types": "./build/src/index.d.ts",
+    "scripts": {
+        "build": "tsc --build --pretty && cp -r src/public build/src/public",
+        "clean": "rm -rf build",
+        "test": "jest --forceExit --passWithNoTests"
+    },
+    "license": "ISC",
+    "description": "Web (Express + Socket.IO) UI implementation for cmd-hub",
+    "dependencies": {
+        "@cmd-hub/common": "*",
+        "@cmd-hub/core": "*",
+        "@types/cors": "^2.8.17",
+        "@types/express": "^5.0.0",
+        "bcryptjs": "^3.0.3",
+        "cors": "^2.8.5",
+        "express": "^5.0.1",
+        "socket.io": "^4.8.3"
+    },
+    "devDependencies": {
+        "@types/bcryptjs": "^2.4.6",
+        "@types/jest": "^30.0.0",
+        "@types/node": "^20.0.0",
+        "jest": "^30.3.0",
+        "ts-jest": "^29.4.9",
+        "typescript": "^5.7.3"
+    }
+}

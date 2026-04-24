@@ -1,4 +1,4 @@
-import { VALID_ID_BRAND } from "@core/constants/brands"
+import { VALID_ID_BRAND } from "../constants/brands"
 
 /**
  * Interface for objects that have an `id` property.

@@ -1,12 +1,12 @@
-import { CmdArgument, isFunc } from "@core/ui/types/command"
+import { CmdArgument, isFunc } from "../../../ui/types/command"
 import { BuiltInServiceCommandsEnum } from "../constants"
-import { ICmdService } from "@core/ui/types/command"
+import { ICmdService } from "../../../ui/types/command"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdDispatcher } from "../dispatcher"
-import { anyToString } from "@core/utils/misc"
-import { UiUnicodeSymbols } from "@core/ui"
+import { anyToString } from "../../../utils/misc"
+import { UiUnicodeSymbols } from "../../../ui"
 import { CmdArgumentProxy } from "../arg-proxy"
-import { IManager } from "@core/db"
+import { IManager } from "../../../db"
 
 class ServiceStopArgs {
     @CmdArgument({
