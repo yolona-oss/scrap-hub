@@ -1,5 +1,5 @@
-import { GlobalServiceConfig, GlobalServiceParam, GlobalServiceMessages, CmdServiceData } from "@core/ui/types/command/service"
-import { CmdArgument } from "@core/ui"
+import { GlobalServiceConfig, GlobalServiceMessages, CmdServiceData, HubGlobalServiceParam } from "@cmd-hub/core"
+import { CmdArgument } from "@cmd-hub/core"
 import { SourceRegistry } from "../sources/registry"
 import { ExporterRegistry } from "../exporters/registry"
 import { OrgData } from "../types"
@@ -56,7 +56,7 @@ export class ScraperConfigData extends GlobalServiceConfig {
     sources?: string
 }
 
-export class ScraperParamsData extends GlobalServiceParam {
+export class ScraperParamsData extends HubGlobalServiceParam {
 }
 
 export class ScraperMessagesData extends GlobalServiceMessages {

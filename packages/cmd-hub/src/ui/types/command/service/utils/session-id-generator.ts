@@ -1,7 +1,8 @@
-// Retained for Phase 5 (session-autocomplete restoration). These helpers are
-// currently unreferenced because GlobalServiceParam moved to @cmd-hub/common
-// without their pairOptions/validator annotations. Will be re-wired when the
-// hub-side GlobalServiceParam subclass is introduced.
+// Session-autocomplete helpers consumed by `HubGlobalServiceParam`
+// (see ../hub-service-data.ts). `sessionOpts` reads the manager's active
+// session ids via the dispatcher; `sessionOptsWithRand` appends a handful
+// of random ids as "start a new session" shortcuts; `sessionIdValidator`
+// keeps session names alphanumeric-only.
 import { IManager } from "../../../../../db"
 import { ArgOptionValidator, CmdDispatcher } from "../../../../../ui/command-processor"
 import { genRandomString } from "../../../../../utils/random"

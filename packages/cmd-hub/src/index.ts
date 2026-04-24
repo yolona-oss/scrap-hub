@@ -40,8 +40,20 @@ export { LockManager } from './utils/lock-manager'
 
 // Command types & decorators
 export * from './ui/types/command'
-export { BaseCommandService } from './ui/types/command/service'
-export type { CmdServiceData, GlobalServiceConfig, ServiceContext } from './ui/types/command/service'
+export {
+    BaseCommandService,
+    CmdServiceData,
+    GlobalServiceConfig,
+    GlobalServiceParam,
+    GlobalServiceMessages,
+} from './ui/types/command/service'
+export type { ServiceContext } from './ui/types/command/service'
+export { HubGlobalServiceParam } from './ui/types/command/service/hub-service-data'
+export {
+    sessionOpts,
+    sessionOptsWithRand,
+    sessionIdValidator,
+} from './ui/types/command/service/utils/session-id-generator'
 
 // Database
 export { Manager, Account, AccountModule, AccountSession, File, CmdAlias, MsgHistory, DefaultAssets, FilesWrapper, MongoConnect, InvitationLink } from './db'
