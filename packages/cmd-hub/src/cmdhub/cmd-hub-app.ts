@@ -47,7 +47,32 @@ export class CmdHubApp<Cfg = unknown> extends Application<Cfg> {
     }
 
     async run(): Promise<void> {
+        // Propagate federation-level capabilities (ManifestAggregator,
+        // RemoteCmdInvoker, ICmdNodeClient) into each UI's CmdDispatcher
+        // before it starts. Middlewares (Grpc, CmdNodeClient) stashed these
+        // on the app during the Transport/Services phases; UIs don't see
+        // them until now.
+        const aggregator = (this as any)._aggregator
+        const nodeClient = (this as any)._cmdNodeClient
+        const remoteInvoker = (this as any)._remoteInvoker
         for (const ui of this._uis) {
+            const dispatcher = (ui as { dispatcher?: unknown }).dispatcher as
+                | {
+                      attachManifestAggregator?(a: unknown): void
+                      attachRemoteInvoker?(c: unknown): void
+                      attachNodeClient?(c: unknown): void
+                  }
+                | undefined
+            if (dispatcher?.attachManifestAggregator && aggregator) {
+                dispatcher.attachManifestAggregator(aggregator)
+            }
+            if (dispatcher?.attachNodeClient && nodeClient) {
+                dispatcher.attachNodeClient(nodeClient)
+            }
+            if (dispatcher?.attachRemoteInvoker && remoteInvoker) {
+                dispatcher.attachRemoteInvoker(remoteInvoker)
+            }
+
             if (typeof ui.onAppAttach === 'function') {
                 await ui.onAppAttach(this)
             }

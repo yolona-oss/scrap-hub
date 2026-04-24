@@ -77,6 +77,18 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
      *  client + ManifestAggregator are wired. May be null in bootstrap-only
      *  tests that never attach a node. */
     private _remoteInvoker: RemoteCmdInvoker | null = null
+    /** Reference to the federation's ManifestAggregator, populated by
+     *  GrpcServerMiddleware. `toUICommands()` merges aggregated remote
+     *  commands on top of locally-registered built-ins. Null when no
+     *  transport middleware has run yet. */
+    private _manifestAggregator: {
+        listManifests(): Array<{ commands: Array<{ name: string; description: string; args?: unknown[] }> }>
+        configModuleOwners(module: string): string[]
+    } | null = null
+    /** gRPC-backed node client. Used by /config to fan ConfigReload RPCs
+     *  out to every node that declared a module's schema. Null when the
+     *  transport tier isn't wired (bootstrap-only tests). */
+    private _nodeClient: { configReload?(nodeId: string, moduleName: string): Promise<void> } | null = null
     private chain: ICommandHandlerChain<UIContextType>
 
     constructor() {
@@ -96,6 +108,42 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
      *  Application install. */
     attachRemoteInvoker(invoker: RemoteCmdInvoker): void {
         this._remoteInvoker = invoker
+    }
+
+    /** Attach the federation's ManifestAggregator. Called by
+     *  GrpcServerMiddleware during Application install. */
+    attachManifestAggregator(agg: NonNullable<typeof this._manifestAggregator>): void {
+        this._manifestAggregator = agg
+    }
+
+    /** Attach the gRPC-backed node client for cross-node RPCs like
+     *  ConfigReload. Called by CmdNodeClientMiddleware. */
+    attachNodeClient(client: NonNullable<typeof this._nodeClient>): void {
+        this._nodeClient = client
+    }
+
+    /** Fan a `ConfigReload` out to every node that declared the given
+     *  config module. Errors from individual nodes are swallowed (a node
+     *  being offline must not fail the hub-side /config write). Returns
+     *  `{ notified, failed }` for caller reporting.
+     *
+     *  Returns `null` when transport isn't wired — the caller should
+     *  treat that as "nothing to fan out, just persist locally".
+     */
+    async fanoutConfigReload(moduleName: string): Promise<{ notified: number; failed: number } | null> {
+        if (!this._manifestAggregator || !this._nodeClient?.configReload) return null
+        const owners = this._manifestAggregator.configModuleOwners(moduleName)
+        let notified = 0
+        let failed = 0
+        for (const nodeId of owners) {
+            try {
+                await this._nodeClient.configReload(nodeId, moduleName)
+                notified++
+            } catch {
+                failed++
+            }
+        }
+        return { notified, failed }
     }
 
     public async handleCommand(command: string, userText: string, ctx: UIContextType, uiImpl: IUI<UIContextType>): Promise<IHandleResult> {
@@ -474,6 +522,25 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
                 args: cmd_args[i]
             })
         )
+
+        // Merge in remote commands aggregated from connected nodes. Local
+        // built-ins win on name collision (hub-side commands like `/help`
+        // shouldn't get shadowed by a node that happens to declare the
+        // same name).
+        if (this._manifestAggregator) {
+            const localNames = new Set(commands)
+            for (const m of this._manifestAggregator.listManifests()) {
+                for (const c of m.commands) {
+                    if (localNames.has(c.name)) continue
+                    registredCmds.push({
+                        command: c.name,
+                        description: c.description,
+                        args: [],
+                    })
+                    localNames.add(c.name)
+                }
+            }
+        }
 
         return registredCmds
     }

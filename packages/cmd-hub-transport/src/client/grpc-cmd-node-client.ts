@@ -62,6 +62,17 @@ export class GrpcCmdNodeClient implements ICmdNodeClient {
             },
         }
     }
+
+    async configReload(nodeId: string, moduleName: string): Promise<void> {
+        const stub = this.resolver.getChannelFor(nodeId)
+        if (!stub) throw new Error(`no gRPC channel available for node ${nodeId}`)
+        return new Promise<void>((resolve, reject) => {
+            stub.configReload({ nodeId, moduleName }, (err, _res) => {
+                if (err) reject(err)
+                else resolve()
+            })
+        })
+    }
 }
 
 /**

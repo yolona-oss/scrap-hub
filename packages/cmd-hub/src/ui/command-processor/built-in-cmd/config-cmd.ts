@@ -82,6 +82,16 @@ export const ConfigCommand: BuiltInCommand = {
             await ConfigRegistry.set(moduleName, key, value, mod?.scope === 'user' ? userId : undefined)
             const target = mod?.scope === 'bootstrap' ? 'config.json' : 'MongoDB'
             await ctx.reply(`${UiUnicodeSymbols.success} Set ${moduleName}.${key} = "${value}" (saved to ${target})`)
+
+            // Fan the change out to every node that owns this module so
+            // running services pick up the new value without a restart.
+            const fanout = await this.fanoutConfigReload(moduleName)
+            if (fanout && (fanout.notified > 0 || fanout.failed > 0)) {
+                await ctx.reply(
+                    `${UiUnicodeSymbols.info} ConfigReload fan-out: ` +
+                    `${fanout.notified} notified, ${fanout.failed} failed`,
+                )
+            }
             return
         }
 

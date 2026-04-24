@@ -3,6 +3,9 @@
     "version": "1.0.0",
     "main": "./build/src/index.js",
     "types": "./build/src/index.d.ts",
+    "bin": {
+        "cmd-hub": "./build/src/cli/hub-cli.js"
+    },
     "scripts": {
         "build": "tsc --build --pretty",
         "clean": "rm -rf build",

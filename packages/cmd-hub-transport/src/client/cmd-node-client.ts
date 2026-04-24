@@ -12,4 +12,9 @@ export interface InvocationHandle {
 
 export interface ICmdNodeClient {
     invoke(nodeId: string, start: InvokeStart): Promise<InvocationHandle>
+    /** Signal a node to reload a ConfigRegistry module from persistent
+     *  storage. Optional: implementations may return a rejected promise
+     *  (legacy Fake client) when the RPC isn't wired. Hub-side code that
+     *  fans out config changes should swallow errors per-node. */
+    configReload?(nodeId: string, moduleName: string): Promise<void>
 }
