@@ -1,6 +1,4 @@
 import { BaseUIContext, IUI } from "@core/ui/types"
-import { BaseUI } from "@core/ui/base-ui"
-import { BaseCommandService } from "@core/ui/types/command/service"
 import { IMarkupButton } from "../types/markup"
 import { UiUnicodeSymbols } from "@core/ui/ui-unicode-symbols"
 import { ProgressTracker } from "./progress"
@@ -36,15 +34,30 @@ const MAX_MESSAGE_LENGTH = 4090 // Telegram limit is 4096, small margin for safe
 
 export const DASHBOARD_CB_PREFIX = "svc_dash_"
 
-export class ServiceDashboard<Ctx extends BaseUIContext> {
+export type DashboardEvent =
+    | { kind: 'message'; text: string }
+    | { kind: 'error'; text: string }
+    | { kind: 'progress'; name: string; current: number; total: number }
+    | { kind: 'progressStatus'; name: string; status: 'active' | 'done' | 'failed' | 'skipped' }
+    | { kind: 'intercom'; actions: Array<{ id: string; label: string; icon: string }> }
+    | { kind: 'file'; handle: unknown }
+    | { kind: 'done'; finalMessage: string }
+
+export interface DashboardOptions {
+    sendIntercom?: (actionId: string, args: string[]) => Promise<void> | void
+    maxWidth?: number
+}
+
+export class ServiceDashboard<Ctx extends BaseUIContext = BaseUIContext> {
     private channels: Map<ChannelName, DashboardChannel>
     private messageId: string | null = null
     private userId: string
+    private sessionId: string
     private maxWidth: number
     private dirty = false
     private renderTimer: ReturnType<typeof setTimeout> | null = null
     private attached = false
-    private eventHandlers: Map<string, (...args: any[]) => void> = new Map()
+    private terminated = false
 
     /** Progress bar tracker */
     public readonly progress = new ProgressTracker()
@@ -52,14 +65,23 @@ export class ServiceDashboard<Ctx extends BaseUIContext> {
     /** Custom action buttons registered by the service */
     private intercomActions: Array<{ id: string, label: string, icon?: string, args?: string[] }> = []
 
+    /**
+     * Intercom-send callback. Forwards user button clicks (pause/stop/intercom_*)
+     * back to the remote node. Set via DashboardOptions, or assigned directly
+     * by RemoteCmdInvoker once the gRPC handle opens.
+     */
+    public sendIntercom: (actionId: string, args: string[]) => Promise<void> | void
+
     constructor(
         private uiImpl: IUI<Ctx>,
         userId: string,
-        private service: BaseCommandService<any>,
-        maxWidth?: number,
+        sessionId: string,
+        options?: DashboardOptions,
     ) {
         this.userId = userId
-        this.maxWidth = maxWidth ?? uiImpl.max_message_width()
+        this.sessionId = sessionId
+        this.maxWidth = options?.maxWidth ?? uiImpl.max_message_width()
+        this.sendIntercom = options?.sendIntercom ?? (async () => { /* no-op */ })
         this.channels = new Map([
             ['message',  { enabled: true, lines: [], maxLines: 0 }],
             ['error',    { enabled: true, lines: [], maxLines: 0 }],
@@ -77,7 +99,6 @@ export class ServiceDashboard<Ctx extends BaseUIContext> {
     }
 
     async detach(): Promise<void> {
-        this.unbindService()
         if (this.renderTimer) {
             clearTimeout(this.renderTimer)
             this.renderTimer = null
@@ -125,6 +146,8 @@ export class ServiceDashboard<Ctx extends BaseUIContext> {
 
     get isAttached() { return this.attached }
 
+    get SessionId() { return this.sessionId }
+
     toggleChannel(name: ChannelName): void {
         const ch = this.channels.get(name)
         if (ch && name !== 'ctrl') {
@@ -171,58 +194,47 @@ export class ServiceDashboard<Ctx extends BaseUIContext> {
         this.scheduleRender()
     }
 
-    bindService(): void {
-        const onMessage = (msg: string) => this.appendLine('message', msg)
-        const onError = (err: string) => this.appendLine('error', err)
-        const onLog = (logs: string[]) => {
-            for (const l of logs) this.appendLine('log', l)
+    /**
+     * Single event sink. Dispatches each DashboardEvent kind to the
+     * existing internal state mutators. After a `done` event, subsequent
+     * calls are dropped — the dashboard is terminal.
+     */
+    onEvent(e: DashboardEvent): void {
+        if (this.terminated) return
+        switch (e.kind) {
+            case 'message':
+                this.appendLine('message', e.text)
+                return
+            case 'error':
+                this.appendLine('error', e.text)
+                return
+            case 'progress':
+                this.setProgress(e.name, e.current, e.total)
+                return
+            case 'progressStatus':
+                this.setProgressStatus(e.name, e.status)
+                return
+            case 'intercom':
+                this.intercomActions = e.actions.map((a) => ({
+                    id: a.id, label: a.label, icon: a.icon,
+                }))
+                this.scheduleRender()
+                return
+            case 'file':
+                // Dashboard doesn't render files — handled by the caller,
+                // typically the RemoteCmdInvoker or the UI layer.
+                return
+            case 'done':
+                if (e.finalMessage) this.appendLine('message', e.finalMessage)
+                this.appendLine('message', `${UiUnicodeSymbols.success} Service done`)
+                this.terminated = true
+                // Fire-and-forget: render + detach. Do not await — onEvent is sync.
+                void (async () => {
+                    try { await this.renderNow() } catch (_) {}
+                    try { await this.detach() } catch (_) {}
+                })()
+                return
         }
-        const onDone = async (msg?: string) => {
-            if (msg) this.appendLine('message', msg)
-            this.appendLine('message', `${UiUnicodeSymbols.success} Service done`)
-            await this.renderNow()
-            await this.detach()
-        }
-
-        const onProgress = (name: string, current: number, total: number) => {
-            this.setProgress(name, current, total)
-        }
-        const onProgressStatus = (name: string, status: 'active' | 'done' | 'failed' | 'skipped') => {
-            this.setProgressStatus(name, status)
-        }
-
-        const onIntercom = (actions: Array<{ id: string, label: string, icon?: string, args?: string[] }>) => {
-            this.intercomActions = actions
-            this.scheduleRender()
-        }
-
-        this.service.on('message', onMessage)
-        this.service.on('error', onError)
-        this.service.on('liveLog', onLog)
-        this.service.on('done', onDone)
-        this.service.on('progress' as any, onProgress)
-        this.service.on('progressStatus' as any, onProgressStatus)
-        this.service.on('intercom' as any, onIntercom)
-
-        this.eventHandlers.set('message', onMessage)
-        this.eventHandlers.set('error', onError)
-        this.eventHandlers.set('liveLog', onLog)
-        this.eventHandlers.set('done', onDone)
-        this.eventHandlers.set('progress', onProgress)
-        this.eventHandlers.set('progressStatus', onProgressStatus)
-        this.eventHandlers.set('intercom', onIntercom)
-
-        // Load initial intercom actions if already registered
-        if (this.service.intercomActions.length > 0) {
-            this.intercomActions = [...this.service.intercomActions]
-        }
-    }
-
-    unbindService(): void {
-        for (const [event, handler] of this.eventHandlers) {
-            this.service.removeListener(event as any, handler)
-        }
-        this.eventHandlers.clear()
     }
 
     async handleCallback(action: string): Promise<void> {
@@ -233,14 +245,14 @@ export class ServiceDashboard<Ctx extends BaseUIContext> {
             const actionId = action.slice('intercom_'.length)
             const intercom = this.intercomActions.find(a => a.id === actionId)
             if (intercom) {
-                try { await this.service.receiveMsg(actionId, intercom.args ?? []) } catch (_) {}
+                try { await this.sendIntercom(actionId, intercom.args ?? []) } catch (_) {}
             }
         } else if (action === 'pause') {
-            try { await this.service.receiveMsg('pause', []) } catch (_) {}
+            try { await this.sendIntercom('pause', []) } catch (_) {}
         } else if (action === 'resume') {
-            try { await this.service.receiveMsg('resume', []) } catch (_) {}
+            try { await this.sendIntercom('resume', []) } catch (_) {}
         } else if (action === 'stop') {
-            try { await this.service.receiveMsg('stop', []) } catch (_) {}
+            try { await this.sendIntercom('stop', []) } catch (_) {}
         }
     }
 
@@ -275,8 +287,8 @@ export class ServiceDashboard<Ctx extends BaseUIContext> {
     }
 
     private buildText(): string {
-        const header = escapeHtml(`${UiUnicodeSymbols.gear} ${this.service.name} | session: ${this.service.SessionId}`)
-        const sep = '\u2501'.repeat(Math.min(header.length, this.maxWidth))
+        const header = escapeHtml(`${UiUnicodeSymbols.gear} session: ${this.sessionId}`)
+        const sep = '━'.repeat(Math.min(header.length, this.maxWidth))
 
         const fixedPart = `${header}\n${sep}\n`
 

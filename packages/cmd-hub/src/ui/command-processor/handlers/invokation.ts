@@ -12,7 +12,16 @@ export class HandleInvokation<Ctx extends BaseUIContext> extends AbstractCmdHand
         let res: ICmdHandlerResponce|undefined
         try {
             const compiled = await dispatcher.CommandBuilder.compile(userId, command, args.join(' '), uiCtx, dispatcher)
-            res = await dispatcher.CommandInvoker.invoke(userId, compiled.Result, uiCtx, uiImpl)
+            const invoker = dispatcher.RemoteInvoker
+            if (!invoker) {
+                return {
+                    success: false,
+                    markup: {
+                        text: `${UiUnicodeSymbols.error} No remote invoker attached to dispatcher`,
+                    },
+                }
+            }
+            res = await invoker.invokeLegacy(userId, compiled.Result, uiCtx, uiImpl as any)
         } catch (e: any) {
             log.error("Command execution error: " + anyToString(e))
             return {

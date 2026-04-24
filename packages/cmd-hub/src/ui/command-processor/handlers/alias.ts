@@ -29,7 +29,16 @@ export class HandleCommandAlias<Ctx extends BaseUIContext> extends AbstractCmdHa
         }
         try {
             const compiled = await dispatcher.CommandBuilder.compile(request.userId, commandName, commandArg, uiCtx, dispatcher)
-            return await dispatcher.CommandInvoker.invoke(request.userId, compiled.Result, uiCtx, uiImpl)
+            const invoker = dispatcher.RemoteInvoker
+            if (!invoker) {
+                return {
+                    success: false,
+                    markup: {
+                        text: `${UiUnicodeSymbols.error} No remote invoker attached to dispatcher`,
+                    },
+                }
+            }
+            return await invoker.invokeLegacy(request.userId, compiled.Result, uiCtx, uiImpl as any)
         } catch (e: any) {
             log.error("Command execution error: " + anyToString(e))
             return {

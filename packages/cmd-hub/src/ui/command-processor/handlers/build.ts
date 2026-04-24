@@ -62,7 +62,15 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
                 if (uiImpl instanceof BaseUI) {
                     uiImpl.lifecycle.scheduleCleanupByType(userId, 'builder', 5_000)
                 }
-                return await dispatcher.CommandInvoker.invoke(userId, stepRes.Result, ctx, uiImpl)
+                const invoker = dispatcher.RemoteInvoker
+                if (!invoker) {
+                    return {
+                        success: false,
+                        markup: { text: 'No remote invoker attached to dispatcher' },
+                        messageType: 'system' as const,
+                    }
+                }
+                return await invoker.invokeLegacy(userId, stepRes.Result, ctx, uiImpl as any)
             }
 
             if (stepRes.Done) {

@@ -1,6 +1,20 @@
 // Application lifecycle
-export { AppCmdhub } from './cmdhub'
+export { AppCmdhub, CmdHubApp } from './cmdhub'
+export type { IUIWithAttach } from './cmdhub'
 export { Application } from './application'
+
+// Middlewares (distributed)
+export { GrpcServerMiddleware } from './middleware/grpc-server-middleware'
+export type { GrpcServerMiddlewareOptions } from './middleware/grpc-server-middleware'
+export { UploadEndpointMiddleware } from './middleware/upload-endpoint-middleware'
+export { CmdNodeClientMiddleware } from './middleware/cmd-node-client-middleware'
+
+// Remote invoker
+export { RemoteCmdInvoker, protoToDashboardEvent } from './ui/command-processor/remote-invoker'
+export type { RemoteInvokeInput, RemoteInvokeResult, DashboardFactory, DashboardSession } from './ui/command-processor/remote-invoker'
+
+// Dashboard
+export type { DashboardEvent, DashboardOptions } from './ui/command-processor/dashboard'
 
 // Command system
 export { CmdDispatcher } from './ui/command-processor'

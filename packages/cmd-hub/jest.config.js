@@ -9,6 +9,8 @@ module.exports = {
         '^@utils/(.*)$': '<rootDir>/src/utils/$1',
         '^@cmd-hub/common$': '<rootDir>/../cmd-hub-common/src/index.ts',
         '^@cmd-hub/common/(.*)$': '<rootDir>/../cmd-hub-common/src/$1',
+        '^@cmd-hub/transport$': '<rootDir>/../cmd-hub-transport/src/index.ts',
+        '^@cmd-hub/transport/(.*)$': '<rootDir>/../cmd-hub-transport/src/$1',
     },
     transform: {
         '^.+\\.tsx?$': ['ts-jest', {

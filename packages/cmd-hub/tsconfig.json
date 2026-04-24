@@ -19,6 +19,7 @@
         "node_modules"
     ],
     "references": [
-        { "path": "../cmd-hub-common" }
+        { "path": "../cmd-hub-common" },
+        { "path": "../cmd-hub-transport" }
     ]
 }

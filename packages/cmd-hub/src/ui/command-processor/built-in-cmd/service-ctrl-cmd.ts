@@ -61,8 +61,13 @@ const ServiceRunCommand: BuiltInCommand = {
         const serviceName = args.getOrThrow('service')
 
         try {
-            const res = await this.CommandInvoker.invoke(userId, {command: serviceName, proxy: new CmdArgumentProxy([]), raw: []}, ctx, uiImpl)
-            await ctx.reply(`${UiUnicodeSymbols.success} Service "${serviceName}" started: ${res}`)
+            const invoker = this.RemoteInvoker
+            if (!invoker) {
+                await ctx.reply(`${UiUnicodeSymbols.error} No remote invoker attached.`)
+                return
+            }
+            const res = await invoker.invokeLegacy(userId, {command: serviceName, proxy: new CmdArgumentProxy([]), raw: []}, ctx, uiImpl as any)
+            await ctx.reply(`${UiUnicodeSymbols.success} Service "${serviceName}" started: ${JSON.stringify(res)}`)
         } catch (e: any) {
             await ctx.reply(`Service ${serviceName} termination error: ${anyToString(e)}.`)
         }

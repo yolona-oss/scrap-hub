@@ -57,7 +57,7 @@ import {
 import 'reflect-metadata'
 
 import { BuiltInCommandNames, toRegister } from "./built-in-cmd";
-import { CommandInvoker } from "./invoker"
+import { RemoteCmdInvoker } from "./remote-invoker"
 import { IUI, UiUnicodeSymbols } from "@core/ui";
 import { HandleCommandAlias } from "./handlers/alias";
 import { ICommandHandlerChain } from "./handlers/abstract-handler";
@@ -73,7 +73,10 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
      * because it will be initialized in this.done() */
     private sequenceHandler!: CommandSequenceHandler
     private cmdBuilder: CommandBuilder
-    private cmdInvoker: CommandInvoker<UIContextType>
+    /** RemoteCmdInvoker is injected by CmdNodeClientMiddleware once the gRPC
+     *  client + ManifestAggregator are wired. May be null in bootstrap-only
+     *  tests that never attach a node. */
+    private _remoteInvoker: RemoteCmdInvoker | null = null
     private chain: ICommandHandlerChain<UIContextType>
 
     constructor() {
@@ -82,12 +85,17 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         this.cmd_registry = new Map()
         this.active_services = new Map()
         this.cmdBuilder = new CommandBuilder()
-        this.cmdInvoker = new CommandInvoker(this)
 
         this.chain.use(new HandleCommandAlias<UIContextType>)
         this.chain.use(new HandleCmdBuilder<UIContextType>)
         this.chain.use(new HandleSequenceCommand<UIContextType>)
         this.chain.use(new HandleInvokation<UIContextType>)
+    }
+
+    /** Attach the gRPC-backed invoker. Called by CmdNodeClientMiddleware during
+     *  Application install. */
+    attachRemoteInvoker(invoker: RemoteCmdInvoker): void {
+        this._remoteInvoker = invoker
     }
 
     public async handleCommand(command: string, userText: string, ctx: UIContextType, uiImpl: IUI<UIContextType>): Promise<IHandleResult> {
@@ -307,8 +315,17 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         return this.cmd_registry.has(command)
     }
 
-    get CommandInvoker() {
-        return this.cmdInvoker
+    /**
+     * Returns the remote command invoker. Consumers must null-check — the
+     * invoker is injected by CmdNodeClientMiddleware and will be absent in
+     * tests that don't wire the distributed stack.
+     */
+    get CommandInvoker(): RemoteCmdInvoker | null {
+        return this._remoteInvoker
+    }
+
+    get RemoteInvoker(): RemoteCmdInvoker | null {
+        return this._remoteInvoker
     }
 
     get SequenceHandler() {
