@@ -1,17 +1,37 @@
-import { Application } from "@core/application";
+import { Application, MongoMiddleware, ApplicationOptions } from "@cmd-hub/common";
 import { getInitialConfig } from "@core/config";
-import { BaseUIContext, IUI } from "@core/ui";
+import { IUI } from "@core/ui";
 
 import log from '@logger';
+import { z } from 'zod';
 
 import { clearScreen } from '@utils/console'
 import { FIGLET_LOGO, WELCOME_TEXT } from '@core/constants'
 import { BaseCommandService } from "@core/ui/types/command/service";
 import { MongoServiceStore } from "@core/db/mongo-service-store";
 
-export class AppCmdhub extends Application<BaseUIContext> {
-    constructor(ui: IUI<any>) {
-        super("cmdhub", ui)
+// TODO(phase-4): tighten this schema to describe the actual hub config shape.
+const HUB_CONFIG_SCHEMA = z.object({}).passthrough()
+
+type HubConfig = z.infer<typeof HUB_CONFIG_SCHEMA> & {
+    mongo?: { url: string; migrateConfigRegistry?: boolean }
+}
+
+export interface AppCmdhubOptions extends Omit<ApplicationOptions<HubConfig>, 'baseSchema'> {
+    baseSchema?: ApplicationOptions<HubConfig>['baseSchema']
+}
+
+export class AppCmdhub extends Application<HubConfig> {
+    public readonly ui: IUI<any>
+
+    constructor(opts: AppCmdhubOptions, ui: IUI<any>) {
+        super({
+            configPath: opts.configPath,
+            baseSchema: opts.baseSchema ?? HUB_CONFIG_SCHEMA,
+            inlineConfig: opts.inlineConfig,
+            name: opts.name ?? 'cmdhub',
+        })
+        this.ui = ui
     }
 
     private printCommands() {
@@ -43,6 +63,10 @@ export class AppCmdhub extends Application<BaseUIContext> {
     }
 
     async Initialize(): Promise<void> {
+        // Register MongoMiddleware so mongo connects during Storage phase
+        // before BaseCommandService.setStore(MongoServiceStore) is called below.
+        this.use(new MongoMiddleware())
+
         await super.Initialize()
 
         BaseCommandService.setStore(new MongoServiceStore())
@@ -55,14 +79,34 @@ export class AppCmdhub extends Application<BaseUIContext> {
             log.error("Application with same UI already running")
             process.exit(-1)
         }
-
-        super.setInitialized()
     }
 
     async run(): Promise<void> {
-        await super.run()
+        if (!this.isInitialized()) {
+            log.error("Application. Incorrect implementations of Initialize(). Not setInitialized() called.")
+            process.exit(-1)
+        }
+
+        try {
+            log.info("Application::run() ui running...")
+            await this.ui.run()
+            log.info("Application::run() processing...")
+        } catch (e: any) {
+            log.error("Application::run() failed ui start:", e)
+            log.error("Force terminating.")
+            await this.terminate()
+        }
 
         this.printBanner()
         this.printCommands()
+    }
+
+    async terminate(): Promise<void> {
+        if (this.ui.isRunning()) {
+            await this.ui.terminate()
+        } else {
+            log.info("AppCmdhub::terminate() UI not running")
+        }
+        await super.terminate()
     }
 }
