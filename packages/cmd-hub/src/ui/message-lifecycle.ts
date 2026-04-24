@@ -2,8 +2,9 @@ import { BaseUIContext } from "./types/context"
 import { IUI } from "./types/ui"
 import { PendingDelete } from "@core/db"
 import log from "@logger"
+import type { MessageType } from '@cmd-hub/common'
 
-export type MessageType = 'builder' | 'dashboard' | 'system' | 'result'
+export type { MessageType }
 
 interface TrackedMessage {
     messageId: string

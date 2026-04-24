@@ -1,51 +1,42 @@
-import { CommandArgumentKeyHolder } from './meta'
+// Argument authoring primitives live in @cmd-hub/common. This barrel stays as
+// a compatibility shim so existing `@core/ui/types/command/argument` imports
+// keep resolving. `option` keeps its own runtime helper (`exposeCmdArgumentOptions`)
+// locally, so re-export it explicitly to preserve name-shadowing over the
+// common re-exports.
 
-/**
- * @description Command argument definition
- *
- * use this notation: 
- * class CommandEchoArgs {
- *     @CmdArgument({
- *         required: true,
- *         description: "Message to echo",
- *     })
- *     echo?: string
- * }
- *
- * const EchoCommand = {
- *      command: 'echo',
- *      args: new CommandEchoArgs
- *      exec: async function(args: ..., ctx: UIContext) {
- *          ctx.reply(args.echo)
- *      }
- * }
- */
-export type ICmdArgumentDefinition = CommandArgumentKeyHolder
-/** @deprecated Use ICmdArgumentDefinition */
-export type ICmdArgumentDefenition = ICmdArgumentDefinition
+// Values (functions, const symbols).
+export {
+    encodePositionalName,
+    decodePositionalName,
+    validateArgumentDescriptor,
+    getArgumentDescType,
+    isArgumentDescStandalone,
+    isArgumentDescPositional,
+    isArgumentDescPair,
+    compileArgumentFromDesc,
+    CmdArgument,
+    getCmdArgMetadata,
+    COMMAND_ARG_DESC_KEY,
+} from '@cmd-hub/common'
 
-export function encodePositionalName(name: string, position: number) {
-    if (!Number.isInteger(position) || position <= 0) {
-        throw new Error("Position must be a number")
-    }
-    if (name.trim().length == 0) {
-        throw new Error("Name must be a string")
-    }
-    return `positional-${position}-${name}`
-}
+// Types. `isolatedModules` requires `export type` for type-only re-exports.
+export type {
+    CmdArgumentContextType,
+    ArgumentDescriptorType,
+    IArgumentDescriptor,
+    IArgumentCompiled,
+    IArgumentIdent,
+    CmdArgumentMetadataRaw,
+    CmdArgumentMetadataDef,
+    CommandMetadata,
+    CommandArgumentKeyHolder,
+    ICmdArgumentDefinition,
+    ICmdArgumentDefenition,
+} from '@cmd-hub/common'
 
-export function decodePositionalName(input: string) {
-    const constSkip = 'positional-'.length
-    const position = parseInt(input.slice(constSkip).slice(0, input.indexOf('-')))
-    const name = String(input.slice(input.indexOf('-', constSkip) + 1))
-
-    return {
-        position,
-        name
-    }
-}
-
-export * from './descriptor'
-export * from './context'
+// `./option` re-exports the option TYPES (`CmdArgumentOptionSetter`,
+// `CmdArgumentPairOptionsType`) along with the runtime `exposeCmdArgumentOptions`
+// and type guards (`isOptionSetterFunc`, `isOptionSetterString`). Using the
+// namespace barrel keeps the argument package's public surface identical to
+// the old monolith.
 export * from './option'
-export * from './meta'

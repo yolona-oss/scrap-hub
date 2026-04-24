@@ -4,7 +4,7 @@ import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
 import { CmdArgument } from "@core/ui/types/command"
 import { UiUnicodeSymbols } from "@core/ui"
-import { Account, Manager } from "@core/db"
+import { Account, Manager, IManager } from "@core/db"
 import { TableDesigner } from "@core/utils/table-designer"
 
 class SInfoArgs {
@@ -12,10 +12,10 @@ class SInfoArgs {
         required: false,
         position: 1,
         description: "Service name",
-        pairOptions: async (_, handler, owner) => {
+        pairOptions: async (_: string, handler: CmdDispatcher<any>, owner: IManager) => {
             return handler.UserActiveServices(String(owner.userId)).map(s => s.name)
                 .concat(handler.getRegistredServiceNames())
-                .filter((v, i, a) => a.indexOf(v) === i) // unique
+                .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i) // unique
         }
     })
     service?: string

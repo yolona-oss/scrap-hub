@@ -1,4 +1,4 @@
-import { BaseUIContext, IUICommand } from "@core/ui/types";
+import { IUICommand } from "@core/ui/types";
 
 import { TgContext } from "./context";
 import { TelegramUI } from "../telegram-ui";
@@ -9,6 +9,6 @@ import { CmdArgumentProxy } from "@core/ui/command-processor/arg-proxy";
 export type TextContext = NarrowedContext<TgContext, Types.MountMap['text']>;
 
 // SAME ICSUE AS WITH BUILT-IN-COMMAND
-export interface TgCommand<Ctx extends BaseUIContext = BaseUIContext> extends IUICommand {
+export interface TgCommand<Ctx extends TgContext = TgContext> extends IUICommand {
     invokable: (this: TelegramUI, args: CmdArgumentProxy, ctx: Ctx) => Promise<void>;
 }

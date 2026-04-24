@@ -6,13 +6,14 @@ import { CmdDispatcher } from "../dispatcher"
 import { anyToString } from "@core/utils/misc"
 import { UiUnicodeSymbols } from "@core/ui"
 import { CmdArgumentProxy } from "../arg-proxy"
+import { IManager } from "@core/db"
 
 class ServiceStopArgs {
     @CmdArgument({
         required: true,
         position: 1,
         description: "Service name to stop",
-        pairOptions: async (_, handler, owner) => {
+        pairOptions: async (_: string, handler: CmdDispatcher<any>, owner: IManager) => {
             return handler.ActiveServices.get(String(owner.userId))?.map(s => s.name) ?? []
         }
     })
@@ -76,7 +77,7 @@ class ServiceSendMsgArgs {
         required: true,
         position: 1,
         description: "Service name to send message",
-        pairOptions: async function(_, dispatcher, owner): Promise<string[]> {
+        pairOptions: async function(_: string, dispatcher: CmdDispatcher<any>, owner: IManager): Promise<string[]> {
             return dispatcher.UserActiveServices(String(owner.userId)).map(s => s.name)
         }
     })

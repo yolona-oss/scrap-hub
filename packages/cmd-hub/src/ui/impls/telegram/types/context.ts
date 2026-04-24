@@ -5,10 +5,10 @@ import { AvailableUIsEnum } from "../..";
 import { NarrowedContext, Context, Types } from "telegraf";
 import { CallbackQuery, Update } from "telegraf/typings/core/types/typegram";
 
-export interface TgContext extends NarrowedContext<Context, Update>, BaseUIContext {
+export interface TgContext extends NarrowedContext<Context, Update>, BaseUIContext<IManager & { userId: number | string }> {
     type: AvailableUIsEnum.Telegram
 
-    manager: IManager
+    manager: IManager & { userId: number | string }
     text: string
     reply: (...args: any[]) => Promise<any>
 }

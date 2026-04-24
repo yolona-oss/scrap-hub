@@ -6,6 +6,8 @@ import log from '@logger';
 
 import { clearScreen } from '@utils/console'
 import { FIGLET_LOGO, WELCOME_TEXT } from '@core/constants'
+import { BaseCommandService } from "@core/ui/types/command/service";
+import { MongoServiceStore } from "@core/db/mongo-service-store";
 
 export class AppCmdhub extends Application<BaseUIContext> {
     constructor(ui: IUI<any>) {
@@ -42,6 +44,8 @@ export class AppCmdhub extends Application<BaseUIContext> {
 
     async Initialize(): Promise<void> {
         await super.Initialize()
+
+        BaseCommandService.setStore(new MongoServiceStore())
 
         log.info(`Initializing Application with UI: ${this.ui.ContextType()}...`)
 

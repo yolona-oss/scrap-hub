@@ -2,7 +2,7 @@ import { IManager } from "@core/db";
 import { BaseUIContext } from "@core/ui";
 import { AvailableUIsEnum } from "@core/ui";
 
-export interface CLIContext extends BaseUIContext {
+export interface CLIContext extends BaseUIContext<IManager & { userId: number|string }> {
     type: AvailableUIsEnum.CLI;
     manager: IManager & { userId: number|string }
     userSession: {

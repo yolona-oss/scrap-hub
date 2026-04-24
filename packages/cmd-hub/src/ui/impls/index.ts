@@ -1,4 +1,4 @@
-export type AvailableUIsType = "telegram" | "cli" | "web" | (string & {})
+export type { AvailableUIsType } from '@cmd-hub/common'
 
 export const enum AvailableUIsEnum {
     Telegram = "telegram",

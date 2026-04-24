@@ -1,21 +1,24 @@
-// TODO some how create argument selection context for saveing prev selected arg to set next arg in one command.
-//      e.g. for command set variable: set service_123 var1 path_to_some __jopa__. if pipe service name to next option selection we can asses to service config scope.
+// Runtime option-setter helper + narrowed type aliases.
+// The generic `CmdArgumentOptionSetterGeneric` lives in @cmd-hub/common;
+// cmd-hub re-exports it narrowed so decorators authored on the hub side get
+// full dispatcher / manager inference without annotating every callback.
 
+import type { CmdArgumentOptionSetterGeneric, CmdArgumentPairOptionsType as CommonPair } from "@cmd-hub/common"
+import {
+    isOptionSetterFunc as commonIsOptionSetterFunc,
+    isOptionSetterString,
+} from "@cmd-hub/common"
 import { IManager } from "@core/db"
 import { BaseUIContext } from "@core/ui"
 import { CmdDispatcher } from "@core/ui/command-processor"
 
-type SetterPattern = (...args: any[]) => Promise<string[]>
-export type CmdArgumentOptionSetter = (cmdName: string, dispatcher: CmdDispatcher<any>, manager: IManager) => Promise<string[]>
-export type CmdArgumentPairOptionsType<OptionsSetter extends SetterPattern = CmdArgumentOptionSetter> = string[]|OptionsSetter
+export type CmdArgumentOptionSetter = CmdArgumentOptionSetterGeneric<CmdDispatcher<any>, IManager>
+export type CmdArgumentPairOptionsType<
+    OptionsSetter extends (...args: any[]) => Promise<string[]> = CmdArgumentOptionSetter,
+> = CommonPair<OptionsSetter>
 
-export function isOptionSetterFunc<OptionsSetter extends SetterPattern = CmdArgumentOptionSetter>(options: CmdArgumentPairOptionsType<OptionsSetter>): options is OptionsSetter {
-    return typeof options === 'function'
-}
-
-export function isOptionSetterString(options: CmdArgumentPairOptionsType): options is string[] {
-    return Array.isArray(options)
-}
+export const isOptionSetterFunc = commonIsOptionSetterFunc
+export { isOptionSetterString }
 
 export async function exposeCmdArgumentOptions<CtxType extends BaseUIContext = any>(
     cmdName: string,

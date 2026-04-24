@@ -1,3 +1,7 @@
+// Retained for Phase 5 (session-autocomplete restoration). These helpers are
+// currently unreferenced because GlobalServiceParam moved to @cmd-hub/common
+// without their pairOptions/validator annotations. Will be re-wired when the
+// hub-side GlobalServiceParam subclass is introduced.
 import { IManager } from "@core/db"
 import { ArgOptionValidator, CmdDispatcher } from "@core/ui/command-processor"
 import { genRandomString } from "@core/utils/random"

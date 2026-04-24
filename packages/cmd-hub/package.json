@@ -14,6 +14,7 @@
     "license": "ISC",
     "description": "Command-driven bot framework with pluggable UI system",
     "dependencies": {
+        "@cmd-hub/common": "*",
         "@grpc/grpc-js": "^1.14.3",
         "@types/async-lock": "^1.4.2",
         "@types/cors": "^2.8.17",
