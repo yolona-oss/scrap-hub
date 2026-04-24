@@ -1,0 +1,37 @@
+{
+    "name": "@cmd-hub/transport",
+    "version": "0.0.1",
+    "main": "./build/src/index.js",
+    "types": "./build/src/index.d.ts",
+    "scripts": {
+        "build": "tsc --build --pretty",
+        "clean": "rm -rf build",
+        "test": "jest --forceExit --passWithNoTests",
+        "gen-proto": "bash scripts/gen-proto.sh"
+    },
+    "license": "ISC",
+    "description": "cmd-hub distributed primitives: protobuf, registry, pool, FileService, gRPC, mTLS",
+    "dependencies": {
+        "@cmd-hub/common": "*",
+        "@grpc/grpc-js": "^1.10.0",
+        "bcryptjs": "^3.0.3",
+        "express": "^5.0.1",
+        "mongoose": "^8.9.5",
+        "node-forge": "^1.4.0"
+    },
+    "devDependencies": {
+        "@types/bcryptjs": "^2.4.6",
+        "@types/express": "^5.0.0",
+        "@types/jest": "^30.0.0",
+        "@types/node": "^20.0.0",
+        "@types/node-forge": "^1.3.14",
+        "@types/supertest": "^7.2.0",
+        "grpc-tools": "^1.13.1",
+        "jest": "^30.3.0",
+        "mongodb-memory-server": "^10.4.3",
+        "supertest": "^7.2.2",
+        "ts-jest": "^29.4.9",
+        "ts-proto": "^2.11.6",
+        "typescript": "^5.7.3"
+    }
+}
