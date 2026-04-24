@@ -9,6 +9,7 @@ jest.mock('https-proxy-agent', () => ({
 }), { virtual: true })
 
 import { ProxyMiddleware } from '../proxy-middleware'
+import { CAP_HttpAgent } from '../capabilities'
 import { Application } from '../../application/application'
 import { z } from 'zod'
 
@@ -23,7 +24,7 @@ describe('ProxyMiddleware', () => {
             inlineConfig: { proxy: { socks: 'socks5://127.0.0.1:1080', https: null } },
         }).use(new ProxyMiddleware())
         await app.Initialize()
-        expect(app.context?.httpAgent).toBeDefined()
+        expect(app.get(CAP_HttpAgent)).toBeDefined()
         await app.terminate()
     })
 
@@ -33,7 +34,7 @@ describe('ProxyMiddleware', () => {
             inlineConfig: { proxy: { socks: null, https: null } },
         }).use(new ProxyMiddleware())
         await app.Initialize()
-        expect(app.context?.httpAgent).toBeUndefined()
+        expect(app.get(CAP_HttpAgent)).toBeUndefined()
         await app.terminate()
     })
 })

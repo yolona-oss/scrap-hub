@@ -1,6 +1,12 @@
 import * as grpc from '@grpc/grpc-js'
 import { z } from 'zod'
-import { IAppMiddleware, ConfigContributor, Phase, AppLike } from '@cmd-hub/common'
+import {
+    IAppMiddleware,
+    ConfigContributor,
+    Phase,
+    AppLike,
+    readConfigSlice,
+} from '@cmd-hub/common'
 import { HubClient, IHubServiceClient } from '../runtime/hub-client'
 import { MetricsCollector } from '../manifest/metrics-collector'
 import {
@@ -63,7 +69,7 @@ export class HubClientMiddleware implements IAppMiddleware, ConfigContributor {
     constructor(private readonly opts: HubClientMiddlewareOptions = {}) {}
 
     async install(app: AppLike): Promise<void> {
-        const cfg = (app.config as { hub: HubConfig }).hub
+        const cfg = readConfigSlice(app, this)
         const listenAddress = app.get(CAP_NodeInvokeBoundAddress) ?? ''
         const manifest = app.get(CAP_NodeManifest)
         if (!manifest) {

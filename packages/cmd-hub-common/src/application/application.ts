@@ -36,7 +36,10 @@ export abstract class Application<Cfg = unknown>
     private _isRunning: boolean = false
     private _isInited: boolean = false
     public readonly id: string
-    public readonly config!: Cfg
+    private _config!: Cfg
+    public get config(): Cfg {
+        return this._config
+    }
 
     /** Shared mutable bag — the underlying storage for the typed capability
      *  registry (`provide` / `get` / `revoke` / `has`). Prefer those over
@@ -47,23 +50,24 @@ export abstract class Application<Cfg = unknown>
     /** Publish a capability under a typed key. Idempotent — later calls
      *  overwrite. Middlewares should call this from `install()`. */
     provide<V>(key: CapabilityKey<V>, value: V): void {
-        this.context[key as unknown as string] = value
+        this.context[key] = value
     }
 
     /** Retrieve a capability. Returns `undefined` when the key was never
      *  provided (or was revoked). */
     get<V>(key: CapabilityKey<V>): V | undefined {
-        return this.context[key as unknown as string] as V | undefined
+        const raw = this.context[key]
+        return raw === undefined ? undefined : (raw as V)
     }
 
     /** Remove a capability. Idempotent. */
     revoke<V>(key: CapabilityKey<V>): void {
-        delete this.context[key as unknown as string]
+        delete this.context[key]
     }
 
     /** True when the capability is currently provided. */
     has<V>(key: CapabilityKey<V>): boolean {
-        return (key as unknown as string) in this.context
+        return key in this.context
     }
 
     protected readonly lockManager: LockManager = new LockManager(`./.lock`)
@@ -137,13 +141,14 @@ export abstract class Application<Cfg = unknown>
         }
 
         // 3. Validate + assign.
-        const parsed = mergedSchema.parse(raw)
-        ;(this as unknown as { config: Cfg }).config = parsed as Cfg
+        const parsed = mergedSchema.parse(raw) as Cfg
+        this._config = parsed
 
         // 3a. Apply post-bootstrap logger config. If the validated config
         //     carries a `log` namespace (subclass-contributed), those values
         //     override the env-var bootstrap defaults. Any field is optional.
-        const logSlice = (parsed as { log?: { level?: string; toFile?: boolean } } | null)?.log
+        interface LogSlice { log?: { level?: string; toFile?: boolean } }
+        const logSlice = (parsed as LogSlice | null | undefined)?.log
         if (logSlice && typeof logSlice === 'object') {
             log.configure({ level: logSlice.level, toFile: logSlice.toFile })
         }
@@ -254,7 +259,7 @@ export abstract class Application<Cfg = unknown>
         const sorted = [...this._middlewares].sort((a, b) => a.phase - b.phase)
         this._installedMiddlewares = []
         for (const mw of sorted) {
-            await mw.install(this as unknown as AppLike)
+            await mw.install(this)
             this._installedMiddlewares.push(mw)
         }
     }
@@ -265,7 +270,7 @@ export abstract class Application<Cfg = unknown>
         for (const mw of reverse) {
             if (mw.uninstall) {
                 try {
-                    await mw.uninstall(this as unknown as AppLike)
+                    await mw.uninstall(this)
                 } catch (e) {
                     log.error("Application::uninstall middleware teardown failed:", e)
                 }

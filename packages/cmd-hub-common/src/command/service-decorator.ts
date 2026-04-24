@@ -2,17 +2,18 @@ import 'reflect-metadata'
 
 const META_KEY = Symbol.for('cmd-hub.CmdService')
 
+/** Zero-arg data-class constructor for the config/params/messages buckets
+ *  declared on `@CmdService`. Instances are mutated by CommandArgumentHolder. */
+export type CmdDataClass = new () => object
+
 export interface CmdServiceMeta {
     name: string
     description: string
     compatibilityId: string
     version: string
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: new (...args: any[]) => any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    params: new (...args: any[]) => any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    messages: new (...args: any[]) => any
+    config: CmdDataClass
+    params: CmdDataClass
+    messages: CmdDataClass
 }
 
 function assertMeta(meta: CmdServiceMeta): void {
@@ -35,7 +36,6 @@ export function CmdService(meta: CmdServiceMeta): ClassDecorator {
     }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getCmdServiceMeta(cls: any): CmdServiceMeta | null {
+export function getCmdServiceMeta(cls: object): CmdServiceMeta | null {
     return Reflect.getMetadata(META_KEY, cls) ?? null
 }

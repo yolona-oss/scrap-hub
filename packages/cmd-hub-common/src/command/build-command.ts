@@ -1,4 +1,4 @@
-import { getCmdArgMetadata } from './argument-decorator'
+import { CmdArgumentMetadataRaw, getCmdArgMetadata } from './argument-decorator'
 import { getCmdServiceMeta } from './service-decorator'
 
 export interface ProtoArgSpec {
@@ -21,21 +21,20 @@ export interface ProtoCommand {
     aliases: string[]
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function buildCommandFromDecorator(ServiceClass: any): ProtoCommand {
+/** Any class value — we only read decorator metadata off it, never instantiate. */
+export type DecoratableServiceClass = Function // eslint-disable-line @typescript-eslint/no-unsafe-function-type
+
+export function buildCommandFromDecorator(ServiceClass: DecoratableServiceClass): ProtoCommand {
     const meta = getCmdServiceMeta(ServiceClass)
     if (!meta) {
-        const label = ServiceClass?.name ?? '(anon)'
-        throw new Error(`buildCommandFromDecorator: ${label} is not decorated with @CmdService`)
+        throw new Error(`buildCommandFromDecorator: ${ServiceClass.name || '(anon)'} is not decorated with @CmdService`)
     }
 
     const args: ProtoArgSpec[] = []
     for (const DataCls of [meta.config, meta.params, meta.messages]) {
         const instance = new DataCls()
-        const fields = getCmdArgMetadata(instance)
-        for (const name of Object.keys(fields)) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const f = (fields as any)[name]
+        const fields: Record<string, CmdArgumentMetadataRaw> = getCmdArgMetadata(instance)
+        for (const [name, f] of Object.entries(fields)) {
             const pairOptions = Array.isArray(f.pairOptions) ? f.pairOptions : []
             args.push({
                 name,

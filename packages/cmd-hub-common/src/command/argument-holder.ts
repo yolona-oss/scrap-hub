@@ -10,24 +10,22 @@ export class CommandArgumentHolder {
      * when declared.
      */
     static fromMap<T extends object>(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        Cls: new (...args: any[]) => T,
+        Cls: new () => T,
         args: Record<string, string>,
     ): T {
         const instance = new Cls()
+        const assignable = instance as Record<string, string>
         const meta = getCmdArgMetadata<T>(instance)
         for (const key of Object.keys(meta) as (keyof T)[]) {
             const spec = meta[key]
             const name = String(key)
             const raw = args[name]
             if (raw !== undefined) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ;(instance as any)[name] = raw
+                assignable[name] = raw
             } else if (spec.required) {
                 throw new Error(`${Cls.name}.${name} is required`)
             } else if (spec.defaultValue !== undefined) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ;(instance as any)[name] = spec.defaultValue
+                assignable[name] = spec.defaultValue
             }
         }
         return instance

@@ -1,7 +1,18 @@
 import mongoose from 'mongoose'
 import { z } from 'zod'
-import { IAppMiddleware, ConfigContributor, AppLike } from '../application/middleware-types'
+import {
+    IAppMiddleware,
+    ConfigContributor,
+    AppLike,
+    readConfigSlice,
+} from '../application/middleware-types'
 import { Phase } from '../application/phase'
+
+/** Shape of `@cmd-hub/core` that MongoMiddleware cares about. Lazy-required;
+ *  unavailable in pure-common environments (e.g. node-only deployments). */
+interface CoreModuleShape {
+    ConfigRegistry?: { migrateToMongoDB?: () => Promise<void> }
+}
 
 /**
  * Connects mongoose during the Storage phase; disconnects on uninstall.
@@ -22,19 +33,19 @@ export class MongoMiddleware implements IAppMiddleware, ConfigContributor {
     })
 
     async install(app: AppLike): Promise<void> {
-        const cfg = (app.config as { mongo: { url: string; migrateConfigRegistry: boolean } }).mongo
+        const cfg = readConfigSlice(app, this)
         await mongoose.connect(cfg.url)
         if (cfg.migrateConfigRegistry) {
-            type CoreShape = { ConfigRegistry?: { migrateToMongoDB?: () => Promise<void> } }
-            let core: CoreShape | null = null
+            let core: CoreModuleShape | null = null
             try {
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
-                core = require('@cmd-hub/core') as CoreShape
-            } catch (e) {
+                core = require('@cmd-hub/core') as CoreModuleShape
+            } catch (e: unknown) {
                 // Swallow ONLY the not-installed case. Any other require error
                 // (parse error, peer-dep missing, etc.) is a real bug and must
                 // surface.
-                if ((e as NodeJS.ErrnoException)?.code !== 'MODULE_NOT_FOUND') {
+                const errno = e as NodeJS.ErrnoException | null
+                if (errno?.code !== 'MODULE_NOT_FOUND') {
                     throw e
                 }
             }

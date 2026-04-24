@@ -19,6 +19,7 @@ import { InlineKeyboardButton } from 'telegraf/typings/core/types/typegram'
 import { UiUnicodeSymbols, handleCalibrationCallback } from '@cmd-hub/core'
 import type { IMsgHistoryDto, MessageOptions } from '@cmd-hub/core'
 import { z } from 'zod'
+import { readConfigSlice, type AppLike } from '@cmd-hub/common'
 
 /** Telegram-specific adapter: turn a TgContext into the common
  *  message-history DTO. Inlined here because cmd-hub's db schema
@@ -95,18 +96,9 @@ export class TelegramUI extends BaseUI<TgContext> {
      * from config.telegram.botToken and the CmdDispatcher (every UI owns
      * its own dispatcher; they don't share one).
      */
-    async onAppAttach(app: {
-        config: unknown
-    }): Promise<void> {
+    async onAppAttach(app: AppLike): Promise<void> {
         if (!this.bot) {
-            const cfg = (app.config as { telegram?: { botToken: string } }).telegram
-            if (!cfg?.botToken) {
-                throw new Error(
-                    'TelegramUI.onAppAttach: config.telegram.botToken is required — ' +
-                    'register the UI with `.useUI(new TelegramUI())` and ensure the ' +
-                    'config slice validates.',
-                )
-            }
+            const cfg = readConfigSlice(app, this)
             this.bot = new telegraf.Telegraf<TgContext>(cfg.botToken)
         }
         if (!this.dispatcher) {

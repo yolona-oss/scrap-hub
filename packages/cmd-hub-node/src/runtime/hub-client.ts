@@ -10,7 +10,10 @@ type NodeManifest = CmdHubProto.NodeManifest
 
 /**
  * Minimal surface of the generated `CmdHubServiceClient` the node runtime needs.
- * Tests swap this out for an in-process fake.
+ * Tests swap this out for an in-process fake. The runtime uses only the single
+ * 3-arg `register` and 1-arg `heartbeat` overloads; fakes only need to satisfy
+ * those. The concrete generated client has extra overloads but is structurally
+ * compatible when wrapped in `makeHubClientFromGenerated`.
  */
 export interface IHubServiceClient {
     register(
@@ -20,6 +23,16 @@ export interface IHubServiceClient {
     ): grpc.ClientUnaryCall
     heartbeat(metadata: grpc.Metadata): grpc.ClientDuplexStream<HeartbeatClient, HeartbeatServer>
     close(): void
+}
+
+/** Adapts the generated `CmdHubServiceClient` (which has overloaded register/heartbeat)
+ *  to the single-signature `IHubServiceClient` shape used by the runtime. */
+function wrapGeneratedClient(raw: CmdHubProto.CmdHubServiceClient): IHubServiceClient {
+    return {
+        register: (req, md, cb) => raw.register(req, md, cb),
+        heartbeat: (md) => raw.heartbeat(md),
+        close: () => raw.close(),
+    }
 }
 
 export interface HubClientOptions {
@@ -70,10 +83,9 @@ export class HubClient {
             this.ownsClient = false
         } else {
             const creds = opts.credentials ?? grpc.credentials.createInsecure()
-            this.client = new CmdHubProto.CmdHubServiceClient(
-                opts.address,
-                creds,
-            ) as unknown as IHubServiceClient
+            this.client = wrapGeneratedClient(
+                new CmdHubProto.CmdHubServiceClient(opts.address, creds),
+            )
             this.ownsClient = true
         }
     }

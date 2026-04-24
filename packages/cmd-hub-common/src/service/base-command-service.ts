@@ -270,12 +270,13 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
         // Decode positional args (positional-1-query → query)
         const decodedInputConfig: Record<string, unknown> = {}
         if (inputData.config) {
-            for (const key in inputData.config) {
+            const configBag = inputData.config as Record<string, unknown>
+            for (const key of Object.keys(configBag)) {
                 if (key.startsWith('positional-')) {
                     const { name } = decodePositionalName(key)
-                    decodedInputConfig[name] = (inputData.config as any)[key]
+                    decodedInputConfig[name] = configBag[key]
                 } else {
-                    decodedInputConfig[key] = (inputData.config as any)[key]
+                    decodedInputConfig[key] = configBag[key]
                 }
             }
         }

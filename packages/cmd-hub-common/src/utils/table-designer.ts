@@ -1,19 +1,15 @@
 function deepClone<T>(obj: T): T {
     if (obj === null || typeof obj !== 'object') return obj
     if (typeof obj === 'function') {
-        // @ts-ignore
-        return obj.bind({})
+        return (obj as unknown as (...a: unknown[]) => unknown).bind({}) as T
     }
     if (Array.isArray(obj)) {
-        const arrCopy: any[] = []
-        for (const item of obj) arrCopy.push(deepClone(item))
-        return arrCopy as unknown as T
+        return obj.map(item => deepClone(item)) as unknown as T
     }
-    const objCopy: { [key: string]: any } = {}
-    for (const key in obj) {
-        if (Object.prototype.hasOwnProperty.call(obj, key)) {
-            objCopy[key] = deepClone((obj as any)[key])
-        }
+    const source = obj as Record<string, unknown>
+    const objCopy: Record<string, unknown> = {}
+    for (const key of Object.keys(source)) {
+        objCopy[key] = deepClone(source[key])
     }
     return objCopy as T
 }

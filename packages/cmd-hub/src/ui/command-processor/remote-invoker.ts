@@ -9,6 +9,7 @@ import type { ICommandCompiled } from '../../ui/types/command'
 import type { ServiceDashboard, DashboardEvent } from './dashboard/service-dashboard'
 
 type InvokeServer = CmdHubProto.InvokeServer
+type InvokeClient = CmdHubProto.InvokeClient
 
 export interface RemoteInvokeInput {
     command: string
@@ -99,7 +100,8 @@ export class RemoteCmdInvoker {
 
         // Wire dashboard intercom clicks back to the node.
         dashboard.sendIntercom = async (actionId, args) => {
-            await handle.send({ intercom: { actionId, args } } as any)
+            const msg: InvokeClient = { intercom: { actionId, args } }
+            await handle.send(msg)
         }
 
         let finalText = ''

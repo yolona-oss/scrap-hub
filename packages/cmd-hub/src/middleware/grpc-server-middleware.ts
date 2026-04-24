@@ -1,7 +1,13 @@
 import * as grpc from '@grpc/grpc-js'
 import mongoose from 'mongoose'
 import { z } from 'zod'
-import { IAppMiddleware, ConfigContributor, Phase, AppLike } from '@cmd-hub/common'
+import {
+    IAppMiddleware,
+    ConfigContributor,
+    Phase,
+    AppLike,
+    readConfigSlice,
+} from '@cmd-hub/common'
 import {
     startHubGrpcServer,
     type HubGrpcServerHandle,
@@ -27,6 +33,17 @@ import {
 export interface GrpcServerMiddlewareOptions {
     /** Test-only flag: use ServerCredentials.createInsecure() instead of mTLS. */
     insecure?: boolean
+}
+
+/** Optional `tls` config slice — consumed by GrpcServerMiddleware when
+ *  `insecure` is not set. Kept as a named interface so downstream
+ *  apps can embed it in their own zod schema. */
+interface TlsConfigSlice {
+    tls?: {
+        caCertPath?: string
+        serverCertPath?: string
+        serverKeyPath?: string
+    }
 }
 
 /**
@@ -59,12 +76,8 @@ export class GrpcServerMiddleware implements IAppMiddleware, ConfigContributor {
     constructor(private readonly opts: GrpcServerMiddlewareOptions = {}) {}
 
     async install(app: AppLike): Promise<void> {
-        const cfg = (app.config as { grpc: { bindAddress: string; publicBaseUrl: string } }).grpc
-        const tls = (app.config as { tls?: {
-            caCertPath?: string
-            serverCertPath?: string
-            serverKeyPath?: string
-        } }).tls
+        const cfg = readConfigSlice(app, this)
+        const tls = (app.config as TlsConfigSlice | null)?.tls
 
         const registry = new CmdNodeRegistry({ tokens: new InternalTokenVerifier() })
         const aggregator = new ManifestAggregator()

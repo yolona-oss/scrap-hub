@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import * as fs from 'fs'
-import { IAppMiddleware, ConfigContributor, AppLike } from '../application/middleware-types'
+import {
+    IAppMiddleware,
+    ConfigContributor,
+    AppLike,
+    readConfigSlice,
+} from '../application/middleware-types'
 import { Phase } from '../application/phase'
 
 /**
@@ -18,7 +23,7 @@ export class AppLockMiddleware implements IAppMiddleware, ConfigContributor {
     private acquiredPath: string | null = null
 
     install(app: AppLike): void {
-        const cfg = (app.config as { appLock: { lockFile: string } }).appLock
+        const cfg = readConfigSlice(app, this)
         if (fs.existsSync(cfg.lockFile)) {
             const pid = fs.readFileSync(cfg.lockFile, 'utf8').trim()
             if (pid && isProcessAlive(Number(pid))) {
@@ -43,7 +48,8 @@ function isProcessAlive(pid: number): boolean {
     try {
         process.kill(pid, 0)
         return true
-    } catch (e) {
-        return (e as NodeJS.ErrnoException).code === 'EPERM'
+    } catch (e: unknown) {
+        const errno = e as NodeJS.ErrnoException
+        return errno.code === 'EPERM'
     }
 }

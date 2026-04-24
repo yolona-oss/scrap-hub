@@ -17,19 +17,38 @@ type ProtoCommand = CmdHubProto.Command
 type ProtoArgSpec = CmdHubProto.ArgSpec
 type InvokeStart = CmdHubProto.InvokeStart
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ServiceClass = new (...args: any[]) => RunnableService
+/** Minimal view of the `hub` config slice read by `_requireHubField`. Mirrors
+ *  the three string fields HubClientMiddleware contributes under its namespace. */
+interface HubConfigFragment {
+    hub?: Record<'nodeId' | 'nodeName' | 'version', unknown>
+}
+
+/** Service constructor arguments populated by CmdNodeApp.buildExecutor for
+ *  each InvokeStart. Services receive the caller's user id, an input context
+ *  bundle (config/params/messages + session), and a second copy of the same
+ *  bundle kept for legacy callers that read it directly. */
+export interface ServiceConstructorInput {
+    config: object
+    params: object
+    messages: object
+    sessionId: string
+    sessionData: Record<string, unknown>
+}
+
+export type ServiceClass = new (
+    userId: string,
+    ctx: ServiceConstructorInput,
+    input: ServiceConstructorInput,
+) => RunnableService
 
 /**
  * Hub-registered service class. Decorated with `@CmdService` and optionally
  * carrying `static configNamespace` / `static configSchema` for per-service
  * config contribution.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface ServiceClassWithOptionalConfig extends ServiceClass {
     configNamespace?: string
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    configSchema?: z.ZodType<any>
+    configSchema?: z.ZodType<unknown>
 }
 
 export interface CmdNodeAppOptions<Cfg>
@@ -80,9 +99,10 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
     private _cachedManifest: NodeManifest | null = null
 
     constructor(opts: CmdNodeAppOptions<Cfg>) {
+        const baseSchema: z.ZodType<unknown> = opts.baseSchema ?? z.object({}).passthrough()
         super({
             configPath: opts.configPath,
-            baseSchema: opts.baseSchema ?? (z.object({}).passthrough() as unknown as z.ZodType<unknown>),
+            baseSchema,
             inlineConfig: opts.inlineConfig,
             name: opts.name ?? (opts.nodeId ? `cmd-node-${opts.nodeId}` : 'cmd-node'),
         })
@@ -104,7 +124,10 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
     }
 
     private _requireHubField(key: 'nodeId' | 'nodeName' | 'version'): string {
-        const hub = (this.config as { hub?: Record<string, unknown> } | null)?.hub
+        const cfg = this.config
+        const hub = (cfg !== null && typeof cfg === 'object')
+            ? (cfg as HubConfigFragment).hub
+            : undefined
         const v = hub?.[key]
         if (typeof v !== 'string' || v.length === 0) {
             throw new Error(
@@ -202,18 +225,12 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
                 const config = CommandArgumentHolder.fromMap(meta.config, start.args)
                 const params = CommandArgumentHolder.fromMap(meta.params, start.args)
                 const messages = CommandArgumentHolder.fromMap(meta.messages, start.args)
-                const input = {
+                const input: ServiceConstructorInput = {
                     config, params, messages,
                     sessionId: start.sessionId,
                     sessionData: {},
                 }
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const svc = new (cls as any)(
-                    start.userId,
-                    { config, params, messages, sessionId: start.sessionId, sessionData: {} },
-                    input,
-                ) as RunnableService
-                return svc
+                return new cls(start.userId, input, input)
             },
             getManifest(): NodeManifest {
                 return manifestBuilder()

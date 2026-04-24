@@ -1,0 +1,26 @@
+{
+    "name": "@cmd-hub/storage-mongo",
+    "version": "0.0.1",
+    "main": "./build/src/index.js",
+    "types": "./build/src/index.d.ts",
+    "scripts": {
+        "build": "tsc --build --pretty",
+        "clean": "rm -rf build",
+        "test": "jest --forceExit --passWithNoTests"
+    },
+    "license": "ISC",
+    "description": "cmd-hub MongoDB storage plugin: connection middleware, repository implementations, and GridFS file backend",
+    "dependencies": {
+        "@cmd-hub/common": "*",
+        "mongoose": "^8.9.5",
+        "zod": "^3.25.76"
+    },
+    "devDependencies": {
+        "@types/jest": "^30.0.0",
+        "@types/node": "^20.0.0",
+        "jest": "^30.3.0",
+        "mongodb-memory-server": "^10.4.3",
+        "ts-jest": "^29.4.9",
+        "typescript": "^5.7.3"
+    }
+}

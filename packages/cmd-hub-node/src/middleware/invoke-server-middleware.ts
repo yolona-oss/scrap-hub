@@ -1,6 +1,12 @@
 import * as grpc from '@grpc/grpc-js'
 import { z } from 'zod'
-import { IAppMiddleware, ConfigContributor, Phase, AppLike } from '@cmd-hub/common'
+import {
+    IAppMiddleware,
+    ConfigContributor,
+    Phase,
+    AppLike,
+    readConfigSlice,
+} from '@cmd-hub/common'
 import {
     startNodeGrpcServer,
     makeInvokeServerImpl,
@@ -47,7 +53,7 @@ export class InvokeServerMiddleware implements IAppMiddleware, ConfigContributor
     constructor(private readonly opts: InvokeServerMiddlewareOptions = {}) {}
 
     async install(app: AppLike): Promise<void> {
-        const cfg = (app.config as { invokeServer: InvokeServerConfig }).invokeServer
+        const cfg = readConfigSlice(app, this)
         const executor = app.get(CAP_NodeExecutor)
         if (!executor) {
             throw new Error(

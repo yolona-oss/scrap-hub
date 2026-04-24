@@ -2,7 +2,13 @@ import { z } from 'zod'
 import mongoose from 'mongoose'
 import express from 'express'
 import type { Server } from 'http'
-import { IAppMiddleware, ConfigContributor, Phase, AppLike } from '@cmd-hub/common'
+import {
+    IAppMiddleware,
+    ConfigContributor,
+    Phase,
+    AppLike,
+    readConfigSlice,
+} from '@cmd-hub/common'
 import {
     makeUploadEndpoint,
     CAP_FileService,
@@ -30,7 +36,7 @@ export class UploadEndpointMiddleware implements IAppMiddleware, ConfigContribut
     private _server: Server | null = null
 
     async install(app: AppLike): Promise<void> {
-        const cfg = (app.config as { upload: { bindAddress: string } }).upload
+        const cfg = readConfigSlice(app, this)
         const fileService = app.get(CAP_FileService)
         const backend = app.get(CAP_GridFSBackend)
         if (!fileService || !backend) {
@@ -62,8 +68,9 @@ export class UploadEndpointMiddleware implements IAppMiddleware, ConfigContribut
     }
 
     async uninstall(app: AppLike): Promise<void> {
-        if (this._server) {
-            await new Promise<void>((resolve) => this._server!.close(() => resolve()))
+        const srv = this._server
+        if (srv) {
+            await new Promise<void>((resolve) => srv.close(() => resolve()))
             this._server = null
         }
         app.revoke(CAP_UploadBoundAddress)

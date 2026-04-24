@@ -50,3 +50,27 @@ export interface ICapabilityRegistry {
      *  hasn't been revoked. */
     has<V>(key: CapabilityKey<V>): boolean
 }
+
+/**
+ * Read a capability that MUST be present. Used by middlewares whose `install`
+ * depends on something a previous middleware was supposed to publish — fails
+ * with a clear, actionable message when the wiring is wrong.
+ *
+ *     const repo = requireCap(app, CAP_SystemConfigRepo,
+ *         'ConfigBootMiddleware needs a storage middleware before it')
+ *
+ * Prefer this over `app.get(...)!` so the failure mode is "explicit error at
+ * install time" rather than "undefined later in normal operation".
+ */
+export function requireCap<V>(
+    registry: ICapabilityRegistry,
+    key: CapabilityKey<V>,
+    contextHint?: string,
+): V {
+    const value = registry.get(key)
+    if (value === undefined) {
+        const hint = contextHint ? ` — ${contextHint}` : ''
+        throw new Error(`Required capability "${key}" not provided${hint}`)
+    }
+    return value
+}
