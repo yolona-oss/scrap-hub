@@ -1,0 +1,221 @@
+import * as grpc from '@grpc/grpc-js'
+import type { EventEmitter } from 'events'
+import { CmdHubProto } from '@cmd-hub/transport'
+import { adaptService } from './event-adapter'
+import { dispatchIntercom } from './intercom-dispatch'
+
+type InvokeStart = CmdHubProto.InvokeStart
+type InvokeClient = CmdHubProto.InvokeClient
+type InvokeServer = CmdHubProto.InvokeServer
+type ConfigReloadRequest = CmdHubProto.ConfigReloadRequest
+type ConfigReloadResponse = CmdHubProto.ConfigReloadResponse
+type GetManifestRequest = CmdHubProto.GetManifestRequest
+type NodeManifest = CmdHubProto.NodeManifest
+
+/**
+ * Minimal contract the invoke server needs from a "running service":
+ *   - an EventEmitter surface so adaptService can splice events onto the stream
+ *   - a receiveMsg() method so dispatchIntercom can forward intercom/cancel
+ *   - a run() method that kicks off the actual work
+ *   - an optional terminate() for clean shutdown
+ */
+export interface RunnableService extends EventEmitter {
+    receiveMsg(actionId: string, args: string[]): Promise<void>
+    run(): Promise<void>
+    terminate?(): Promise<void>
+    Initialize?(): Promise<void>
+}
+
+/**
+ * An executor knows how to materialize a `RunnableService` from an InvokeStart
+ * (command name, userId, args, serviceDataBlob). CmdNodeApp builds an executor
+ * over its registered services; tests pass an in-memory stub.
+ */
+export interface IExecutor {
+    createService(start: InvokeStart): Promise<RunnableService>
+    /** Manifest accessor used by the GetManifest RPC. */
+    getManifest(): NodeManifest
+    /** Optional hook used by the ConfigReload RPC. */
+    reloadConfig?(moduleName: string): Promise<boolean>
+}
+
+export interface MakeInvokeServerImplOptions {
+    executor: IExecutor
+}
+
+/**
+ * Build the `CmdNodeServiceServer` gRPC impl. The returned object is what
+ * `grpc.Server.addService(CmdNodeServiceService, impl)` expects.
+ */
+export function makeInvokeServerImpl(
+    opts: MakeInvokeServerImplOptions,
+): CmdHubProto.CmdNodeServiceServer {
+    const { executor } = opts
+
+    return {
+        invoke(call: grpc.ServerDuplexStream<InvokeClient, InvokeServer>) {
+            let svc: RunnableService | null = null
+            let stopAdapter: (() => void) | null = null
+            let started = false
+            let closed = false
+
+            const closeStream = () => {
+                if (closed) return
+                closed = true
+                try { call.end() } catch { /* ignore */ }
+                if (stopAdapter) { try { stopAdapter() } catch { /* ignore */ } stopAdapter = null }
+            }
+
+            const writer = (msg: InvokeServer) => {
+                if (closed) return
+                try { call.write(msg) } catch { /* stream already dead */ }
+                // If this was a `done` message, end the stream once it's flushed.
+                if (msg.done !== undefined) {
+                    closeStream()
+                }
+            }
+
+            call.on('data', (msg: InvokeClient) => {
+                void (async () => {
+                    try {
+                        if (msg.start !== undefined) {
+                            if (started) {
+                                writer({
+                                    seq: 0,
+                                    error: { text: 'duplicate InvokeStart on the same stream' },
+                                })
+                                closeStream()
+                                return
+                            }
+                            started = true
+                            svc = await executor.createService(msg.start)
+                            stopAdapter = adaptService(svc, writer)
+                            if (typeof svc.Initialize === 'function') {
+                                try { await svc.Initialize() } catch (err) {
+                                    writer({
+                                        seq: 0,
+                                        error: { text: `service initialization failed: ${(err as Error).message}` },
+                                    })
+                                    closeStream()
+                                    return
+                                }
+                            }
+                            // Fire and forget run() — its events flow through the adapter.
+                            svc.run().catch((err) => {
+                                writer({
+                                    seq: 0,
+                                    error: { text: `service run failed: ${(err as Error).message}` },
+                                })
+                                closeStream()
+                            })
+                            return
+                        }
+                        if (!svc) {
+                            writer({
+                                seq: 0,
+                                error: { text: 'received InvokeClient message before InvokeStart' },
+                            })
+                            closeStream()
+                            return
+                        }
+                        await dispatchIntercom(svc, msg)
+                    } catch (err) {
+                        writer({
+                            seq: 0,
+                            error: { text: `invoke handler error: ${(err as Error).message}` },
+                        })
+                        closeStream()
+                    }
+                })()
+            })
+
+            call.on('end', () => {
+                // Client half-closed. Terminate the service if still running.
+                void (async () => {
+                    if (svc && typeof svc.terminate === 'function') {
+                        try { await svc.terminate() } catch { /* ignore */ }
+                    }
+                    closeStream()
+                })()
+            })
+
+            call.on('error', () => {
+                void (async () => {
+                    if (svc && typeof svc.terminate === 'function') {
+                        try { await svc.terminate() } catch { /* ignore */ }
+                    }
+                    closeStream()
+                })()
+            })
+        },
+
+        configReload(
+            call: grpc.ServerUnaryCall<ConfigReloadRequest, ConfigReloadResponse>,
+            callback: grpc.sendUnaryData<ConfigReloadResponse>,
+        ) {
+            void (async () => {
+                try {
+                    let acknowledged = true
+                    if (typeof executor.reloadConfig === 'function') {
+                        acknowledged = await executor.reloadConfig(call.request.moduleName)
+                    }
+                    callback(null, { acknowledged })
+                } catch (err) {
+                    callback({
+                        code: grpc.status.INTERNAL,
+                        message: (err as Error).message,
+                    } as grpc.ServiceError, null)
+                }
+            })()
+        },
+
+        getManifest(
+            _call: grpc.ServerUnaryCall<GetManifestRequest, NodeManifest>,
+            callback: grpc.sendUnaryData<NodeManifest>,
+        ) {
+            try {
+                callback(null, executor.getManifest())
+            } catch (err) {
+                callback({
+                    code: grpc.status.INTERNAL,
+                    message: (err as Error).message,
+                } as grpc.ServiceError, null)
+            }
+        },
+    }
+}
+
+export interface NodeGrpcServerOptions {
+    bindAddress: string
+    credentials: grpc.ServerCredentials
+    impl: CmdHubProto.CmdNodeServiceServer
+}
+
+export interface NodeGrpcServerHandle {
+    readonly boundAddress: string
+    readonly port: number
+    shutdown(): Promise<void>
+}
+
+export async function startNodeGrpcServer(
+    opts: NodeGrpcServerOptions,
+): Promise<NodeGrpcServerHandle> {
+    const server = new grpc.Server()
+    server.addService(CmdHubProto.CmdNodeServiceService, opts.impl)
+
+    const port = await new Promise<number>((resolve, reject) => {
+        server.bindAsync(opts.bindAddress, opts.credentials, (err, p) => {
+            if (err) reject(err); else resolve(p)
+        })
+    })
+    const host = opts.bindAddress.split(':')[0]
+    const boundAddress = `${host}:${port}`
+
+    return {
+        boundAddress,
+        port,
+        async shutdown() {
+            await new Promise<void>((resolve) => server.tryShutdown(() => resolve()))
+        },
+    }
+}

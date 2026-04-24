@@ -1,0 +1,27 @@
+{
+    "name": "@cmd-hub/node",
+    "version": "0.0.1",
+    "main": "./build/src/index.js",
+    "types": "./build/src/index.d.ts",
+    "scripts": {
+        "build": "tsc --build --pretty",
+        "clean": "rm -rf build",
+        "test": "jest --forceExit --passWithNoTests"
+    },
+    "license": "ISC",
+    "description": "cmd-hub node runtime: CmdNodeApp, hub client middleware, invoke server, hardware/metrics collector",
+    "dependencies": {
+        "@cmd-hub/common": "*",
+        "@cmd-hub/transport": "*",
+        "@grpc/grpc-js": "^1.10.0",
+        "mongoose": "^8.9.5",
+        "zod": "^3.25.76"
+    },
+    "devDependencies": {
+        "@types/jest": "^30.0.0",
+        "@types/node": "^20.0.0",
+        "jest": "^30.3.0",
+        "ts-jest": "^29.4.9",
+        "typescript": "^5.7.3"
+    }
+}
