@@ -1,6 +1,6 @@
 {
     "name": "cmd-node",
-    "version": "0.0.1",
+    "version": "1.0.0",
     "main": "./build/src/index.js",
     "types": "./build/src/index.d.ts",
     "scripts": {
@@ -12,6 +12,7 @@
     "description": "cmd-hub node runtime - host commands and services, connect to a cmd-hub gateway over gRPC",
     "dependencies": {
         "@cmd-hub/core": "*",
+        "@grpc/grpc-js": "^1.14.3",
         "commander": "^12.1.0",
         "zod": "^3.25.76"
     },

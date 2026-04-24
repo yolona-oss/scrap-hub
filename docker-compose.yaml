@@ -1,0 +1,68 @@
+services:
+  mongo:
+    image: mongo:7
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    # Security: drop NET_RAW (not needed for mongo) and run as a non-root user.
+    user: "999:999"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mongo-init:
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/scripts/mongo-init-rs.sh"]
+    volumes:
+      - ./scripts:/scripts:ro
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  cmd-hub:
+    build:
+      context: .
+      dockerfile: examples/telegram-ui-app/Dockerfile
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+    env_file:
+      - examples/telegram-ui-app/config/hub.env
+    environment:
+      # Override the examples defaults if you want different ports here.
+      HUB_GRPC_BIND_ADDRESS: "0.0.0.0:50051"
+      HUB_UPLOAD_HTTP_PORT: "3000"
+    ports:
+      - "50051:50051"
+      - "3000:3000"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  scraper-node:
+    build:
+      context: .
+      dockerfile: examples/scraper-node/Dockerfile
+    depends_on:
+      - cmd-hub
+    env_file:
+      - examples/scraper-node/config/node.env
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  mongo_data:

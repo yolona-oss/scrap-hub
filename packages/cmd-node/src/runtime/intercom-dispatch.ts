@@ -1,6 +1,4 @@
-import { CmdHubProto } from '@cmd-hub/core'
-
-type InvokeClient = CmdHubProto.InvokeClient
+import type { InvokeClient } from '@core/grpc/generated/cmd_node'
 
 /**
  * Minimum shape the node runtime requires from a running service to route

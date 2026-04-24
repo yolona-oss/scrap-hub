@@ -1,13 +1,17 @@
 {
     "private": true,
-    "workspaces": ["packages/*"],
+    "workspaces": [
+        "packages/*",
+        "examples/*"
+    ],
     "scripts": {
-        "build": "npm run build --workspaces",
+        "build": "npm run build --workspaces --if-present",
         "build:sdk": "npm run build --workspace=@cmd-hub/core",
-        "build:scraper": "npm run build --workspace=org-scraper",
-        "build:app": "npm run build --workspace=scrap-hub",
-        "start": "npm run start:ts --workspace=scrap-hub",
-        "test": "npm run test --workspace=@cmd-hub/core"
+        "build:scraper": "npm run build --workspace=scraper-node --if-present",
+        "build:app": "npm run build --workspace=telegram-ui-app",
+        "start": "npm run start --workspace=telegram-ui-app",
+        "test": "npm run test --workspaces --if-present",
+        "test:e2e": "jest --config jest.config.e2e.js"
     },
     "devDependencies": {
         "@swc/core": "^1.10.18",

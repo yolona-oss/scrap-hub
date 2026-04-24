@@ -32,6 +32,27 @@ export class GridFSBackend implements FileServiceBackend {
         this.bucket = new mongoose.mongo.GridFSBucket(opts.conn.db)
     }
 
+    /**
+     * Minimal read-only view of a pending grant. Used by the /upload HTTP
+     * endpoint to validate the bearer token and byte budget before it pipes
+     * bytes into GridFS. Does not expose WriteGrantInput internals.
+     */
+    peekGrant(grantId: string): null | {
+        token: string
+        expiresAt: number
+        maxBytes: number
+        gridFsId: mongoose.Types.ObjectId
+    } {
+        const g = this.grants.get(grantId)
+        if (!g) return null
+        return {
+            token: g.token,
+            expiresAt: g.expiresAt,
+            maxBytes: g.input.maxBytes,
+            gridFsId: g.gridFsId,
+        }
+    }
+
     async issueWriteGrant(input: WriteGrantInput): Promise<WriteGrant> {
         const grantId = randomBytes(16).toString('hex')
         const token = randomBytes(32).toString('hex')

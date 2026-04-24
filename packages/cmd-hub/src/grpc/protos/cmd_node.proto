@@ -23,6 +23,9 @@ message RegisterRequest {
   string node_id = 1;
   string token = 2;
   NodeManifest manifest = 3;
+  // Node's publicly reachable gRPC listen address, e.g. "scraper-1:50052".
+  // The hub dials it when routing an Invoke to this node.
+  string listen_address = 4;
 }
 message RegisterResponse {
   string session_token = 1;

@@ -1,14 +1,14 @@
-import { CmdHubProto } from '@cmd-hub/core'
+import type {
+    NodeManifest,
+    Command as ProtoCommand,
+    Service as ProtoService,
+    ConfigModule as ProtoConfigModule,
+    IntercomAction as ProtoIntercomAction,
+    ServiceCapabilities as ProtoServiceCapabilities,
+    ArgSpec as ProtoArgSpec,
+    FieldSpec as ProtoFieldSpec,
+} from '@core/grpc/generated/cmd_node'
 import { hardwareInfo } from '../manifest/hardware-info'
-
-type NodeManifest = CmdHubProto.NodeManifest
-type ProtoCommand = CmdHubProto.Command
-type ProtoService = CmdHubProto.Service
-type ProtoConfigModule = CmdHubProto.ConfigModule
-type ProtoIntercomAction = CmdHubProto.IntercomAction
-type ProtoServiceCapabilities = CmdHubProto.ServiceCapabilities
-type ProtoArgSpec = CmdHubProto.ArgSpec
-type ProtoFieldSpec = CmdHubProto.FieldSpec
 
 export interface CommandDefinition {
     name: string

@@ -61,6 +61,21 @@ export type { TableField, TextField, MarkupField } from './utils/table-designer'
 // --- Distributed framework (Phase 1+) ---
 // Protobuf contracts (namespaced to avoid name clashes with core types)
 export * as CmdHubProto from './grpc/generated/cmd_node'
+// Named re-exports of the commonly-used proto message types so UI plugin
+// authors don't have to reach into CmdHubProto.* for normal usage.
+export type {
+    InvokeClient,
+    InvokeServer,
+    InvokeStart,
+    IntercomAction,
+    NodeManifest,
+} from './grpc/generated/cmd_node'
+// Named re-exports of the gRPC stubs so deployable apps can wire them up
+// without importing from the generated module path.
+export {
+    CmdHubServiceClient,
+    CmdNodeServiceClient,
+} from './grpc/generated/cmd_node'
 
 // Core domain types
 export type {
@@ -150,3 +165,20 @@ export type { IAccountModuleStore } from './distributed/builtins/sconfig-store'
 // Top-level app
 export { CmdHubApp } from './distributed/app/cmd-hub-app'
 export type { CmdHubAppOptions, IHubUIPlugin } from './distributed/app/cmd-hub-app'
+
+// gRPC server + metrics (Phase 2)
+export { MetricStore } from './distributed/metrics/metric-store'
+export { makeCmdHubServiceImpl } from './distributed/grpc-server/cmd-hub-service-impl'
+export type { CmdHubServiceDeps, FingerprintResolver } from './distributed/grpc-server/cmd-hub-service-impl'
+export { startHubGrpcServer } from './distributed/grpc-server/server'
+export type { HubGrpcServerOptions, HubGrpcServerHandle } from './distributed/grpc-server/server'
+export { GrpcCmdNodeClient, InMemoryChannelResolver } from './distributed/client/grpc-cmd-node-client'
+export type { NodeChannelResolver } from './distributed/client/grpc-cmd-node-client'
+export {
+    hubServerCredentialsFromPaths,
+    nodeChannelCredentialsFromPaths,
+    mTlsFingerprintResolver,
+} from './distributed/grpc-server/tls'
+export type { HubTlsPaths, ClientTlsPaths } from './distributed/grpc-server/tls'
+export { makeUploadEndpoint } from './distributed/files/upload-endpoint'
+export type { UploadEndpointDeps, GrantAccess } from './distributed/files/upload-endpoint'

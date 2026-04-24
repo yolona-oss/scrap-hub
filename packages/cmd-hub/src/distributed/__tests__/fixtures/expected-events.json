@@ -1,0 +1,489 @@
+[
+  {
+    "seq": 1,
+    "kind": "message",
+    "payload": {
+      "text": "Starting search: \"coffee\" | sources: fake | limit: 50"
+    }
+  },
+  {
+    "seq": 2,
+    "kind": "progressStatus",
+    "payload": {
+      "name": "scraping.fake",
+      "status": "active"
+    }
+  },
+  {
+    "seq": 3,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 1,
+      "total": 50
+    }
+  },
+  {
+    "seq": 4,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 2,
+      "total": 50
+    }
+  },
+  {
+    "seq": 5,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 3,
+      "total": 50
+    }
+  },
+  {
+    "seq": 6,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 4,
+      "total": 50
+    }
+  },
+  {
+    "seq": 7,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 5,
+      "total": 50
+    }
+  },
+  {
+    "seq": 8,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 6,
+      "total": 50
+    }
+  },
+  {
+    "seq": 9,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 7,
+      "total": 50
+    }
+  },
+  {
+    "seq": 10,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 8,
+      "total": 50
+    }
+  },
+  {
+    "seq": 11,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 9,
+      "total": 50
+    }
+  },
+  {
+    "seq": 12,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 10,
+      "total": 50
+    }
+  },
+  {
+    "seq": 13,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 11,
+      "total": 50
+    }
+  },
+  {
+    "seq": 14,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 12,
+      "total": 50
+    }
+  },
+  {
+    "seq": 15,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 13,
+      "total": 50
+    }
+  },
+  {
+    "seq": 16,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 14,
+      "total": 50
+    }
+  },
+  {
+    "seq": 17,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 15,
+      "total": 50
+    }
+  },
+  {
+    "seq": 18,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 16,
+      "total": 50
+    }
+  },
+  {
+    "seq": 19,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 17,
+      "total": 50
+    }
+  },
+  {
+    "seq": 20,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 18,
+      "total": 50
+    }
+  },
+  {
+    "seq": 21,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 19,
+      "total": 50
+    }
+  },
+  {
+    "seq": 22,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 20,
+      "total": 50
+    }
+  },
+  {
+    "seq": 23,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 21,
+      "total": 50
+    }
+  },
+  {
+    "seq": 24,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 22,
+      "total": 50
+    }
+  },
+  {
+    "seq": 25,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 23,
+      "total": 50
+    }
+  },
+  {
+    "seq": 26,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 24,
+      "total": 50
+    }
+  },
+  {
+    "seq": 27,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 25,
+      "total": 50
+    }
+  },
+  {
+    "seq": 28,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 26,
+      "total": 50
+    }
+  },
+  {
+    "seq": 29,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 27,
+      "total": 50
+    }
+  },
+  {
+    "seq": 30,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 28,
+      "total": 50
+    }
+  },
+  {
+    "seq": 31,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 29,
+      "total": 50
+    }
+  },
+  {
+    "seq": 32,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 30,
+      "total": 50
+    }
+  },
+  {
+    "seq": 33,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 31,
+      "total": 50
+    }
+  },
+  {
+    "seq": 34,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 32,
+      "total": 50
+    }
+  },
+  {
+    "seq": 35,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 33,
+      "total": 50
+    }
+  },
+  {
+    "seq": 36,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 34,
+      "total": 50
+    }
+  },
+  {
+    "seq": 37,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 35,
+      "total": 50
+    }
+  },
+  {
+    "seq": 38,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 36,
+      "total": 50
+    }
+  },
+  {
+    "seq": 39,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 37,
+      "total": 50
+    }
+  },
+  {
+    "seq": 40,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 38,
+      "total": 50
+    }
+  },
+  {
+    "seq": 41,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 39,
+      "total": 50
+    }
+  },
+  {
+    "seq": 42,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 40,
+      "total": 50
+    }
+  },
+  {
+    "seq": 43,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 41,
+      "total": 50
+    }
+  },
+  {
+    "seq": 44,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 42,
+      "total": 50
+    }
+  },
+  {
+    "seq": 45,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 43,
+      "total": 50
+    }
+  },
+  {
+    "seq": 46,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 44,
+      "total": 50
+    }
+  },
+  {
+    "seq": 47,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 45,
+      "total": 50
+    }
+  },
+  {
+    "seq": 48,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 46,
+      "total": 50
+    }
+  },
+  {
+    "seq": 49,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 47,
+      "total": 50
+    }
+  },
+  {
+    "seq": 50,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 48,
+      "total": 50
+    }
+  },
+  {
+    "seq": 51,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 49,
+      "total": 50
+    }
+  },
+  {
+    "seq": 52,
+    "kind": "progress",
+    "payload": {
+      "name": "scraping.fake",
+      "current": 50,
+      "total": 50
+    }
+  },
+  {
+    "seq": 53,
+    "kind": "progressStatus",
+    "payload": {
+      "name": "scraping.fake",
+      "status": "done"
+    }
+  },
+  {
+    "seq": 54,
+    "kind": "message",
+    "payload": {
+      "text": "Collection complete: 50 organizations"
+    }
+  },
+  {
+    "seq": 55,
+    "kind": "done",
+    "payload": {
+      "finalMessage": "50 organizations captured"
+    }
+  }
+]

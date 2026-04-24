@@ -1,8 +1,6 @@
 import { EventEmitter } from 'events'
 import { adaptService } from '../event-adapter'
-import { CmdHubProto } from '@cmd-hub/core'
-
-type InvokeServer = CmdHubProto.InvokeServer
+import type { InvokeServer, FileHandle } from '@core/grpc/generated/cmd_node'
 
 describe('adaptService', () => {
     it('forwards every event type with a monotonic seq', () => {
@@ -33,7 +31,7 @@ describe('adaptService', () => {
         const svc = new EventEmitter()
         const out: InvokeServer[] = []
         adaptService(svc, (m) => out.push(m))
-        const handle: CmdHubProto.FileHandle = {
+        const handle: FileHandle = {
             fileId: 'f1', backend: 'gridfs', size: 100,
             name: 'r.csv', mime: 'text/csv', permanent: false,
         }

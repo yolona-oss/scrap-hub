@@ -1,5 +1,5 @@
 import { dispatchIntercom, IntercomReceiver } from '../intercom-dispatch'
-import { CmdHubProto } from '@cmd-hub/core'
+import type { InvokeClient } from '@core/grpc/generated/cmd_node'
 
 function spyReceiver(): IntercomReceiver & { calls: Array<{ id: string; args: string[] }> } {
     const calls: Array<{ id: string; args: string[] }> = []
@@ -12,7 +12,7 @@ function spyReceiver(): IntercomReceiver & { calls: Array<{ id: string; args: st
 describe('dispatchIntercom', () => {
     it('routes intercom action + args to receiveMsg', async () => {
         const svc = spyReceiver()
-        const msg: CmdHubProto.InvokeClient = { intercom: { actionId: 'export', args: ['now'] } }
+        const msg: InvokeClient = { intercom: { actionId: 'export', args: ['now'] } }
         await dispatchIntercom(svc, msg)
         expect(svc.calls).toEqual([{ id: 'export', args: ['now'] }])
     })
@@ -25,7 +25,7 @@ describe('dispatchIntercom', () => {
 
     it('throws if an InvokeStart leaks through', async () => {
         const svc = spyReceiver()
-        const msg: CmdHubProto.InvokeClient = {
+        const msg: InvokeClient = {
             start: {
                 sessionId: 's', userId: 'u', commandName: 'c',
                 args: {}, serviceDataBlob: new Uint8Array(),

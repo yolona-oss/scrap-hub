@@ -65,7 +65,14 @@ export function nodeStateToJSON(object: NodeState): string {
 export interface RegisterRequest {
   nodeId: string;
   token: string;
-  manifest?: NodeManifest | undefined;
+  manifest?:
+    | NodeManifest
+    | undefined;
+  /**
+   * Node's publicly reachable gRPC listen address, e.g. "scraper-1:50052".
+   * The hub dials it when routing an Invoke to this node.
+   */
+  listenAddress: string;
 }
 
 export interface RegisterResponse {
@@ -286,7 +293,7 @@ export interface WriteGrant {
 }
 
 function createBaseRegisterRequest(): RegisterRequest {
-  return { nodeId: "", token: "", manifest: undefined };
+  return { nodeId: "", token: "", manifest: undefined, listenAddress: "" };
 }
 
 export const RegisterRequest: MessageFns<RegisterRequest> = {
@@ -299,6 +306,9 @@ export const RegisterRequest: MessageFns<RegisterRequest> = {
     }
     if (message.manifest !== undefined) {
       NodeManifest.encode(message.manifest, writer.uint32(26).fork()).join();
+    }
+    if (message.listenAddress !== "") {
+      writer.uint32(34).string(message.listenAddress);
     }
     return writer;
   },
@@ -334,6 +344,14 @@ export const RegisterRequest: MessageFns<RegisterRequest> = {
           message.manifest = NodeManifest.decode(reader, reader.uint32());
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.listenAddress = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -352,6 +370,11 @@ export const RegisterRequest: MessageFns<RegisterRequest> = {
         : "",
       token: isSet(object.token) ? globalThis.String(object.token) : "",
       manifest: isSet(object.manifest) ? NodeManifest.fromJSON(object.manifest) : undefined,
+      listenAddress: isSet(object.listenAddress)
+        ? globalThis.String(object.listenAddress)
+        : isSet(object.listen_address)
+        ? globalThis.String(object.listen_address)
+        : "",
     };
   },
 
@@ -366,6 +389,9 @@ export const RegisterRequest: MessageFns<RegisterRequest> = {
     if (message.manifest !== undefined) {
       obj.manifest = NodeManifest.toJSON(message.manifest);
     }
+    if (message.listenAddress !== "") {
+      obj.listenAddress = message.listenAddress;
+    }
     return obj;
   },
 
@@ -379,6 +405,7 @@ export const RegisterRequest: MessageFns<RegisterRequest> = {
     message.manifest = (object.manifest !== undefined && object.manifest !== null)
       ? NodeManifest.fromPartial(object.manifest)
       : undefined;
+    message.listenAddress = object.listenAddress ?? "";
     return message;
   },
 };

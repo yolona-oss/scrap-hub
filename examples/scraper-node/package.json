@@ -1,0 +1,32 @@
+{
+    "name": "scraper-node",
+    "version": "1.0.0",
+    "private": true,
+    "main": "./build/src/index.js",
+    "scripts": {
+        "start:ts": "ts-node src/index.ts",
+        "start": "node build/src/index.js",
+        "build": "tsc --build --pretty"
+    },
+    "license": "ISC",
+    "description": "Example deployable: org-scraper running as a cmd-node.",
+    "dependencies": {
+        "@cmd-hub/core": "*",
+        "cmd-node": "*",
+        "@grpc/grpc-js": "^1.14.3",
+        "mongoose": "^8.9.5",
+        "serpapi": "^2.1.0",
+        "cheerio": "^1.0.0",
+        "googleapis": "^144.0.0",
+        "openai": "^4.77.0",
+        "puppeteer-core": "^24.0.0",
+        "axios": "^1.7.9"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "typescript": "^5.7.3",
+        "ts-node": "^10.9.2",
+        "tsconfig-paths": "^4.2.0",
+        "typed-emitter": "^2.1.0"
+    }
+}

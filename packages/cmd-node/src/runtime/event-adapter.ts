@@ -1,9 +1,9 @@
 import { EventEmitter } from 'events'
-import { CmdHubProto } from '@cmd-hub/core'
-
-type InvokeServer = CmdHubProto.InvokeServer
-type IntercomAction = CmdHubProto.IntercomAction
-type FileHandleProto = CmdHubProto.FileHandle
+import type {
+    InvokeServer,
+    IntercomAction,
+    FileHandle as FileHandleProto,
+} from '@core/grpc/generated/cmd_node'
 
 export type InvokeWriter = (msg: InvokeServer) => void
 
