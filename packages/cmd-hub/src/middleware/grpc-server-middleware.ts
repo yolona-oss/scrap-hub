@@ -15,6 +15,13 @@ import {
     hubServerCredentialsFromPaths,
     mTlsFingerprintResolver,
     CmdHubProto,
+    CAP_CmdNodeRegistry,
+    CAP_ManifestAggregator,
+    CAP_FileService,
+    CAP_GridFSBackend,
+    CAP_MetricStore,
+    CAP_NodeChannelResolver,
+    CAP_GrpcBoundAddress,
 } from '@cmd-hub/transport'
 
 export interface GrpcServerMiddlewareOptions {
@@ -23,18 +30,20 @@ export interface GrpcServerMiddlewareOptions {
 }
 
 /**
- * Starts the hub-side gRPC server and wires the transport-layer primitives
- * onto the Application so later middlewares (UploadEndpointMiddleware,
- * CmdNodeClientMiddleware) and the CmdHubApp can find them.
+ * Starts the hub-side gRPC server and publishes the transport-layer
+ * primitives via the typed capability registry so later middlewares
+ * (UploadEndpointMiddleware, CmdNodeClientMiddleware) and the CmdHubApp
+ * can find them.
  *
  * Contributed config:
  *   grpc.bindAddress: string     — e.g. "0.0.0.0:50051" or "127.0.0.1:0" in tests
  *   grpc.publicBaseUrl: string   — used by the upload endpoint to build URLs
  *   tls.caCertPath / serverCertPath / serverKeyPath — required unless `insecure`
  *
- * Stashed on the app instance (TODO(phase-4-later): replace with typed capability registry):
- *   _registry, _aggregator, _fileService, _gridfsBackend, _metrics,
- *   _nodeChannelResolver, _grpcBoundAddress
+ * Published capabilities (see @cmd-hub/transport/capabilities):
+ *   CAP_CmdNodeRegistry, CAP_ManifestAggregator, CAP_FileService,
+ *   CAP_GridFSBackend, CAP_MetricStore, CAP_NodeChannelResolver,
+ *   CAP_GrpcBoundAddress.
  */
 export class GrpcServerMiddleware implements IAppMiddleware, ConfigContributor {
     readonly name = 'GrpcServerMiddleware'
@@ -90,15 +99,13 @@ export class GrpcServerMiddleware implements IAppMiddleware, ConfigContributor {
             onNodeDisconnected: (nodeId) => resolver.detach(nodeId),
         })
 
-        // TODO(phase-4-later): replace `(app as any)._xxx` stashing with a
-        // typed capability registry shared by all middlewares.
-        ;(app as any)._registry = registry
-        ;(app as any)._aggregator = aggregator
-        ;(app as any)._fileService = fileService
-        ;(app as any)._gridfsBackend = gridfsBackend
-        ;(app as any)._metrics = metrics
-        ;(app as any)._nodeChannelResolver = resolver
-        ;(app as any)._grpcBoundAddress = this._handle.boundAddress
+        app.provide(CAP_CmdNodeRegistry, registry)
+        app.provide(CAP_ManifestAggregator, aggregator)
+        app.provide(CAP_FileService, fileService)
+        app.provide(CAP_GridFSBackend, gridfsBackend)
+        app.provide(CAP_MetricStore, metrics)
+        app.provide(CAP_NodeChannelResolver, resolver)
+        app.provide(CAP_GrpcBoundAddress, this._handle.boundAddress)
     }
 
     async uninstall(app: AppLike): Promise<void> {
@@ -106,9 +113,16 @@ export class GrpcServerMiddleware implements IAppMiddleware, ConfigContributor {
             await this._handle.shutdown()
             this._handle = null
         }
-        const resolver = (app as any)._nodeChannelResolver as InMemoryChannelResolver | undefined
+        const resolver = app.get(CAP_NodeChannelResolver)
         if (resolver) {
             try { resolver.clear() } catch { /* ignore */ }
         }
+        app.revoke(CAP_CmdNodeRegistry)
+        app.revoke(CAP_ManifestAggregator)
+        app.revoke(CAP_FileService)
+        app.revoke(CAP_GridFSBackend)
+        app.revoke(CAP_MetricStore)
+        app.revoke(CAP_NodeChannelResolver)
+        app.revoke(CAP_GrpcBoundAddress)
     }
 }

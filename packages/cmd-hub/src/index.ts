@@ -18,6 +18,9 @@ export { CmdNodeClientMiddleware } from './middleware/cmd-node-client-middleware
 export { RemoteCmdInvoker, protoToDashboardEvent } from './ui/command-processor/remote-invoker'
 export type { RemoteInvokeInput, RemoteInvokeResult, DashboardFactory, DashboardSession } from './ui/command-processor/remote-invoker'
 
+// Capabilities
+export * from './capabilities'
+
 // Dashboard
 export type { DashboardEvent, DashboardOptions } from './ui/command-processor/dashboard'
 

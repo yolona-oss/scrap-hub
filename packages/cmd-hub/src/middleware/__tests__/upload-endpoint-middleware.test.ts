@@ -3,7 +3,12 @@ import mongoose from 'mongoose'
 import request from 'supertest'
 import { z } from 'zod'
 import { MongoMiddleware, Application } from '@cmd-hub/common'
-import { NodeRecordModel, FileMetadataModel, type FileService } from '@cmd-hub/transport'
+import {
+    NodeRecordModel,
+    FileMetadataModel,
+    CAP_FileService,
+    CAP_UploadBoundAddress,
+} from '@cmd-hub/transport'
 import { GrpcServerMiddleware } from '../grpc-server-middleware'
 import { UploadEndpointMiddleware } from '../upload-endpoint-middleware'
 
@@ -41,8 +46,8 @@ describe('UploadEndpointMiddleware', () => {
 
         await app.Initialize()
 
-        const boundAddress = (app as any)._uploadBoundAddress as string
-        const fileService = (app as any)._fileService as FileService
+        const boundAddress = app.get(CAP_UploadBoundAddress)!
+        const fileService = app.get(CAP_FileService)!
 
         const grant = await fileService.issueWriteGrant({
             sessionId: 'test-session',

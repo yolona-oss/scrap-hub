@@ -1,5 +1,7 @@
 export const NODE_VERSION = '0.0.1'
 
+export * from './capabilities'
+
 // Runtime primitives
 export * from './runtime/event-adapter'
 export * from './runtime/intercom-dispatch'

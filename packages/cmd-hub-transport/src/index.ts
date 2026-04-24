@@ -3,6 +3,7 @@ export const TRANSPORT_VERSION = '0.0.1'
 export * as CmdHubProto from './grpc/generated/cmd_node'
 export * as FileServiceProto from './grpc/generated/file_service'
 export * from './types'
+export * from './capabilities'
 
 export * from './registry/cmd-node-registry'
 export * from './pool/command-pool'

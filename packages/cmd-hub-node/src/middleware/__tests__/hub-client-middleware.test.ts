@@ -5,6 +5,12 @@ import { Application, Phase } from '@cmd-hub/common'
 import { CmdHubProto } from '@cmd-hub/transport'
 import { HubClientMiddleware } from '../hub-client-middleware'
 import type { IHubServiceClient } from '../../runtime/hub-client'
+import {
+    CAP_NodeManifest,
+    CAP_NodeInvokeBoundAddress,
+    CAP_NodeHubClient,
+    CAP_NodeMetricsCollector,
+} from '../../capabilities'
 
 type RegisterRequest = CmdHubProto.RegisterRequest
 type RegisterResponse = CmdHubProto.RegisterResponse
@@ -67,8 +73,8 @@ class TestNodeApp extends Application<any> {
     async run(): Promise<void> {}
 
     async Initialize(): Promise<void> {
-        ;(this as any)._nodeManifest = this.manifest
-        ;(this as any)._invokeBoundAddress = this.listenAddr
+        this.provide(CAP_NodeManifest, this.manifest)
+        this.provide(CAP_NodeInvokeBoundAddress, this.listenAddr)
         await super.Initialize()
     }
 }
@@ -113,15 +119,15 @@ describe('HubClientMiddleware', () => {
         expect(fake.lastRegister?.listenAddress).toBe('127.0.0.1:50052')
         expect(fake.heartbeatCalls).toBe(1)
         expect(fake.heartbeatWrites.length).toBeGreaterThan(0)
-        expect((app as any)._hubClient).not.toBeNull()
-        expect((app as any)._metrics).toBeTruthy()
+        expect(app.get(CAP_NodeHubClient)).toBeDefined()
+        expect(app.get(CAP_NodeMetricsCollector)).toBeTruthy()
 
         await app.terminate()
-        expect((app as any)._hubClient).toBeNull()
-        expect((app as any)._metrics).toBeNull()
+        expect(app.get(CAP_NodeHubClient)).toBeUndefined()
+        expect(app.get(CAP_NodeMetricsCollector)).toBeUndefined()
     })
 
-    it('throws during install when _nodeManifest is missing', async () => {
+    it('throws during install when CAP_NodeManifest is missing', async () => {
         class NakedApp extends Application<any> {
             constructor() {
                 super({
@@ -138,7 +144,7 @@ describe('HubClientMiddleware', () => {
             async run(): Promise<void> {}
         }
         const app = new NakedApp().use(new HubClientMiddleware({ clientOverride: new FakeHubServiceClient() }))
-        await expect(app.Initialize()).rejects.toThrow(/_nodeManifest/)
+        await expect(app.Initialize()).rejects.toThrow(/CAP_NodeManifest/)
     })
 
     it('skipNetwork avoids Register + Heartbeat but still stashes capabilities', async () => {
@@ -154,7 +160,7 @@ describe('HubClientMiddleware', () => {
         await app.Initialize()
         expect(fake.registerCalls).toBe(0)
         expect(fake.heartbeatCalls).toBe(0)
-        expect((app as any)._hubClient).not.toBeNull()
+        expect(app.get(CAP_NodeHubClient)).toBeDefined()
         await app.terminate()
     })
 })

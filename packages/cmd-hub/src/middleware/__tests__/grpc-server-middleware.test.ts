@@ -4,7 +4,7 @@ import * as grpc from '@grpc/grpc-js'
 import { z } from 'zod'
 import { GrpcServerMiddleware } from '../grpc-server-middleware'
 import { MongoMiddleware, Application } from '@cmd-hub/common'
-import { CmdHubProto, NodeRecordModel } from '@cmd-hub/transport'
+import { CmdHubProto, NodeRecordModel, CAP_GrpcBoundAddress } from '@cmd-hub/transport'
 
 class TestApp extends Application<any> {
     async run(): Promise<void> {}
@@ -36,7 +36,7 @@ describe('GrpcServerMiddleware', () => {
             .use(new GrpcServerMiddleware({ insecure: true }))
 
         await app.Initialize()
-        const boundAddress = (app as any)._grpcBoundAddress as string
+        const boundAddress = app.get(CAP_GrpcBoundAddress)!
         expect(boundAddress).toMatch(/:\d+$/)
 
         // Verify a client can at least connect.

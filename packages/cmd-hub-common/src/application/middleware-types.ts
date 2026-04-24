@@ -1,17 +1,18 @@
 import type { z } from 'zod'
 import type { Phase } from './phase'
+import type { ICapabilityRegistry } from './capability'
 
 /**
  * Minimal app-like contract middlewares receive on install/uninstall.
  * Avoids a circular import on Application.
  *
- * `context` is a shared mutable bag middlewares use to publish capabilities
- * to the rest of the app (e.g. `ProxyMiddleware` publishes `context.httpAgent`).
- * Keys should be unique across middlewares; no runtime collision detection
- * is enforced yet — if that becomes a problem, graduate this to a typed
- * capability registry.
+ * `context` is a legacy shared mutable bag middlewares used to use for
+ * capability publication (e.g. `ProxyMiddleware` set `context.httpAgent`).
+ * New code should prefer the typed capability registry
+ * (`app.provide(key, value)` + `app.get(key)`), which backs onto `context`
+ * under the hood but enforces payload types.
  */
-export interface AppLike {
+export interface AppLike extends ICapabilityRegistry {
     readonly config: unknown
     readonly context: Record<string, unknown>
 }

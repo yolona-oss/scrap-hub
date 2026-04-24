@@ -13,6 +13,7 @@ import {
     ConfigContributor,
     isConfigContributor,
 } from './middleware-types'
+import type { CapabilityKey, ICapabilityRegistry } from './capability'
 import log from './logger'
 
 export interface ApplicationOptions<Cfg> {
@@ -28,17 +29,42 @@ export interface ApplicationOptions<Cfg> {
     name?: string
 }
 
-export abstract class Application<Cfg = unknown> extends WithInit implements IRunnable {
+export abstract class Application<Cfg = unknown>
+    extends WithInit
+    implements IRunnable, ICapabilityRegistry
+{
     private _isRunning: boolean = false
     private _isInited: boolean = false
     public readonly id: string
     public readonly config!: Cfg
 
-    /** Shared mutable bag middlewares use to publish capabilities (e.g.
-     *  `context.httpAgent` from ProxyMiddleware). Framework consumers read
-     *  through here instead of reaching into the Application instance itself.
-     *  Keys should be unique across middlewares; no namespace enforcement yet. */
+    /** Shared mutable bag — the underlying storage for the typed capability
+     *  registry (`provide` / `get` / `revoke` / `has`). Prefer those over
+     *  poking `context` directly; the bag is public only so legacy consumers
+     *  still work and tests can inspect state. */
     public readonly context: Record<string, unknown> = {}
+
+    /** Publish a capability under a typed key. Idempotent — later calls
+     *  overwrite. Middlewares should call this from `install()`. */
+    provide<V>(key: CapabilityKey<V>, value: V): void {
+        this.context[key as unknown as string] = value
+    }
+
+    /** Retrieve a capability. Returns `undefined` when the key was never
+     *  provided (or was revoked). */
+    get<V>(key: CapabilityKey<V>): V | undefined {
+        return this.context[key as unknown as string] as V | undefined
+    }
+
+    /** Remove a capability. Idempotent. */
+    revoke<V>(key: CapabilityKey<V>): void {
+        delete this.context[key as unknown as string]
+    }
+
+    /** True when the capability is currently provided. */
+    has<V>(key: CapabilityKey<V>): boolean {
+        return (key as unknown as string) in this.context
+    }
 
     protected readonly lockManager: LockManager = new LockManager(`./.lock`)
 

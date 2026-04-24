@@ -1,14 +1,16 @@
 import { IAppMiddleware, Phase, AppLike } from '@cmd-hub/common'
 import {
     GrpcCmdNodeClient,
-    type InMemoryChannelResolver,
+    CAP_NodeChannelResolver,
+    CAP_CmdNodeClient,
     type ICmdNodeClient,
 } from '@cmd-hub/transport'
 
 /**
- * Constructs a hub-side `ICmdNodeClient` from the in-memory channel resolver
- * populated by `GrpcServerMiddleware`. Stashes the client at `app._cmdNodeClient`
- * so `CmdHubApp` can wire it into the `RemoteCmdInvoker`.
+ * Builds a hub-side `ICmdNodeClient` from the in-memory channel resolver
+ * published by `GrpcServerMiddleware` (as `CAP_NodeChannelResolver`), and
+ * publishes the client as `CAP_CmdNodeClient` for `CmdHubApp` to wire
+ * into the `RemoteCmdInvoker` + built-in commands.
  *
  * No config contribution.
  * Phase: Services (installs after Transport).
@@ -18,18 +20,18 @@ export class CmdNodeClientMiddleware implements IAppMiddleware {
     readonly phase = Phase.Services
 
     async install(app: AppLike): Promise<void> {
-        const resolver = (app as any)._nodeChannelResolver as InMemoryChannelResolver | undefined
+        const resolver = app.get(CAP_NodeChannelResolver)
         if (!resolver) {
             throw new Error(
-                'CmdNodeClientMiddleware requires _nodeChannelResolver on the app — ' +
+                'CmdNodeClientMiddleware requires CAP_NodeChannelResolver — ' +
                 'install GrpcServerMiddleware first',
             )
         }
         const client: ICmdNodeClient = new GrpcCmdNodeClient(resolver)
-        ;(app as any)._cmdNodeClient = client
+        app.provide(CAP_CmdNodeClient, client)
     }
 
     async uninstall(app: AppLike): Promise<void> {
-        ;(app as any)._cmdNodeClient = null
+        app.revoke(CAP_CmdNodeClient)
     }
 }

@@ -2,7 +2,7 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import mongoose from 'mongoose'
 import { z } from 'zod'
 import { MongoMiddleware, Application } from '@cmd-hub/common'
-import { NodeRecordModel, type ICmdNodeClient } from '@cmd-hub/transport'
+import { NodeRecordModel, CAP_CmdNodeClient } from '@cmd-hub/transport'
 import { GrpcServerMiddleware } from '../grpc-server-middleware'
 import { CmdNodeClientMiddleware } from '../cmd-node-client-middleware'
 
@@ -38,11 +38,11 @@ describe('CmdNodeClientMiddleware', () => {
 
         await app.Initialize()
 
-        const client = (app as any)._cmdNodeClient as ICmdNodeClient | null
-        expect(client).not.toBeNull()
+        const client = app.get(CAP_CmdNodeClient)
+        expect(client).toBeDefined()
         expect(typeof client!.invoke).toBe('function')
 
         await app.terminate()
-        expect((app as any)._cmdNodeClient).toBeNull()
+        expect(app.get(CAP_CmdNodeClient)).toBeUndefined()
     }, 60_000)
 })

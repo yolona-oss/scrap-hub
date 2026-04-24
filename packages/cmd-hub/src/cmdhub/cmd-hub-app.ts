@@ -4,6 +4,8 @@ import {
     isConfigContributor,
     IUI,
 } from '@cmd-hub/common'
+import { CAP_ManifestAggregator, CAP_CmdNodeClient } from '@cmd-hub/transport'
+import { CAP_RemoteCmdInvoker } from '../capabilities'
 
 /**
  * IUI implementations may declare an `onAppAttach` hook so they can grab
@@ -49,16 +51,16 @@ export class CmdHubApp<Cfg = unknown> extends Application<Cfg> {
     async run(): Promise<void> {
         // Propagate federation-level capabilities (ManifestAggregator,
         // RemoteCmdInvoker, ICmdNodeClient) into each UI's CmdDispatcher.
-        // Middlewares (Grpc, CmdNodeClient) stashed these on the app during
-        // Transport/Services phases.
+        // Middlewares (Grpc, CmdNodeClient) published these during the
+        // Transport/Services phases; read them off the typed registry here.
         //
         // onAppAttach() runs FIRST because some UIs (e.g. TelegramUI under
         // the parameterless-constructor pattern) lazy-construct their
         // dispatcher there. Attaching capabilities after onAppAttach means
         // the dispatcher exists by that point.
-        const aggregator = (this as any)._aggregator
-        const nodeClient = (this as any)._cmdNodeClient
-        const remoteInvoker = (this as any)._remoteInvoker
+        const aggregator = this.get(CAP_ManifestAggregator)
+        const nodeClient = this.get(CAP_CmdNodeClient)
+        const remoteInvoker = this.get(CAP_RemoteCmdInvoker)
         for (const ui of this._uis) {
             if (typeof ui.onAppAttach === 'function') {
                 await ui.onAppAttach(this)

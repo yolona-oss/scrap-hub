@@ -1,11 +1,14 @@
 import * as grpc from '@grpc/grpc-js'
 import { z } from 'zod'
 import { IAppMiddleware, ConfigContributor, Phase, AppLike } from '@cmd-hub/common'
-import { CmdHubProto } from '@cmd-hub/transport'
 import { HubClient, IHubServiceClient } from '../runtime/hub-client'
 import { MetricsCollector } from '../manifest/metrics-collector'
-
-type NodeManifest = CmdHubProto.NodeManifest
+import {
+    CAP_NodeManifest,
+    CAP_NodeInvokeBoundAddress,
+    CAP_NodeHubClient,
+    CAP_NodeMetricsCollector,
+} from '../capabilities'
 
 export const HubConfigSchema = z.object({
     address: z.string().min(1),
@@ -38,16 +41,15 @@ export interface HubClientMiddlewareOptions {
  * `HubClient` pointed at `cfg.hub.address`, calls `Register` with the node's
  * manifest, then starts the heartbeat stream.
  *
- * Reads from the app:
- *   _nodeManifest — built by CmdNodeApp from registered services
- *   _invokeBoundAddress — listen address of the node's own InvokeServer (for
- *                         the RegisterRequest.listenAddress field).
- *                         If absent, an empty string is sent and the hub
- *                         cannot dial this node back (useful for tests).
+ * Required capabilities:
+ *   CAP_NodeManifest — built by CmdNodeApp from registered services.
  *
- * Stashes on the app:
- *   _hubClient — the live `HubClient` (null after uninstall)
- *   _metrics   — the MetricsCollector used for heartbeat samples
+ * Optional capabilities (listen address is '' if absent — useful in tests):
+ *   CAP_NodeInvokeBoundAddress — populated by InvokeServerMiddleware.
+ *
+ * Published capabilities:
+ *   CAP_NodeHubClient — the live `HubClient`.
+ *   CAP_NodeMetricsCollector — MetricsCollector feeding the heartbeat stream.
  */
 export class HubClientMiddleware implements IAppMiddleware, ConfigContributor {
     readonly name = 'HubClientMiddleware'
@@ -62,12 +64,11 @@ export class HubClientMiddleware implements IAppMiddleware, ConfigContributor {
 
     async install(app: AppLike): Promise<void> {
         const cfg = (app.config as { hub: HubConfig }).hub
-        const listenAddress = ((app as unknown) as { _invokeBoundAddress?: string })
-            ._invokeBoundAddress ?? ''
-        const manifest = ((app as unknown) as { _nodeManifest?: NodeManifest })._nodeManifest
+        const listenAddress = app.get(CAP_NodeInvokeBoundAddress) ?? ''
+        const manifest = app.get(CAP_NodeManifest)
         if (!manifest) {
             throw new Error(
-                'HubClientMiddleware requires _nodeManifest on the app — ' +
+                'HubClientMiddleware requires CAP_NodeManifest — ' +
                 'CmdNodeApp must build it before install()',
             )
         }
@@ -86,8 +87,8 @@ export class HubClientMiddleware implements IAppMiddleware, ConfigContributor {
             client: this.opts.clientOverride,
         })
 
-        ;(app as unknown as { _hubClient: HubClient })._hubClient = this.client
-        ;(app as unknown as { _metrics: MetricsCollector })._metrics = this.metrics
+        app.provide(CAP_NodeHubClient, this.client)
+        app.provide(CAP_NodeMetricsCollector, this.metrics)
 
         if (this.opts.skipNetwork) return
 
@@ -104,7 +105,7 @@ export class HubClientMiddleware implements IAppMiddleware, ConfigContributor {
             try { this.metrics.stop() } catch { /* ignore */ }
             this.metrics = null
         }
-        ;(app as unknown as { _hubClient: HubClient | null })._hubClient = null
-        ;(app as unknown as { _metrics: MetricsCollector | null })._metrics = null
+        app.revoke(CAP_NodeHubClient)
+        app.revoke(CAP_NodeMetricsCollector)
     }
 }

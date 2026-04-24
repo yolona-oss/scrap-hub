@@ -5,8 +5,9 @@ import type { Server } from 'http'
 import { IAppMiddleware, ConfigContributor, Phase, AppLike } from '@cmd-hub/common'
 import {
     makeUploadEndpoint,
-    type FileService,
-    type GridFSBackend,
+    CAP_FileService,
+    CAP_GridFSBackend,
+    CAP_UploadBoundAddress,
 } from '@cmd-hub/transport'
 
 /**
@@ -30,12 +31,12 @@ export class UploadEndpointMiddleware implements IAppMiddleware, ConfigContribut
 
     async install(app: AppLike): Promise<void> {
         const cfg = (app.config as { upload: { bindAddress: string } }).upload
-        const fileService = (app as any)._fileService as FileService | undefined
-        const backend = (app as any)._gridfsBackend as GridFSBackend | undefined
+        const fileService = app.get(CAP_FileService)
+        const backend = app.get(CAP_GridFSBackend)
         if (!fileService || !backend) {
             throw new Error(
-                'UploadEndpointMiddleware requires _fileService and _gridfsBackend ' +
-                'on the app — install GrpcServerMiddleware first',
+                'UploadEndpointMiddleware requires CAP_FileService and CAP_GridFSBackend ' +
+                'provided by an earlier middleware (install GrpcServerMiddleware first)',
             )
         }
 
@@ -53,18 +54,19 @@ export class UploadEndpointMiddleware implements IAppMiddleware, ConfigContribut
         await new Promise<void>((resolve, reject) => {
             const srv = httpApp.listen(port, host, () => {
                 this._server = srv
-                ;(app as any)._uploadBoundAddress = this.resolveBoundAddress(srv, host)
+                app.provide(CAP_UploadBoundAddress, this.resolveBoundAddress(srv, host))
                 resolve()
             })
             srv.once('error', reject)
         })
     }
 
-    async uninstall(_app: AppLike): Promise<void> {
+    async uninstall(app: AppLike): Promise<void> {
         if (this._server) {
             await new Promise<void>((resolve) => this._server!.close(() => resolve()))
             this._server = null
         }
+        app.revoke(CAP_UploadBoundAddress)
     }
 
     private resolveBoundAddress(srv: Server, host: string): string {

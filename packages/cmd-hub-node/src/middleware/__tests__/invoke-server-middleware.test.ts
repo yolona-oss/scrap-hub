@@ -4,6 +4,11 @@ import { Application, Phase } from '@cmd-hub/common'
 import { CmdHubProto } from '@cmd-hub/transport'
 import { InvokeServerMiddleware } from '../invoke-server-middleware'
 import type { IExecutor } from '../../runtime/invoke-server'
+import {
+    CAP_NodeExecutor,
+    CAP_NodeInvokeServer,
+    CAP_NodeInvokeBoundAddress,
+} from '../../capabilities'
 
 function stubExecutor(): IExecutor {
     return {
@@ -30,7 +35,7 @@ class TestApp extends Application<any> {
     async run(): Promise<void> {}
 
     async Initialize(): Promise<void> {
-        ;(this as any)._executor = this.executor
+        this.provide(CAP_NodeExecutor, this.executor)
         await super.Initialize()
     }
 }
@@ -54,8 +59,8 @@ describe('InvokeServerMiddleware', () => {
             .use(new InvokeServerMiddleware())
 
         await app.Initialize()
-        const handle = (app as any)._invokeServer
-        const bound = (app as any)._invokeBoundAddress
+        const handle = app.get(CAP_NodeInvokeServer)
+        const bound = app.get(CAP_NodeInvokeBoundAddress)!
         expect(handle).toBeTruthy()
         expect(typeof bound).toBe('string')
         expect(bound).toMatch(/^127\.0\.0\.1:\d+$/)
@@ -71,11 +76,11 @@ describe('InvokeServerMiddleware', () => {
         client.close()
 
         await app.terminate()
-        expect((app as any)._invokeServer).toBeNull()
-        expect((app as any)._invokeBoundAddress).toBe('')
+        expect(app.get(CAP_NodeInvokeServer)).toBeUndefined()
+        expect(app.get(CAP_NodeInvokeBoundAddress)).toBeUndefined()
     }, 20_000)
 
-    it('throws during install when _executor is missing', async () => {
+    it('throws during install when CAP_NodeExecutor is missing', async () => {
         class NakedApp extends Application<any> {
             constructor() {
                 super({
@@ -87,6 +92,6 @@ describe('InvokeServerMiddleware', () => {
             async run(): Promise<void> {}
         }
         const app = new NakedApp().use(new InvokeServerMiddleware())
-        await expect(app.Initialize()).rejects.toThrow(/_executor/)
+        await expect(app.Initialize()).rejects.toThrow(/CAP_NodeExecutor/)
     })
 })

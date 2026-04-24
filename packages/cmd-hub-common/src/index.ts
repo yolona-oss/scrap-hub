@@ -10,6 +10,7 @@ export * from './utils/table-designer'
 export * from './application/application'
 export * from './application/phase'
 export * from './application/middleware-types'
+export * from './application/capability'
 export * from './application/lock-manager'
 export { log } from './application/logger'
 

@@ -10,6 +10,7 @@ import {
 import { CmdHubProto } from '@cmd-hub/transport'
 import { hardwareInfo } from '../manifest/hardware-info'
 import type { IExecutor, RunnableService } from '../runtime/invoke-server'
+import { CAP_NodeManifest, CAP_NodeExecutor } from '../capabilities'
 
 type NodeManifest = CmdHubProto.NodeManifest
 type ProtoCommand = CmdHubProto.Command
@@ -238,11 +239,12 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
     }
 
     async Initialize(): Promise<void> {
-        // Build and stash the manifest + executor so middlewares (installed by
-        // super.Initialize()) can read them out.
+        // Build the manifest + executor and publish them via the typed
+        // capability registry so middlewares (installed by super.Initialize())
+        // can read them out.
         this._cachedManifest = this.buildManifest()
-        ;(this as unknown as { _nodeManifest: NodeManifest })._nodeManifest = this._cachedManifest
-        ;(this as unknown as { _executor: IExecutor })._executor = this.buildExecutor()
+        this.provide(CAP_NodeManifest, this._cachedManifest)
+        this.provide(CAP_NodeExecutor, this.buildExecutor())
 
         await super.Initialize()
     }

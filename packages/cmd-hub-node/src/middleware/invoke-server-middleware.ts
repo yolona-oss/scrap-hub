@@ -5,8 +5,12 @@ import {
     startNodeGrpcServer,
     makeInvokeServerImpl,
     type NodeGrpcServerHandle,
-    type IExecutor,
 } from '../runtime/invoke-server'
+import {
+    CAP_NodeExecutor,
+    CAP_NodeInvokeServer,
+    CAP_NodeInvokeBoundAddress,
+} from '../capabilities'
 
 export const InvokeServerConfigSchema = z.object({
     bindAddress: z.string().min(1),
@@ -24,14 +28,13 @@ export interface InvokeServerMiddlewareOptions {
  * `Invoke` bidi streams. Installs in the Transport phase so HubClientMiddleware
  * (Services phase) sees a bound listen address before calling Register.
  *
- * Reads from the app:
- *   _executor — built by CmdNodeApp from registered services, exposes
- *               createService() + getManifest() for the gRPC impl to consume.
+ * Required capabilities:
+ *   CAP_NodeExecutor — provided by CmdNodeApp before super.Initialize().
  *
- * Stashes on the app:
- *   _invokeServer — the NodeGrpcServerHandle
- *   _invokeBoundAddress — actual bound `host:port` (picked by the kernel when
- *                         `bindAddress` used port 0).
+ * Published capabilities:
+ *   CAP_NodeInvokeServer — the NodeGrpcServerHandle
+ *   CAP_NodeInvokeBoundAddress — actual bound `host:port` (picked by the
+ *                                kernel when `bindAddress` used port 0).
  */
 export class InvokeServerMiddleware implements IAppMiddleware, ConfigContributor {
     readonly name = 'InvokeServerMiddleware'
@@ -45,10 +48,10 @@ export class InvokeServerMiddleware implements IAppMiddleware, ConfigContributor
 
     async install(app: AppLike): Promise<void> {
         const cfg = (app.config as { invokeServer: InvokeServerConfig }).invokeServer
-        const executor = ((app as unknown) as { _executor?: IExecutor })._executor
+        const executor = app.get(CAP_NodeExecutor)
         if (!executor) {
             throw new Error(
-                'InvokeServerMiddleware requires _executor on the app — ' +
+                'InvokeServerMiddleware requires CAP_NodeExecutor — ' +
                 'CmdNodeApp must build it before install()',
             )
         }
@@ -60,9 +63,8 @@ export class InvokeServerMiddleware implements IAppMiddleware, ConfigContributor
             impl: makeInvokeServerImpl({ executor }),
         })
 
-        ;(app as unknown as { _invokeServer: NodeGrpcServerHandle })._invokeServer = this.handle
-        ;(app as unknown as { _invokeBoundAddress: string })._invokeBoundAddress =
-            this.handle.boundAddress
+        app.provide(CAP_NodeInvokeServer, this.handle)
+        app.provide(CAP_NodeInvokeBoundAddress, this.handle.boundAddress)
     }
 
     async uninstall(app: AppLike): Promise<void> {
@@ -70,7 +72,7 @@ export class InvokeServerMiddleware implements IAppMiddleware, ConfigContributor
             try { await this.handle.shutdown() } catch { /* ignore */ }
             this.handle = null
         }
-        ;(app as unknown as { _invokeServer: NodeGrpcServerHandle | null })._invokeServer = null
-        ;(app as unknown as { _invokeBoundAddress: string })._invokeBoundAddress = ''
+        app.revoke(CAP_NodeInvokeServer)
+        app.revoke(CAP_NodeInvokeBoundAddress)
     }
 }
