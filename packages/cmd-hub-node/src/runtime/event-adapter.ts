@@ -1,9 +1,16 @@
-import { EventEmitter } from 'events'
 import { CmdHubProto } from '@cmd-hub/transport'
 
 type InvokeServer = CmdHubProto.InvokeServer
 type IntercomAction = CmdHubProto.IntercomAction
 type FileHandleProto = CmdHubProto.FileHandle
+
+/** Minimal event-emitter surface adaptService needs. Loose-typed so concrete
+ *  services using a TypedEventEmitter (narrow event map) are still assignable. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface EventSource {
+    on(event: string, listener: (...args: any[]) => void): unknown
+    off(event: string, listener: (...args: any[]) => void): unknown
+}
 
 export type InvokeWriter = (msg: InvokeServer) => void
 
@@ -21,7 +28,7 @@ export type InvokeWriter = (msg: InvokeServer) => void
  * StreamError so the consumer can tell immediately that the node violated
  * the file-handle contract.
  */
-export function adaptService(svc: EventEmitter, writer: InvokeWriter): () => void {
+export function adaptService(svc: EventSource, writer: InvokeWriter): () => void {
     let seq = 0
 
     const onMessage = (text: string) => {

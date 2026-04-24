@@ -14,12 +14,19 @@ type NodeManifest = CmdHubProto.NodeManifest
 
 /**
  * Minimal contract the invoke server needs from a "running service":
- *   - an EventEmitter surface so adaptService can splice events onto the stream
- *   - a receiveMsg() method so dispatchIntercom can forward intercom/cancel
- *   - a run() method that kicks off the actual work
- *   - an optional terminate() for clean shutdown
+ *   - event-emitter-shaped `on`/`off`/`emit` so adaptService can splice events
+ *     onto the stream. Loose-typed on purpose — concrete services may use a
+ *     TypedEventEmitter with a narrow event map and TS variance makes a full
+ *     `extends EventEmitter` constraint reject those subclasses.
+ *   - receiveMsg() so dispatchIntercom can forward intercom/cancel
+ *   - run() to kick off the actual work
+ *   - optional terminate() + Initialize() for clean lifecycle
  */
-export interface RunnableService extends EventEmitter {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface RunnableService {
+    on(event: string, listener: (...args: any[]) => void): unknown
+    off(event: string, listener: (...args: any[]) => void): unknown
+    emit(event: string, ...args: any[]): boolean
     receiveMsg(actionId: string, args: string[]): Promise<void>
     run(): Promise<void>
     terminate?(): Promise<void>

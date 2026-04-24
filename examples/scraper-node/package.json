@@ -11,9 +11,12 @@
     "license": "ISC",
     "description": "Example deployable: org-scraper running as a cmd-node.",
     "dependencies": {
+        "@cmd-hub/common": "*",
         "@cmd-hub/core": "*",
-        "cmd-node": "*",
+        "@cmd-hub/node": "*",
+        "@cmd-hub/transport": "*",
         "@grpc/grpc-js": "^1.14.3",
+        "zod": "^3.25.76",
         "mongoose": "^8.9.5",
         "serpapi": "^2.1.0",
         "cheerio": "^1.0.0",

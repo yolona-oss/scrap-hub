@@ -34,10 +34,15 @@ export interface ServiceClassWithOptionalConfig extends ServiceClass {
 export interface CmdNodeAppOptions<Cfg>
     extends Omit<ApplicationOptions<Cfg>, 'baseSchema'> {
     baseSchema?: ApplicationOptions<Cfg>['baseSchema']
-    /** Node identity + runtime version used when building the manifest. */
-    nodeId: string
-    nodeName: string
-    version: string
+    /**
+     * Optional node identity overrides. When omitted, CmdNodeApp reads these
+     * from `config.hub.{nodeId,nodeName,version}` (the HubClientMiddleware's
+     * config slice), which is the recommended source per the "no process.env,
+     * config.json only" framework directive.
+     */
+    nodeId?: string
+    nodeName?: string
+    version?: string
 }
 
 /**
@@ -66,26 +71,46 @@ function toProtoArgs(args: { name: string; position: number; required: boolean; 
  * so the middlewares can pick them up during their `install()` calls.
  */
 export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
-    public readonly nodeId: string
-    public readonly nodeName: string
-    public readonly nodeVersion: string
+    private readonly _nodeIdOverride?: string
+    private readonly _nodeNameOverride?: string
+    private readonly _versionOverride?: string
 
     private readonly _serviceClasses: Map<string, ServiceClassWithOptionalConfig> = new Map()
     private _cachedManifest: NodeManifest | null = null
 
     constructor(opts: CmdNodeAppOptions<Cfg>) {
-        if (!opts.nodeId) throw new Error('CmdNodeApp: nodeId is required')
-        if (!opts.nodeName) throw new Error('CmdNodeApp: nodeName is required')
-        if (!opts.version) throw new Error('CmdNodeApp: version is required')
         super({
             configPath: opts.configPath,
             baseSchema: opts.baseSchema ?? (z.object({}).passthrough() as unknown as z.ZodType<unknown>),
             inlineConfig: opts.inlineConfig,
-            name: opts.name ?? `cmd-node-${opts.nodeId}`,
+            name: opts.name ?? (opts.nodeId ? `cmd-node-${opts.nodeId}` : 'cmd-node'),
         })
-        this.nodeId = opts.nodeId
-        this.nodeName = opts.nodeName
-        this.nodeVersion = opts.version
+        this._nodeIdOverride = opts.nodeId
+        this._nodeNameOverride = opts.nodeName
+        this._versionOverride = opts.version
+    }
+
+    /** Resolved node identity. Reads constructor overrides first, then
+     *  `config.hub.{nodeId,nodeName,version}`. Throws if neither is available. */
+    get nodeId(): string {
+        return this._nodeIdOverride ?? this._requireHubField('nodeId')
+    }
+    get nodeName(): string {
+        return this._nodeNameOverride ?? this._requireHubField('nodeName')
+    }
+    get nodeVersion(): string {
+        return this._versionOverride ?? this._requireHubField('version')
+    }
+
+    private _requireHubField(key: 'nodeId' | 'nodeName' | 'version'): string {
+        const hub = (this.config as { hub?: Record<string, unknown> } | null)?.hub
+        const v = hub?.[key]
+        if (typeof v !== 'string' || v.length === 0) {
+            throw new Error(
+                `CmdNodeApp: config.hub.${key} is missing — either pass it via constructor opts or declare it in config.json`,
+            )
+        }
+        return v
     }
 
     /**

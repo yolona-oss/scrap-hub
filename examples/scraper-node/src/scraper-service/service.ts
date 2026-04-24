@@ -1,6 +1,13 @@
-import { BaseCommandService } from "@core/ui/types/command/service"
+import { BaseCommandService, CmdService } from "@cmd-hub/common"
 import { BLANK_USER_ID } from "@core/ui/command-processor"
-import { scraperDefaultData, ScraperServiceDataType } from "./service-data"
+import { z } from "zod"
+import {
+    scraperDefaultData,
+    ScraperServiceDataType,
+    ScraperConfigData,
+    ScraperParamsData,
+    ScraperMessagesData,
+} from "./service-data"
 import { OrgScraper } from "./scraper"
 import { SearchQuery } from "../types"
 import { SourceRegistry } from "../sources/registry"
@@ -9,7 +16,34 @@ import log from "@logger"
 export const SCRAPER_NAME = 'scraper'
 export const SCRAPER_DESCRIPTION = 'Search and collect organization data from open sources'
 
+@CmdService({
+    name: SCRAPER_NAME,
+    description: SCRAPER_DESCRIPTION,
+    compatibilityId: 'com.example.scrap-hub.scraper',
+    version: '1.0.0',
+    config: ScraperConfigData,
+    params: ScraperParamsData,
+    messages: ScraperMessagesData,
+})
 export class OrgScraperService extends BaseCommandService<ScraperServiceDataType> {
+    /** CmdNodeApp reads these statics to build the merged app config schema. */
+    static readonly configNamespace = 'scraper'
+    static readonly configSchema = z.object({
+        serpApiKey: z.string().default(''),
+        yandexXmlUser: z.string().default(''),
+        yandexXmlKey: z.string().default(''),
+        chromePath: z.string().default(''),
+        requestDelayMs: z.number().default(1000),
+        userAgent: z.string().default(
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+            '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        ),
+        googleSheets: z.object({
+            credentials: z.string().default(''),
+            spreadsheetId: z.string().default(''),
+        }).default({}),
+    })
+
     private scraper: OrgScraper | null = null
     private isPaused = false
 
@@ -83,8 +117,8 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
 
         const generator = this.scraper.run(
             (msg) => this.sendToWorld(msg),
-            (name, current, total) => this.emit('progress' as any, name, current, total),
-            (name, status) => this.emit('progressStatus' as any, name, status),
+            (name, current, total) => this.emit('progress', name, current, total),
+            (name, status) => this.emit('progressStatus', name, status),
             () => this.isPaused,
             this.getServiceContext(),
         )
@@ -137,7 +171,7 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
             if (result.filePath) {
                 this.sendToWorld(`File saved: ${result.filePath}`)
                 // Emit file event for UI to handle (e.g. Telegram sendDocument)
-                this.emit('file' as any, result.filePath)
+                this.emit('file', result.filePath)
             }
         } catch (e: any) {
             this.sendToError(`Export failed: ${e.message ?? e}`)

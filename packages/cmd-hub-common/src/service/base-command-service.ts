@@ -32,11 +32,21 @@ export interface IntercomAction {
     args?: string[]
 }
 
-interface IBaseCmdService_EvMap<T = string> extends EventMap {
+/**
+ * Typed event map for BaseCommandService. Subclasses get autocomplete +
+ * type-check on every emit/on for these 8 kinds. The node-side invoke
+ * adapter reads all of them off the emitter and forwards them as proto
+ * InvokeServer messages.
+ */
+export interface IBaseCmdService_EvMap<T = string> extends EventMap {
     message: (msg: T) => void,
     error: (err: string) => void,
     done: (msg?: string) => void,
-    liveLog: (logs: string[]) => void
+    liveLog: (logs: string[]) => void,
+    progress: (name: string, current: number, total: number) => void,
+    progressStatus: (name: string, status: string) => void,
+    intercom: (actions: IntercomAction[]) => void,
+    file: (handleOrPath: unknown) => void,
 }
 
 function merge<T extends Object>(dst: T, src: T): T {
@@ -138,12 +148,12 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
         } else {
             this._intercomActions.push(action)
         }
-        this.emit('intercom' as any, [...this._intercomActions])
+        this.emit('intercom', [...this._intercomActions])
     }
 
     protected removeIntercom(actionId: string): void {
         this._intercomActions = this._intercomActions.filter(a => a.id !== actionId)
-        this.emit('intercom' as any, [...this._intercomActions])
+        this.emit('intercom', [...this._intercomActions])
     }
 
     get intercomActions(): ReadonlyArray<IntercomAction> {

@@ -1,4 +1,39 @@
 /* eslint-disable no-console */
-// Rewritten in Phase 5 of the package-split plan.
-console.log('scraper-node placeholder; rewrite pending')
-process.exit(1)
+import 'reflect-metadata'
+import { z } from 'zod'
+import { MongoMiddleware } from '@cmd-hub/common'
+import { CmdNodeApp, HubClientMiddleware, InvokeServerMiddleware } from '@cmd-hub/node'
+
+import { OrgScraperService } from './scraper-service/service'
+import { registerSources } from './sources'
+import { registerExporters } from './exporters'
+import { registerGoogleSheetsPlugin } from './plugins/google-sheets'
+import { registerBuiltInCheerioSources } from './plugins/cheerio-sources'
+
+// Side-effecting plugin registrations. These populate SourceRegistry /
+// ExporterRegistry before any scraper invocation runs.
+registerSources()
+registerExporters()
+registerGoogleSheetsPlugin()
+registerBuiltInCheerioSources()
+
+async function bootstrap() {
+    const app = new CmdNodeApp({
+        configPath: process.argv[2] ?? './config.json',
+        baseSchema: z.object({}).passthrough(),
+    })
+        .use(new MongoMiddleware())
+        .use(new InvokeServerMiddleware())
+        .use(new HubClientMiddleware())
+        .useCommand(OrgScraperService)
+
+    await app.Initialize()
+    await app.run()
+    // `run()` parks on a never-resolving promise; the framework's
+    // built-in SIGINT/SIGTERM handlers call terminate() on shutdown.
+}
+
+bootstrap().catch((e) => {
+    console.error('[scraper-node] fatal:', e)
+    process.exit(1)
+})
