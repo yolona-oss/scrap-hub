@@ -18,6 +18,7 @@ import { IUICommandProcessed } from '@cmd-hub/core'
 import { InlineKeyboardButton } from 'telegraf/typings/core/types/typegram'
 import { UiUnicodeSymbols, handleCalibrationCallback } from '@cmd-hub/core'
 import type { IMsgHistoryDto, MessageOptions } from '@cmd-hub/core'
+import { z } from 'zod'
 
 /** Telegram-specific adapter: turn a TgContext into the common
  *  message-history DTO. Inlined here because cmd-hub's db schema
@@ -54,15 +55,63 @@ export class TelegramUI extends BaseUI<TgContext> {
         return id
     }
 
-    public readonly bot: telegraf.Telegraf<TgContext>
+    public bot!: telegraf.Telegraf<TgContext>
+    public dispatcher!: CmdDispatcher<TgContext>
     private isActive: boolean = false
 
+    /** ConfigContributor fields — CmdHubApp merges this slice into the
+     *  merged app schema, so `config.telegram.{botToken,adminUserIds}` is
+     *  validated at Initialize() before onAppAttach() fires. */
+    readonly namespace = 'telegram' as const
+    readonly schema = z.object({
+        botToken: z.string().min(1),
+        adminUserIds: z.array(z.union([z.string(), z.number()])).default([]),
+    })
+
+    /**
+     * Parameterless: token comes from `config.telegram.botToken` (validated
+     * by the contributor schema above); the dispatcher is attached during
+     * `onAppAttach(app)` by `CmdHubApp.run()`.
+     *
+     * Back-compat: the old signature `new TelegramUI(botToken, dispatcher)`
+     * still works. Pass both eagerly if you're bootstrapping without
+     * CmdHubApp.
+     */
     constructor(
-        botApiKey: string,
-        public readonly dispatcher: CmdDispatcher<TgContext>
+        botToken?: string,
+        dispatcher?: CmdDispatcher<TgContext>,
     ) {
         super()
-        this.bot = new telegraf.Telegraf(botApiKey)
+        if (botToken) {
+            this.bot = new telegraf.Telegraf<TgContext>(botToken)
+        }
+        if (dispatcher) {
+            this.dispatcher = dispatcher
+        }
+    }
+
+    /**
+     * Called by CmdHubApp during run(). Lazy-initializes the Telegraf bot
+     * from config.telegram.botToken and the CmdDispatcher (every UI owns
+     * its own dispatcher; they don't share one).
+     */
+    async onAppAttach(app: {
+        config: unknown
+    }): Promise<void> {
+        if (!this.bot) {
+            const cfg = (app.config as { telegram?: { botToken: string } }).telegram
+            if (!cfg?.botToken) {
+                throw new Error(
+                    'TelegramUI.onAppAttach: config.telegram.botToken is required — ' +
+                    'register the UI with `.useUI(new TelegramUI())` and ensure the ' +
+                    'config slice validates.',
+                )
+            }
+            this.bot = new telegraf.Telegraf<TgContext>(cfg.botToken)
+        }
+        if (!this.dispatcher) {
+            this.dispatcher = new CmdDispatcher<TgContext>()
+        }
     }
 
     max_message_width() {

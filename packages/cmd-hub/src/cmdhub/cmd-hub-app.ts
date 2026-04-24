@@ -48,14 +48,22 @@ export class CmdHubApp<Cfg = unknown> extends Application<Cfg> {
 
     async run(): Promise<void> {
         // Propagate federation-level capabilities (ManifestAggregator,
-        // RemoteCmdInvoker, ICmdNodeClient) into each UI's CmdDispatcher
-        // before it starts. Middlewares (Grpc, CmdNodeClient) stashed these
-        // on the app during the Transport/Services phases; UIs don't see
-        // them until now.
+        // RemoteCmdInvoker, ICmdNodeClient) into each UI's CmdDispatcher.
+        // Middlewares (Grpc, CmdNodeClient) stashed these on the app during
+        // Transport/Services phases.
+        //
+        // onAppAttach() runs FIRST because some UIs (e.g. TelegramUI under
+        // the parameterless-constructor pattern) lazy-construct their
+        // dispatcher there. Attaching capabilities after onAppAttach means
+        // the dispatcher exists by that point.
         const aggregator = (this as any)._aggregator
         const nodeClient = (this as any)._cmdNodeClient
         const remoteInvoker = (this as any)._remoteInvoker
         for (const ui of this._uis) {
+            if (typeof ui.onAppAttach === 'function') {
+                await ui.onAppAttach(this)
+            }
+
             const dispatcher = (ui as { dispatcher?: unknown }).dispatcher as
                 | {
                       attachManifestAggregator?(a: unknown): void
@@ -73,9 +81,6 @@ export class CmdHubApp<Cfg = unknown> extends Application<Cfg> {
                 dispatcher.attachRemoteInvoker(remoteInvoker)
             }
 
-            if (typeof ui.onAppAttach === 'function') {
-                await ui.onAppAttach(this)
-            }
             await ui.run()
         }
     }
