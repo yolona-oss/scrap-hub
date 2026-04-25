@@ -1,20 +1,18 @@
 import { z } from 'zod'
 import type { Phase } from './phase'
 import type { ICapabilityRegistry } from './capability'
+import type { AppManifestSnapshot } from './manifest'
 
 /**
  * Minimal app-like contract middlewares receive on install/uninstall.
  * Avoids a circular import on Application.
- *
- * `context` is a legacy shared mutable bag middlewares used to use for
- * capability publication (e.g. `ProxyMiddleware` set `context.httpAgent`).
- * New code should prefer the typed capability registry
- * (`app.provide(key, value)` + `app.get(key)`), which backs onto `context`
- * under the hood but enforces payload types.
  */
 export interface AppLike extends ICapabilityRegistry {
     readonly config: unknown
-    readonly context: Record<string, unknown>
+    /** Read-only wiring snapshot. Useful for middlewares that introspect the
+     *  registered cap set (e.g. `FederationCapsMiddleware` auto-fills its
+     *  `supported` list from this). */
+    manifestSnapshot(): AppManifestSnapshot
 }
 
 export interface IAppMiddleware {

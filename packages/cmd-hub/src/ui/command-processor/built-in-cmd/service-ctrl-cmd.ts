@@ -31,7 +31,7 @@ const ServiceStopCommand: BuiltInCommand = {
         try {
             const res = await this.terminateService(userId, serviceName)
             await ctx.reply(`${UiUnicodeSymbols.success} Service "${serviceName}" terminated: ${res ?? "No-service-response"}`)
-        } catch(e: any) {
+        } catch(e: unknown) {
             throw new Error(`${UiUnicodeSymbols.error} Service "${serviceName}" termination error:\n  -- ${anyToString(e)}.`)
         }
     }
@@ -68,7 +68,7 @@ const ServiceRunCommand: BuiltInCommand = {
             }
             const res = await invoker.invokeLegacy(userId, {command: serviceName, proxy: new CmdArgumentProxy([]), raw: []}, ctx, uiImpl)
             await ctx.reply(`${UiUnicodeSymbols.success} Service "${serviceName}" started: ${JSON.stringify(res)}`)
-        } catch (e: any) {
+        } catch (e: unknown) {
             await ctx.reply(`Service ${serviceName} termination error: ${anyToString(e)}.`)
         }
     }
@@ -102,7 +102,7 @@ class ServiceSendMsgArgs {
                 const messages = instance.receiveMsgDescriptor()
 
                 return Object.keys(messages)
-            } catch (e: any) {
+            } catch (e: unknown) {
                 return []
             }
         }
@@ -134,7 +134,7 @@ const ServiceSendMsgCommand: BuiltInCommand = {
             }
             const res = await activeService.receiveMsg(messageName, messageArgs.split(' '))
             await ctx.reply(`Message ${messageName} sent: ${res}`)
-        } catch(e: any) {
+        } catch(e: unknown) {
             await ctx.reply(`Message ${messageName} sending error: ${anyToString(e)}.`)
         }
     }

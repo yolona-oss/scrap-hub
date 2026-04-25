@@ -8,17 +8,10 @@ import {
     LockManager,
 } from '@cmd-hub/core';
 import {
-    requireCap,
-    CAP_ManagerRepo,
-    CAP_AccountRepo,
-    CAP_InvitationLinkRepo,
-    CAP_CmdAliasRepo,
-    CAP_PendingDeleteRepo,
     type ManagerRecord,
     type AppLike,
     log,
 } from '@cmd-hub/common';
-import type { DispatcherRepos } from '@cmd-hub/core';
 
 import readline from 'readline';
 
@@ -39,7 +32,6 @@ export class CLIUI extends BaseUI<CLIContext> {
     private rl?: readline.Interface
     private isActive: boolean = false
     private cmds: string[]
-    private repos: DispatcherRepos | null = null
 
     constructor(
         public readonly dispatcher: CmdDispatcher<CLIContext>
@@ -59,15 +51,8 @@ export class CLIUI extends BaseUI<CLIContext> {
         this.setInitialized()
     }
 
-    /** Read repo capabilities once the storage middleware has installed. */
     async onAppAttach(app: AppLike): Promise<void> {
-        this.repos = {
-            manager:        requireCap(app, CAP_ManagerRepo),
-            account:        requireCap(app, CAP_AccountRepo),
-            invitationLink: requireCap(app, CAP_InvitationLinkRepo),
-            cmdAlias:       requireCap(app, CAP_CmdAliasRepo),
-            pendingDelete:  requireCap(app, CAP_PendingDeleteRepo),
-        }
+        this.attachReposFromApp(app)
     }
 
     // Platform-specific implementations for BaseUI
@@ -120,11 +105,8 @@ export class CLIUI extends BaseUI<CLIContext> {
             throw new Error("CLIUI::run() already running")
         }
 
-        if (!this.repos) {
-            throw new Error("CLIUI::run() not attached to app — onAppAttach didn't run")
-        }
-
-        const manager = await this.repos.manager.createWithAccount({
+        const repos = this.requireRepos('run')
+        const manager = await repos.manager.createWithAccount({
             isAdmin: true,
             name: CLI_USER_NAME,
             userId: CLI_USER_ID,

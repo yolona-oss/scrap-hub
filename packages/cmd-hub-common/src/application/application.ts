@@ -50,9 +50,9 @@ export abstract class Application<Cfg = unknown>
         return this._config
     }
 
-    /** Backing bag for the capability registry. Public for legacy consumers
-     *  and test inspection — prefer `provide`/`get`/`revoke`/`has`. */
-    public readonly context: Record<string, unknown> = {}
+    /** Runtime backing for the typed capability registry. Closed —
+     *  consumers go through `provide` / `get` / `has` / `revoke`. */
+    private readonly context: Record<string, unknown> = {}
 
     /** Side-band: which middleware (if any) provided each cap. Pruned on revoke. */
     private readonly _providers: Map<string, string> = new Map()

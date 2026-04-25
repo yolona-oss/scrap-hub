@@ -4,6 +4,8 @@ import { z } from 'zod'
 import {
     ProxyMiddleware,
     AppLockMiddleware,
+    CAP_StorageConnection,
+    CAP_ServiceStore,
 } from '@cmd-hub/common'
 import {
     MongoStorageMiddleware,
@@ -14,6 +16,8 @@ import {
     GrpcServerMiddleware,
     CmdNodeClientMiddleware,
     ConfigBootMiddleware,
+    FederationCapsMiddleware,
+    ManagerControlPlugin,
 } from '@cmd-hub/core'
 import { TelegramUI } from '@cmd-hub/ui-telegram'
 
@@ -37,8 +41,11 @@ async function bootstrap() {
         .use(new GridFsStorageMiddleware())
         .use(new ConfigBootMiddleware())
         .use(new GrpcServerMiddleware({ insecure: true }))
+        .use(new FederationCapsMiddleware({
+            essential: [CAP_StorageConnection, CAP_ServiceStore],
+        }))
         .use(new CmdNodeClientMiddleware())
-        .useUI(new TelegramUI())
+        .useUI(new TelegramUI().use(new ManagerControlPlugin()))
 
     await app.Initialize()
     await app.run()

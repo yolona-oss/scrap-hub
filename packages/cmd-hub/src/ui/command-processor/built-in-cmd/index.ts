@@ -10,7 +10,7 @@ export * from './config-cmd'
 export * from './sinfo-cmd'
 export * from './invite-cmd'
 
-//import { BaseUIContext } from '../../../ui'
+import { BaseUIContext } from '../../../ui'
 import { BuiltInSeqCommandsEnum, BuiltInHelpCommandsEnum, BuiltInAccountCommandsEnum, BuiltInServiceCommandsEnum, BuiltInAliasCommandsEnum, BuiltInUiCommandsEnum } from '../constants'
 import { ICmdRegisterEntry } from '../types'
 import { BuiltInCommand } from '../types/built-in-cmd'
@@ -23,7 +23,10 @@ export const BuiltInCommandNames: string[] = Object.values(BuiltInSeqCommandsEnu
                                                 .concat(Object.values(BuiltInAliasCommandsEnum))
                                                 .concat(Object.values(BuiltInUiCommandsEnum))
 
-export function toRegister(cmd: BuiltInCommand<any>, dispatcher: CmdDispatcher<any>): ICmdRegisterEntry<any> {
+export function toRegister<UICtx extends BaseUIContext>(
+    cmd: BuiltInCommand<UICtx>,
+    dispatcher: CmdDispatcher<UICtx>,
+): ICmdRegisterEntry<UICtx> {
     return {
         command: {
             command: cmd.command,

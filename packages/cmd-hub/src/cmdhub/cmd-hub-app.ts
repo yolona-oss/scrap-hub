@@ -21,10 +21,11 @@ import {
     type UIRequirementsForFiltering,
     type AttachWarning,
 } from '@cmd-hub/transport'
-import { CAP_RemoteCmdInvoker } from '../capabilities'
+import { CAP_RemoteCmdInvoker, CAP_FederationRequires } from '../capabilities'
 import type { DispatcherRepos } from '../ui/command-processor/dispatcher'
 import { RemoteCmdInvoker, type DashboardSession } from '../ui/command-processor/remote-invoker'
 import { ServiceDashboard } from '../ui/command-processor/dashboard/service-dashboard'
+import { unique } from '../utils/array'
 
 /** Federation requirements: cmd-node caps a UI plugin expects.
  *  `essential` — missing → command dropped from this UI's pool with a warning.
@@ -46,7 +47,7 @@ interface DispatcherForAttach {
     attachRemoteInvoker?(c: unknown): void
     attachNodeClient?(c: unknown): void
     attachRepos?(r: DispatcherRepos): void
-    collectRegisteredCommands?(): { name: string; requires: readonly string[] }[]
+    collectRegisteredCommands?(): { name: string; requires: readonly CapabilityKey<unknown>[] }[]
 }
 
 /** Hub-side Application with first-class UI plugins. */
@@ -96,18 +97,28 @@ export class CmdHubApp<Cfg = unknown> extends Application<Cfg> {
             this.provide(CAP_RemoteCmdInvoker, remoteInvoker)
         }
 
-        // Register UI federationRequires before any node attaches.
+        // Build per-UI federation requirements: merge app-level (from
+        // FederationCapsMiddleware, if installed) with each UI's own.
         if (aggregator) {
+            const fedReq = this.get(CAP_FederationRequires)
+            const appEssential = (fedReq?.essential ?? []).map(k => k as string)
+            const appSupported = (fedReq?.supported ?? []).map(k => k as string)
+
             const uiReqs: UIRequirementsForFiltering[] = []
             for (const ui of this._uis) {
-                if (!ui.federationRequires) continue
-                const essential = (ui.federationRequires.essential ?? []).map(k => k as string)
-                const supported = (ui.federationRequires.supported ?? []).map(k => k as string)
-                if (essential.length === 0 && supported.length === 0) continue
+                const uiEssential = (ui.federationRequires?.essential ?? []).map(k => k as string)
+                const uiSupported = (ui.federationRequires?.supported ?? []).map(k => k as string)
+
+                const mergedEssential = unique([...appEssential, ...uiEssential])
+                // UI essentials win: drop them from supported even if appSupported includes them.
+                const mergedSupported = unique([...appSupported, ...uiSupported])
+                    .filter(k => !mergedEssential.includes(k))
+
+                if (mergedEssential.length === 0 && mergedSupported.length === 0) continue
                 uiReqs.push({
                     uiName: ui.ContextType(),
-                    essential,
-                    supported,
+                    essential: mergedEssential,
+                    supported: mergedSupported,
                 })
             }
             aggregator.setUIRequirements(uiReqs)
@@ -203,7 +214,7 @@ export class CmdHubApp<Cfg = unknown> extends Application<Cfg> {
             const dispatcher = (ui as { dispatcher?: unknown }).dispatcher as DispatcherForAttach | undefined
             if (!dispatcher?.collectRegisteredCommands) continue
             for (const cmd of dispatcher.collectRegisteredCommands()) {
-                const missing = cmd.requires.filter(key => !this.has(key as never))
+                const missing = cmd.requires.filter(key => !this.has(key)).map(k => k as string)
                 if (missing.length > 0) {
                     failures.push({ commandName: cmd.name, missing })
                 }

@@ -50,5 +50,12 @@ export interface IUI<CtxType extends BaseUIContext = BaseUIContext, Dispatcher =
     lock(lockManager: ILockManagerLike): boolean
     unlock(lockManager: ILockManagerLike): boolean
 
+    /** Best-effort delete every persisted message for this user. The default
+     *  impl on the core `BaseUI` walks the manager's history and calls
+     *  `deleteMessage(userId, messageId)` for each entry. Telegram overrides
+     *  this with a chat-scoped delete; UIs that don't track external messages
+     *  return `{ deleted: 0, failed: 0 }`. */
+    wipeUserMessages?(userId: string): Promise<{ deleted: number; failed: number }>
+
     terminate(): Promise<void>
 }

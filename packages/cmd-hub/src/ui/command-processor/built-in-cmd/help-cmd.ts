@@ -121,9 +121,9 @@ const ConcreetHelp: BuiltInCommand = {
             const cb = this.getInvokable(command)
             const commandHelpStr = isService(cb.invokable) ? serviceToString(command, cb, w) : commonToString(command, cb, w)
             await ctx.reply(`<pre>${commandHelpStr}</pre>`, { parse_mode: 'HTML' })
-        } catch(e: any) {
-            if (e && typeof e === 'object' && 'success' in e) {
-                await ctx.reply(e.text)
+        } catch(e: unknown) {
+            if (e && typeof e === 'object' && 'success' in e && 'text' in e && typeof (e as { text: unknown }).text === 'string') {
+                await ctx.reply((e as { text: string }).text)
             }
             await ctx.reply(`${UiUnicodeSymbols.error} Unknown error:\n -- ${anyToString(e)}`)
         }

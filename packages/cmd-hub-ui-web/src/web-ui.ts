@@ -14,16 +14,9 @@ import { CBDescriptorCompiler } from '@cmd-hub/core'
 import { LockManager } from '@cmd-hub/core'
 import {
     log,
-    requireCap,
-    CAP_ManagerRepo,
-    CAP_AccountRepo,
-    CAP_InvitationLinkRepo,
-    CAP_CmdAliasRepo,
-    CAP_PendingDeleteRepo,
     type ManagerRecord,
     type AppLike,
 } from '@cmd-hub/common'
-import type { DispatcherRepos } from '@cmd-hub/core'
 import crypto from 'crypto'
 
 // --- Password hashing ---
@@ -106,7 +99,6 @@ export class WebUI extends BaseUI<WebContext> {
     private isActive = false
     private sockets = new Map<string, AuthenticatedSocket>()
     private userSockets = new Map<string, Set<string>>()
-    private repos: DispatcherRepos | null = null
 
     constructor(
         port: number,
@@ -122,21 +114,7 @@ export class WebUI extends BaseUI<WebContext> {
     }
 
     async onAppAttach(app: AppLike): Promise<void> {
-        this.repos = {
-            manager:        requireCap(app, CAP_ManagerRepo),
-            account:        requireCap(app, CAP_AccountRepo),
-            invitationLink: requireCap(app, CAP_InvitationLinkRepo),
-            cmdAlias:       requireCap(app, CAP_CmdAliasRepo),
-            pendingDelete:  requireCap(app, CAP_PendingDeleteRepo),
-        }
-        this.lifecycle.attachRepo(this.repos.pendingDelete)
-    }
-
-    private requireRepos(callerName: string): DispatcherRepos {
-        if (!this.repos) {
-            throw new Error(`WebUI.${callerName}: not attached to app — onAppAttach didn't run`)
-        }
-        return this.repos
+        this.attachReposFromApp(app)
     }
 
     // --- BaseUI abstract implementations ---

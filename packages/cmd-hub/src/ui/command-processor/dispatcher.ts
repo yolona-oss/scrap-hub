@@ -45,6 +45,7 @@ import type {
     IInvitationLinkRepo,
     ICmdAliasRepo,
     IPendingDeleteRepo,
+    CapabilityKey,
 } from "@cmd-hub/common";
 import { CmdArgumentMetadataRaw, getCmdArgMetadata, isFunc, isService, IUICommandProcessed } from "../../ui/types/command";
 
@@ -168,14 +169,17 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
      *  silently when repos aren't yet attached. */
     get repos(): DispatcherRepos | null { return this._repos }
 
-    /** Local commands only; remote commands flow
-     *  through their own (future Phase C) distributed validation path. */
-    collectRegisteredCommands(): { name: string; requires: readonly string[] }[] {
-        const out: { name: string; requires: readonly string[] }[] = []
+    /** Local commands only; remote commands flow through their own (future
+     *  Phase C) distributed validation path. Returns the cap keys with their
+     *  brand intact so consumers (e.g. `CmdHubApp._validateAttachedDispatchers`)
+     *  can pass them straight to `app.has(...)` without flattening to `string`
+     *  and recasting via `as never`. */
+    collectRegisteredCommands(): { name: string; requires: readonly CapabilityKey<unknown>[] }[] {
+        const out: { name: string; requires: readonly CapabilityKey<unknown>[] }[] = []
         for (const [name, entry] of this.cmd_registry) {
             out.push({
                 name,
-                requires: (entry.requires ?? []).map(k => k as string),
+                requires: entry.requires ?? [],
             })
         }
         return out
@@ -231,7 +235,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
                 uiCtx: ctx,
                 uiImpl: uiImpl
             })
-        } catch(e: any) {
+        } catch(e: unknown) {
             log.error(anyToString(e))
             return {
                 success: false,

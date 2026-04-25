@@ -13,6 +13,8 @@ export { GrpcServerMiddleware } from './middleware/grpc-server-middleware'
 export type { GrpcServerMiddlewareOptions } from './middleware/grpc-server-middleware'
 export { CmdNodeClientMiddleware } from './middleware/cmd-node-client-middleware'
 export { ConfigBootMiddleware } from './middleware/config-boot-middleware'
+export { FederationCapsMiddleware } from './middleware/federation-caps-middleware'
+export type { FederationCapsMiddlewareOptions } from './middleware/federation-caps-middleware'
 
 // Remote invoker
 export { RemoteCmdInvoker, protoToDashboardEvent } from './ui/command-processor/remote-invoker'
@@ -37,6 +39,10 @@ export type { IUIPlugin } from './ui/types/plugin'
 export { CmdArgumentProxy } from './ui/command-processor/arg-proxy'
 export type { IBaseMarkup, IMarkupOption, IMarkupButton, IMarkupInfoType } from './ui/command-processor/types/markup'
 export { LockManager } from './utils/lock-manager'
+export { CommandPublisher, TELEGRAM_COMMAND_CONSTRAINTS } from './ui/command-publisher'
+export type { CommandPublishConstraints } from './ui/command-publisher'
+export { HistoryRecorder } from './ui/history-recorder'
+export { ManagerControlPlugin } from './plugins/manager-control'
 
 // Command types & decorators
 export * from './ui/types/command'

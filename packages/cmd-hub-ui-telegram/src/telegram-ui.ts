@@ -1,29 +1,31 @@
 import { BaseUI } from '@cmd-hub/core'
 import { MessageType } from '@cmd-hub/core'
+import {
+    CommandPublisher,
+    HistoryRecorder,
+    TELEGRAM_COMMAND_CONSTRAINTS,
+} from '@cmd-hub/core'
 
 import { TelegramUI_BuiltIns, toRegister } from './constants/commands'
 import { TgContext } from "./types"
 import { ITelegramPlugin } from './types/plugin'
+import { TelegramAuthGate } from './auth-gate'
+import type { IAuthGate } from '@cmd-hub/common'
 
 import { LockManager } from '@cmd-hub/core'
 import type { UIFederationRequires } from '@cmd-hub/core'
 import {
     log,
     readConfigSlice,
-    requireCap,
-    CAP_ManagerRepo,
-    CAP_AccountRepo,
-    CAP_InvitationLinkRepo,
-    CAP_CmdAliasRepo,
-    CAP_PendingDeleteRepo,
     CAP_StorageConnection,
     CAP_ServiceStore,
     CAP_HttpAgent,
+    layoutCommonKeyboard,
+    layoutBuilderKeyboard,
     type ManagerRecord,
     type MessageHistoryInput,
     type AppLike,
 } from '@cmd-hub/common'
-import type { DispatcherRepos } from '@cmd-hub/core'
 
 import crypto from 'crypto'
 import type { Agent } from 'http'
@@ -32,6 +34,7 @@ import chalk from 'chalk'
 import { anyToString } from '@cmd-hub/core'
 import { IUICommandProcessed } from '@cmd-hub/core'
 import { InlineKeyboardButton } from 'telegraf/typings/core/types/typegram'
+import type { ExtraReplyMessage, ExtraEditMessageText } from 'telegraf/typings/telegram-types'
 import { UiUnicodeSymbols, handleCalibrationCallback } from '@cmd-hub/core'
 import type { MessageOptions } from '@cmd-hub/core'
 import { z } from 'zod'
@@ -48,16 +51,7 @@ function fromTgContext(ctx: TgContext): MessageHistoryInput {
 import { CmdDispatcher, IHandleResult } from '@cmd-hub/core'
 import { IBaseMarkup, IMarkupOption } from '@cmd-hub/core'
 
-import {
-    auth_cb_prefix
-} from './constants/callback'
-
-import {
-    rejectJoinRequest,
-    sendJoinRequestToAdmin,
-    approveJoinRequest
-} from './actions/auth'
-
+import { auth_cb_prefix } from './constants/callback'
 
 export class TelegramUI extends BaseUI<TgContext> {
     static UserIdFromCtx(ctx: TgContext): string {
@@ -71,13 +65,21 @@ export class TelegramUI extends BaseUI<TgContext> {
     public bot!: telegraf.Telegraf<TgContext>
     public dispatcher!: CmdDispatcher<TgContext>
     private isActive: boolean = false
-    private repos: DispatcherRepos | null = null
+    private publisher!: CommandPublisher<TgContext>
+    private historyRecorder!: HistoryRecorder
+    private authGate?: IAuthGate<TgContext, TgContext> & Partial<TelegramAuthGate>
 
-    public requireRepos(callerName: string): DispatcherRepos {
-        if (!this.repos) {
-            throw new Error(`TelegramUI.${callerName}: not attached to app — onAppAttach didn't run`)
-        }
-        return this.repos
+    /** Override the default join-request gate. Plug in a custom implementation
+     *  (OAuth, magic-link, etc.) before `Initialize()`. To keep the default
+     *  callback wiring intact, the gate may also expose
+     *  `onSendJoinRequestToAdmin` / `onApproveJoinRequest` / `onRejectJoinRequest`. */
+    setAuthGate(gate: IAuthGate<TgContext, TgContext> & Partial<TelegramAuthGate>): this {
+        this.authGate = gate
+        return this
+    }
+
+    private requireAuthGate(callerName: string) {
+        return this.requireSlice(this.authGate, callerName, 'authGate')
     }
 
     readonly federationRequires: UIFederationRequires = {
@@ -96,10 +98,7 @@ export class TelegramUI extends BaseUI<TgContext> {
     private tgConfig: z.infer<TelegramUI['schema']> | null = null
 
     public requireTgConfig(callerName: string): z.infer<TelegramUI['schema']> {
-        if (!this.tgConfig) {
-            throw new Error(`TelegramUI.${callerName}: not attached to app — onAppAttach didn't run`)
-        }
-        return this.tgConfig
+        return this.requireSlice(this.tgConfig, callerName, 'tgConfig')
     }
 
     /** Parameterless form is preferred; the back-compat constructor lets you
@@ -130,14 +129,22 @@ export class TelegramUI extends BaseUI<TgContext> {
         if (!this.dispatcher) {
             this.dispatcher = new CmdDispatcher<TgContext>()
         }
-        this.repos = {
-            manager:        requireCap(app, CAP_ManagerRepo),
-            account:        requireCap(app, CAP_AccountRepo),
-            invitationLink: requireCap(app, CAP_InvitationLinkRepo),
-            cmdAlias:       requireCap(app, CAP_CmdAliasRepo),
-            pendingDelete:  requireCap(app, CAP_PendingDeleteRepo),
+        const repos = this.attachReposFromApp(app)
+        this.historyRecorder = new HistoryRecorder(repos)
+        if (!this.authGate) {
+            this.authGate = new TelegramAuthGate(this)
         }
-        this.lifecycle.attachRepo(this.repos.pendingDelete)
+        this.publisher = new CommandPublisher<TgContext>(
+            this.dispatcher,
+            () => TelegramUI_BuiltIns.map(toRegister).map(r => ({
+                command: r.command.command,
+                description: r.command.description,
+                args: [],
+            })),
+            TELEGRAM_COMMAND_CONSTRAINTS,
+        )
+        // Plugins register their commands while the dispatcher is still mutable.
+        await this.dispatcherSetupPlugins()
         // Must finish before CmdHubApp's per-UI capability validator runs.
         if (!this.dispatcher.isInitialized()) {
             this.dispatcher.done()
@@ -149,7 +156,7 @@ export class TelegramUI extends BaseUI<TgContext> {
     }
 
     protected async sendMessageImpl(user_id: string, message: string, mk_opts?: IMarkupOption[], options?: MessageOptions): Promise<string> {
-        const extra: any = {}
+        const extra: Partial<ExtraReplyMessage> = {}
         if (mk_opts) {
             extra.reply_markup = { inline_keyboard: this.createCommonKeyboard(mk_opts) }
         }
@@ -160,7 +167,7 @@ export class TelegramUI extends BaseUI<TgContext> {
     }
 
     protected async editMessageImpl(user_id: string, message_id: string, message: string, mk_opts?: IMarkupOption[], options?: MessageOptions): Promise<void> {
-        const extra: any = {}
+        const extra: Partial<ExtraEditMessageText> = {}
         if (mk_opts) {
             extra.reply_markup = { inline_keyboard: this.createCommonKeyboard(mk_opts) }
         }
@@ -174,6 +181,33 @@ export class TelegramUI extends BaseUI<TgContext> {
         await this.bot.telegram.deleteMessage(user_id, Number(message_id))
     }
 
+    /** Override the BaseUI default with Telegram's chat-scoped delete (each
+     *  history entry carries its `chatId`, which Telegram needs). Also drops
+     *  the lifecycle-tracked messages and per-user dashboards. */
+    async wipeUserMessages(userId: string): Promise<{ deleted: number; failed: number }> {
+        const repos = this.requireRepos('wipeUserMessages')
+        const manager = await repos.manager.findByUserId(userId)
+        if (!manager) return { deleted: 0, failed: 0 }
+        const handle = await repos.manager.handleById(manager.id)
+        if (!handle) return { deleted: 0, failed: 0 }
+
+        const history = await handle.getMessagesHistory()
+        let deleted = 0
+        let failed = 0
+        for (const msg of history) {
+            if (!msg.messageId) continue
+            try {
+                await this.bot.telegram.deleteMessage(msg.chatId, msg.messageId)
+                deleted++
+            } catch {
+                failed++
+            }
+            try { await handle.deleteMessage(msg.messageId) } catch { /* best-effort */ }
+        }
+        await this.lifecycle.cleanupAll(userId)
+        return { deleted, failed }
+    }
+
     private setCommandHandler(commands: IUICommandProcessed[]) {
         commands.forEach(cmd => {
             log.info(`-- Assigning command: "${chalk.bold(cmd.command)}"`)
@@ -184,9 +218,16 @@ export class TelegramUI extends BaseUI<TgContext> {
     }
 
     private async setupActions() {
-        this.bot.action(RegExp(auth_cb_prefix.directJoinRequestToAdmin + "*"), (ctx, next) => sendJoinRequestToAdmin.call(this, ctx, next))
-        this.bot.action(RegExp(auth_cb_prefix.approveJoinRequest + "*"),       (ctx, next) => approveJoinRequest.call(this, ctx, next))
-        this.bot.action(RegExp(auth_cb_prefix.rejectJoinRequest + "*"),        (ctx, next) => rejectJoinRequest.call(this, ctx, next))
+        const gate = this.requireAuthGate('setupActions')
+        if (gate.onSendJoinRequestToAdmin) {
+            this.bot.action(RegExp(auth_cb_prefix.directJoinRequestToAdmin + "*"), (ctx, next) => gate.onSendJoinRequestToAdmin!(ctx, next))
+        }
+        if (gate.onApproveJoinRequest) {
+            this.bot.action(RegExp(auth_cb_prefix.approveJoinRequest + "*"), (ctx, next) => gate.onApproveJoinRequest!(ctx, next))
+        }
+        if (gate.onRejectJoinRequest) {
+            this.bot.action(RegExp(auth_cb_prefix.rejectJoinRequest + "*"), (ctx, next) => gate.onRejectJoinRequest!(ctx, next))
+        }
 
         this.bot.action(RegExp('dashboard_*'), async (ctx) => {
             const action = String(ctx.match.input.slice('msg_bonder_'.length))
@@ -267,15 +308,12 @@ export class TelegramUI extends BaseUI<TgContext> {
         if (this.isInitialized()) {
             throw new Error("TelegemUI::init() already inited")
         }
-
         if (!this.dispatcher.isInitialized()) {
             throw new Error("TelegemUI::init() command handler not inited")
         }
 
-        const tgCommands = this.registerTgComands()
-        const commands = this.dispatcher.toUICommands().concat(tgCommands.map(cmd => cmd.command) as IUICommandProcessed[])
-
-        this.verifyCommands(commands)
+        this.registerTgComands()
+        const commands = this.publisher.listAndVerify()
         log.info(`Commands verified ${chalk.green("successfully")}. Total commands: ${chalk.bold(commands.length)}`)
 
         this.setCommandHandler(commands)
@@ -295,12 +333,10 @@ export class TelegramUI extends BaseUI<TgContext> {
 
     /** Re-pushes the merged command list when a node attaches/detaches. */
     async onFederationChange(): Promise<void> {
-        if (!this.bot || !this.dispatcher.isInitialized()) return
-        const tgCommands = TelegramUI_BuiltIns.map(toRegister)
-        const commands = this.dispatcher.toUICommands()
-            .concat(tgCommands.map(cmd => cmd.command) as IUICommandProcessed[])
+        if (!this.bot || !this.dispatcher.isInitialized() || !this.publisher) return
+        let commands
         try {
-            this.verifyCommands(commands)
+            commands = this.publisher.listAndVerify()
         } catch (e) {
             log.warn(`onFederationChange: refusing to push invalid command list: ${(e as Error)?.message ?? e}`)
             return
@@ -314,63 +350,44 @@ export class TelegramUI extends BaseUI<TgContext> {
     }
 
     private async setupAuth() {
+        const gate = this.requireAuthGate('setupAuth')
         this.bot.use(async (ctx, next) => {
-            const manager = await this.requireRepos('auth').manager.findByUserId(ctx.from!.id)
+            if (gate.isExempt?.(ctx)) return next()
+
+            const id = await gate.identify(ctx)
+            const manager = id ? await this.resolveManagerByLookup(id.userIdLookup) : null
             if (manager) {
                 ctx.type = 'telegram'
                 ctx.manager = manager
                 return await next()
-            } else if (ctx.updateType == 'callback_query') {
-                //@ts-ignore
-                if (ctx.update.callback_query.data.includes(auth_cb_prefix.directJoinRequestToAdmin)) {
-                    return next()
-                }
             }
-            const botName = this.requireTgConfig('setupAuth').botName
-            const sent = await ctx.replyWithMarkdownV2(`Welcome to ${botName}. To start using bot you need to be aproved by bot administrator.\n" +
-"Click on button for send approve request`,
-                telegraf.Markup.inlineKeyboard([ [ { text: "Send", callback_data: auth_cb_prefix.directJoinRequestToAdmin + " " + ctx.from!.id  }, ] ]))
-            this.lifecycle.track(String(ctx.from!.id), String(sent.message_id), 'system')
+            await gate.challenge(ctx, this)
         })
     }
 
     private async setupHistorySave() {
-        const self = this
-        this.bot.on('message', async function(ctx, next) {
-            const repos = self.requireRepos('historySave')
+        const recorder = this.historyRecorder
+        this.bot.on('message', async (ctx, next) => {
             if (ctx.manager) {
-                const handle = await repos.manager.handleById(ctx.manager.id)
-                if (handle) {
-                    await handle.appendMessage(fromTgContext(ctx as TgContext))
-                }
+                await recorder.appendForManager(ctx.manager.id, fromTgContext(ctx as TgContext))
             } else if (ctx.message.from.is_bot) {
                 // chat.id used as numeric userId — bot-as-manager convention.
-                const handle = await repos.manager.handleByUserId(ctx.chat.id)
-                if (handle) {
-                    await handle.appendMessage({
-                        chatId: ctx.chat!.id,
-                        userId: handle.record.userId,
-                        messageId: ctx.message?.message_id,
-                        text: ctx.text ?? "",
-                        timestamp: ctx.message?.date ? ctx.message.date : undefined,
-                    })
-                }
-            } else {
-                log.debug(`No manager in ctx for saving message history. user: ${ctx.from?.id}, chat: ${ctx.chat?.id}, message: ${ctx.message?.message_id}`)
+                await recorder.appendForUserIdLookup(ctx.chat.id, {
+                    chatId: ctx.chat.id,
+                    userId: ctx.chat.id,
+                    messageId: ctx.message?.message_id,
+                    text: ctx.text ?? "",
+                    timestamp: ctx.message?.date ? ctx.message.date : undefined,
+                })
             }
             return await next()
         })
 
-        this.bot.on('edited_message', async function(ctx, next) {
-            const handle = await self.requireRepos('historyEdit').manager.handleById(ctx.manager.id)
-            if (handle) {
-                await handle.appendMessage(fromTgContext(ctx as TgContext))
-            } else {
-                log.debug(`No manager in ctx for editing history message. user: ${ctx.from?.id}, chat: ${ctx.chat?.id}`)
+        this.bot.on('edited_message', async (ctx, next) => {
+            if (ctx.manager) {
+                await recorder.appendForManager(ctx.manager.id, fromTgContext(ctx as TgContext))
             }
-            if (next) {
-                return await next()
-            }
+            if (next) return await next()
         })
     }
 
@@ -517,78 +534,16 @@ export class TelegramUI extends BaseUI<TgContext> {
         }
     }
 
-    private verifyCommands(commands: { command: string, description: string }[]) {
-        const maxCmdLength = 32
-        const maxDescLength = 256
-        const CmdAllowedSymbols = "A-Za-z0-9_"
-        const commandList = commands.map(cmd => cmd.command)
-        const descriptionList = commands.map(cmd => cmd.description)
-
-        for (const cmd of commandList) {
-            if (cmd.length > maxCmdLength) {
-                throw new Error(`Command "${cmd}" is too long. Max length is ${maxCmdLength}, command length is ${cmd.length}`)
-            }
-            if (cmd.match(new RegExp(`[^${CmdAllowedSymbols}]`))) {
-                throw new Error(`Command "${cmd}" contains invalid symbols`)
-            }
-        }
-
-        let i = 0
-        for (const desc of descriptionList) {
-            if (desc.length > maxDescLength) {
-                throw new Error(`Description of command "${commandList[i]}" "${desc}" is too long. Max length is ${maxDescLength}, description length is ${desc.length}`)
-            }
-            i++
-        }
+    private createCommonKeyboard(btns: IMarkupOption[], perLine = 3): InlineKeyboardButton[][] {
+        return layoutCommonKeyboard(btns, perLine, m => telegraf.Markup.button.callback(m.text, m.data))
     }
 
-    // Commands handlers utility
-
-    private createCommonKeyboard(btns: IMarkupOption[], perLine = 3) {
-        let arr: Array<Array<InlineKeyboardButton>> = []
-
-        // Group buttons by type — each type starts on a new row
-        const groups: Map<string, IMarkupOption[]> = new Map()
-        for (const btn of btns) {
-            const group = groups.get(btn.type) ?? []
-            group.push(btn)
-            groups.set(btn.type, group)
-        }
-
-        for (const [_, group] of groups) {
-            for (let i = 0; i < group.length; i += perLine) {
-                arr.push(group.slice(i, i + perLine).map(m => telegraf.Markup.button.callback(m.text, m.data)))
-            }
-        }
-
-        return arr
-    }
-
-    // NOTE: check text length for each btn and select correct perline for each row(after determine max line len)
-    private createCommandBuilderKeyboard(markup: IBaseMarkup, perLine = 3) {
-        let arr: Array<Array<InlineKeyboardButton.CallbackButton>> = []
-        const mk_options = markup.buttons
-        if (!mk_options) {
-            return [[]]
-        }
-        for (let i = 0; i < mk_options.length; i += perLine) {
-            arr.push(
-                mk_options.slice(i, i + perLine).filter(m => m.type != 'aux').map(m =>
-                    telegraf.Markup.button.callback(
-                        m.text,
-                        "builder_"+m.data
-                    )
-                )
-            )
-        }
-
-        const defaultMkArray: Array<InlineKeyboardButton.CallbackButton> = []
-        mk_options.filter(m => m.type == 'aux').forEach(m => {
-            defaultMkArray.push(
-                telegraf.Markup.button.callback(`${UiUnicodeSymbols.gear} ${m.text}`, "builder_"+m.data)
-            )
-        })
-        return arr.concat([defaultMkArray])
+    private createCommandBuilderKeyboard(markup: IBaseMarkup, perLine = 3): InlineKeyboardButton.CallbackButton[][] {
+        return layoutBuilderKeyboard(markup, perLine, (m, kind) =>
+            kind === 'aux'
+                ? telegraf.Markup.button.callback(`${UiUnicodeSymbols.gear} ${m.text}`, 'builder_' + m.data)
+                : telegraf.Markup.button.callback(m.text, 'builder_' + m.data),
+        )
     }
 
     private async replyByCommandResult(ctx: TgContext, response: IHandleResult) {

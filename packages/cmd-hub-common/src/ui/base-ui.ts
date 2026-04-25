@@ -94,6 +94,17 @@ export abstract class BaseUI<CtxType extends BaseUIContext, Dispatcher = unknown
 
     // Plugin lifecycle hooks
 
+    /** Fires `onDispatcherSetup` on every plugin while the dispatcher is still
+     *  mutable. Concrete UIs invoke this from `onAppAttach`, BEFORE
+     *  `dispatcher.done()` locks the registry. */
+    protected async dispatcherSetupPlugins(): Promise<void> {
+        for (const p of this.plugins) {
+            if (p.onDispatcherSetup) {
+                await p.onDispatcherSetup(this.dispatcher, this)
+            }
+        }
+    }
+
     protected async initPlugins(): Promise<void> {
         for (const p of this.plugins) {
             if (p.onInit) {
