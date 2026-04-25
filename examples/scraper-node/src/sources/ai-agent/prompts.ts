@@ -13,8 +13,8 @@ export function buildSystemPrompt(query: SearchQuery): string {
 Available tools:
 - web_search(query, limit): general web search via the configured provider.
 - fetch_url(url, mode): fetch a web page. mode='text' returns extracted text, 'html' returns raw HTML (truncated to 15000 chars).
-- search_source(source, query, limit): delegate to a specialized scraper source. Available sources: ${availableSources}. This is often the fastest way to get structured business data.
-- report_results(orgs): emit found organizations immediately. Call this as soon as you have results — do not wait until the end.
+- search_source(source, query, limit): delegate to a specialized scraper source. Available sources: ${availableSources}. Found organizations are emitted to the user automatically; the response gives you a summary so you can decide whether to keep going. This is usually the fastest path to structured business data — try it first.
+- report_results(orgs): emit organizations YOU discovered via web_search + fetch_url. Do NOT re-report results from search_source — those are already emitted.
 
 Each organization must have:
 - name (required, string)
@@ -22,11 +22,11 @@ Each organization must have:
 - source (string — where you found it)
 - url (optional)
 
-Rules:
-- Call report_results as soon as you find valid orgs. Don't batch everything to the end.
-- Stop when you have ${query.maxResults} unique organizations or when further searches yield nothing new.
-- Don't fabricate data. If a phone or address isn't in the source, leave it null.
-- Prefer search_source for structured business listings when the right source exists.
+Workflow:
+1. Try search_source first with the most relevant source for the query. Read the totalYielded in its response.
+2. If totalYielded < target after a couple of source calls, fall back to web_search + fetch_url, then call report_results.
+3. Stop when totalYielded reaches ${query.maxResults} or when further searches return nothing new.
+4. Don't fabricate data. If a phone or address isn't in the source, leave it null.
 
 Target query: "${query.query}"${cityClause}
 Target count: ${query.maxResults}`
@@ -34,5 +34,5 @@ Target count: ${query.maxResults}`
 
 export function buildUserPrompt(query: SearchQuery): string {
     const cityClause = query.city ? ` in ${query.city}` : ''
-    return `Find up to ${query.maxResults} organizations matching: "${query.query}"${cityClause}. Begin by choosing a strategy, then execute tools. Emit results via report_results as you find them.`
+    return `Find up to ${query.maxResults} organizations matching: "${query.query}"${cityClause}. Begin with search_source for the best-fitting source. Watch totalYielded in tool responses to know when to stop.`
 }

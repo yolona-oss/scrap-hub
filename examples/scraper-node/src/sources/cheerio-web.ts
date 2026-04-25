@@ -1,6 +1,7 @@
-import { IScraperSource } from "./types"
+import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
-import { getScraperConfig } from "../scraper-config"
+import { DEFAULT_USER_AGENT, getScraperConfig } from "../scraper-config"
+import { extractEmail, extractPhone } from "./extract"
 import * as cheerio from "cheerio"
 import axios from "axios"
 import { log } from "@cmd-hub/common"
@@ -54,35 +55,28 @@ function extractValue($el: cheerio.Cheerio<any>, selector: string, mode?: string
     }
 }
 
-function extractEmail(text: string): string | null {
-    const match = text.match(/[\w.+-]+@[\w-]+\.[\w.]+/i)
-    return match ? match[0] : null
-}
-
-function extractPhone(text: string): string | null {
-    const match = text.match(/(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}/)
-    return match ? match[0].replace(/[\s\-()]/g, '').replace(/^8/, '+7') : null
-}
-
 /**
  * Generic cheerio-based web scraper source.
  * Configure with CSS selectors to scrape any website.
  */
 export class CheerioWebSource implements IScraperSource {
     readonly name: string
-    readonly requiresApiKey = false
 
     constructor(private config: CheerioSourceConfig) {
         this.name = config.name
     }
 
+    async availability(): Promise<SourceAvailability> {
+        return { ok: true }
+    }
+
     async* search(query: SearchQuery, onProgress: (found: number) => void): AsyncGenerator<OrgData> {
         const scraperCfg = await getScraperConfig()
-        const userAgent = scraperCfg.userAgent
-            || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        const userAgent = scraperCfg.userAgent || DEFAULT_USER_AGENT
 
         const maxPages = this.config.maxPages ?? 10
         const delayMs = this.config.delayMs ?? scraperCfg.requestDelayMs ?? 1500
+        log.info(`cheerio-web[${this.name}].search: query="${query.query}" city="${query.city ?? ''}" maxResults=${query.maxResults} maxPages=${maxPages}`)
         let found = 0
 
         for (let page = 1; page <= maxPages; page++) {
@@ -95,7 +89,7 @@ export class CheerioWebSource implements IScraperSource {
                 .replace('{city}', encodeURIComponent(query.city ?? ''))
                 .replace('{page}', String(page))
 
-            log.trace(`CheerioWebSource[${this.name}]: fetching ${url}`)
+            log.trace(`cheerio-web[${this.name}].search: fetching ${url}`)
 
             try {
                 const res = await axios.get(url, {
@@ -110,7 +104,7 @@ export class CheerioWebSource implements IScraperSource {
                 })
 
                 if (res.status >= 400) {
-                    log.debug(`CheerioWebSource[${this.name}]: HTTP ${res.status} for ${url}`)
+                    log.warn(`cheerio-web[${this.name}].search: HTTP ${res.status} for ${url}`)
                     break
                 }
 
@@ -118,9 +112,10 @@ export class CheerioWebSource implements IScraperSource {
                 const items = $(this.config.itemSelector)
 
                 if (items.length === 0) {
-                    log.trace(`CheerioWebSource[${this.name}]: no items on page ${page}`)
+                    log.trace(`cheerio-web[${this.name}].search: no items on page ${page}`)
                     break
                 }
+                log.trace(`cheerio-web[${this.name}].search: page=${page} items=${items.length}`)
 
                 for (let i = 0; i < items.length; i++) {
                     const $item = $(items[i])
@@ -153,9 +148,10 @@ export class CheerioWebSource implements IScraperSource {
                     await new Promise(r => setTimeout(r, delayMs + Math.random() * 1000))
                 }
             } catch (e: any) {
-                log.error(`CheerioWebSource[${this.name}]: error on page ${page}: ${e.message ?? e}`)
+                log.error(`cheerio-web[${this.name}].search: page=${page}: ${e.message ?? e}`)
                 break
             }
         }
+        log.info(`cheerio-web[${this.name}].search: done found=${found}`)
     }
 }

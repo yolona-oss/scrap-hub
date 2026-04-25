@@ -1,32 +1,38 @@
-import { IScraperSource } from "./types"
+import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
 import { getScraperConfig } from "../scraper-config"
+import { extractEmail, extractPhone, extractAddress } from "./extract"
 import * as cheerio from "cheerio"
 import axios from "axios"
 import { log } from "@cmd-hub/common"
 
 export class YandexSearchSource implements IScraperSource {
-    readonly name = 'yandex'
-    readonly requiresApiKey = true
+    async availability(): Promise<SourceAvailability> {
+        const cfg = await getScraperConfig()
+        if (!cfg.yandexXmlUser || !cfg.yandexXmlKey) {
+            return { ok: false, reason: 'scraper.yandexXmlUser / yandexXmlKey not configured' }
+        }
+        return { ok: true }
+    }
 
     async* search(query: SearchQuery, onProgress: (found: number) => void): AsyncGenerator<OrgData> {
         const cfg = await getScraperConfig()
         const user = cfg.yandexXmlUser
         const key = cfg.yandexXmlKey
-
         if (!user || !key) {
-            log.warn("scraper.yandexXmlUser or scraper.yandexXmlKey not set in config.json, skipping Yandex source")
-            return
+            throw new Error('scraper.yandexXmlUser / yandexXmlKey not configured')
         }
 
         const searchQuery = query.city
             ? `${query.query} ${query.city}`
             : query.query
 
+        log.info(`yandex.search: query="${searchQuery}" maxResults=${query.maxResults}`)
         let page = 0
         let found = 0
 
         while (found < query.maxResults) {
+            log.trace(`yandex.search: page=${page} found=${found}`)
             try {
                 const params = new URLSearchParams({
                     user,
@@ -73,24 +79,10 @@ export class YandexSearchSource implements IScraperSource {
                 page++
                 await new Promise(r => setTimeout(r, 1500))
             } catch (e: any) {
-                log.error(`Yandex search error: ${e.message ?? e}`)
+                log.error(`yandex.search: ${e.message ?? e}`)
                 break
             }
         }
+        log.info(`yandex.search: done found=${found}`)
     }
-}
-
-function extractEmail(text: string): string | null {
-    const match = text.match(/[\w.+-]+@[\w-]+\.[\w.]+/i)
-    return match ? match[0] : null
-}
-
-function extractPhone(text: string): string | null {
-    const match = text.match(/(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}/)
-    return match ? match[0].replace(/[\s\-()]/g, '').replace(/^8/, '+7') : null
-}
-
-function extractAddress(text: string): string | null {
-    const match = text.match(/(?:г\.|ул\.|пр\.|пер\.|д\.|стр\.)[\wа-яА-ЯёЁ\s,.\-\/]+/i)
-    return match ? match[0].trim() : null
 }

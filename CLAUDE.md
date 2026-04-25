@@ -4,20 +4,25 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Monorepo Structure
 
-npm workspaces. Framework packages under `packages/`, runnable reference apps under `examples/`.
+npm workspaces. Framework packages under `packages/`, distributed plugins under `plugins/`, runnable reference apps under `examples/`.
 
-### Framework packages
+### Framework packages (`packages/`)
 
-| Package | npm name | Role |
+| Path | npm name | Role |
 |---|---|---|
-| `packages/cmd-hub-common/` | `@cmd-hub/common` | Shared primitives: `Application`, `Phase`, capability registry, command decorators (`@CmdService`, `@CmdArgument`, `@CmdCommand`), logger, base service, manifest types |
-| `packages/cmd-hub/` | `@cmd-hub/core` | Hub-side: `CmdHubApp`, `CmdDispatcher`, command processor, builder/interpreter, dashboard, built-in commands, `RemoteCmdInvoker`, hub CLI |
-| `packages/cmd-hub-transport/` | `@cmd-hub/transport` | gRPC bindings, `ManifestAggregator`, `CommandPool`, `FileService`, `CmdNodeRegistry`, server impl |
-| `packages/cmd-hub-storage-mongo/` | `@cmd-hub/storage-mongo` | MongoDB middleware: connection, repos, GridFS file backend |
-| `packages/cmd-hub-node/` | `@cmd-hub/node` | Node-side: `CmdNodeApp`, `HubClientMiddleware`, `InvokeServerMiddleware`, executor |
-| `packages/cmd-hub-ui-cli/` | `@cmd-hub/ui-cli` | CLI UI plugin |
-| `packages/cmd-hub-ui-telegram/` | `@cmd-hub/ui-telegram` | Telegram UI plugin (Telegraf, proxy support) |
-| `packages/cmd-hub-ui-web/` | `@cmd-hub/ui-web` | Web UI plugin |
+| `packages/common/` | `@cmd-hub/common` | Shared primitives: `Application`, `Phase`, capability registry, command decorators (`@CmdService`, `@CmdArgument`, `@CmdCommand`), logger, base service, manifest types, utils, types |
+| `packages/core/` | `@cmd-hub/core` | Hub-side: `CmdHubApp`, `CmdDispatcher`, command processor, builder/interpreter, dashboard, built-in commands, `RemoteCmdInvoker`, hub CLI |
+| `packages/transport/` | `@cmd-hub/transport` | gRPC bindings, `ManifestAggregator`, `CommandPool`, `FileService`, `CmdNodeRegistry`, server impl |
+| `packages/node/` | `@cmd-hub/node` | Node-side: `CmdNodeApp`, `HubClientMiddleware`, `InvokeServerMiddleware`, executor |
+
+### Plugins (`plugins/`) — distributed with the framework, opt-in per app
+
+| Path | npm name | Role |
+|---|---|---|
+| `plugins/storage/mongo/` | `@cmd-hub/storage-mongo` | MongoDB middleware: connection, repos, GridFS file backend |
+| `plugins/ui/cli/` | `@cmd-hub/ui-cli` | CLI UI plugin |
+| `plugins/ui/telegram/` | `@cmd-hub/ui-telegram` | Telegram UI plugin (Telegraf, proxy support) |
+| `plugins/ui/web/` | `@cmd-hub/ui-web` | Web UI plugin |
 
 ### Reference apps
 
@@ -45,7 +50,7 @@ npm run start:node                # Start a node (examples/scraper-node)
 npm run start:docker              # Compose stack
 ```
 
-Tests live per-package: `cd packages/<name> && npx jest`. End-to-end: `npm run test:e2e`.
+Tests live per-package: `cd packages/<name> && npx jest` (or `cd plugins/ui/<name>` for UI plugins). End-to-end: `npm run test:e2e`.
 
 ## Imports
 
@@ -95,13 +100,13 @@ npx cmd-hub node-list / node-approve / node-remove
 
 ## Testing notes
 
-- Test mocks for ESM-only deps live under `packages/cmd-hub-common/src/__mocks__/` (e.g. `chalk`).
+- Test mocks for ESM-only deps live under `packages/common/src/__mocks__/` (e.g. `chalk`).
 - `jest.config.js` in each package wires `moduleNameMapper` for those mocks.
-- 172 unit tests across cmd-hub-common (37) + cmd-hub-transport (27) + cmd-hub (63) + cmd-hub-node (45).
+- 183 unit tests across common (37) + transport (27) + core (74) + node (45).
 
 ## Documentation
 
 - `docs/README.md` — index
 - `docs/cli.md` — CLI reference
 - `docs/node-deployment.md` — node deployment + security model
-- `docs/superpowers/specs/` and `docs/superpowers/plans/` — distributed-design spec + per-phase implementation plans
+- `docs/roadmap.md` — v2 commitments and seam locations

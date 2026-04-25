@@ -1,6 +1,7 @@
-import type { IScraperSource } from "../types"
+import type { IScraperSource, SourceAvailability } from "../types"
 import type { OrgData, SearchQuery } from "../../types"
 import type { ServiceContext } from "../../exporters/types"
+import { log } from "@cmd-hub/common"
 
 export interface FakeSourceConfig {
     count: number
@@ -16,16 +17,18 @@ export interface FakeSourceConfig {
  * never appears in production runs.
  */
 export class FakeSource implements IScraperSource {
-    readonly name = 'fake'
-    readonly requiresApiKey = false
-
     constructor(private readonly cfg: FakeSourceConfig = { count: 50, delayMs: 0 }) {}
+
+    async availability(): Promise<SourceAvailability> {
+        return { ok: true }
+    }
 
     async *search(
         _query: SearchQuery,
         onProgress: (found: number) => void,
         _ctx?: ServiceContext,
     ): AsyncGenerator<OrgData> {
+        log.info(`fake.search: count=${this.cfg.count} delayMs=${this.cfg.delayMs}`)
         for (let i = 1; i <= this.cfg.count; i++) {
             if (this.cfg.delayMs > 0) {
                 await new Promise((r) => setTimeout(r, this.cfg.delayMs))

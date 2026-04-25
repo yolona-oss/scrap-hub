@@ -3,11 +3,11 @@ WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.base.json ./
 
-COPY packages/cmd-hub-common      ./packages/cmd-hub-common
-COPY packages/cmd-hub-transport   ./packages/cmd-hub-transport
-COPY packages/cmd-hub-storage-mongo ./packages/cmd-hub-storage-mongo
-COPY packages/cmd-hub             ./packages/cmd-hub
-COPY packages/cmd-hub-ui-telegram ./packages/cmd-hub-ui-telegram
+COPY packages/common      ./packages/common
+COPY packages/transport   ./packages/transport
+COPY plugins/storage/mongo ./plugins/storage/mongo
+COPY packages/core             ./packages/core
+COPY plugins/ui/telegram ./plugins/ui/telegram
 COPY examples/telegram-ui-app     ./examples/telegram-ui-app
 
 RUN npm ci --include=dev --ignore-scripts
@@ -26,16 +26,16 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 
-COPY --from=build /app/packages/cmd-hub-common/build       ./packages/cmd-hub-common/build
-COPY --from=build /app/packages/cmd-hub-common/package.json ./packages/cmd-hub-common/package.json
-COPY --from=build /app/packages/cmd-hub-transport/build    ./packages/cmd-hub-transport/build
-COPY --from=build /app/packages/cmd-hub-transport/package.json ./packages/cmd-hub-transport/package.json
-COPY --from=build /app/packages/cmd-hub-storage-mongo/build ./packages/cmd-hub-storage-mongo/build
-COPY --from=build /app/packages/cmd-hub-storage-mongo/package.json ./packages/cmd-hub-storage-mongo/package.json
-COPY --from=build /app/packages/cmd-hub/build              ./packages/cmd-hub/build
-COPY --from=build /app/packages/cmd-hub/package.json       ./packages/cmd-hub/package.json
-COPY --from=build /app/packages/cmd-hub-ui-telegram/build  ./packages/cmd-hub-ui-telegram/build
-COPY --from=build /app/packages/cmd-hub-ui-telegram/package.json ./packages/cmd-hub-ui-telegram/package.json
+COPY --from=build /app/packages/common/build       ./packages/common/build
+COPY --from=build /app/packages/common/package.json ./packages/common/package.json
+COPY --from=build /app/packages/transport/build    ./packages/transport/build
+COPY --from=build /app/packages/transport/package.json ./packages/transport/package.json
+COPY --from=build /app/plugins/storage/mongo/build ./plugins/storage/mongo/build
+COPY --from=build /app/plugins/storage/mongo/package.json ./plugins/storage/mongo/package.json
+COPY --from=build /app/packages/core/build              ./packages/core/build
+COPY --from=build /app/packages/core/package.json       ./packages/core/package.json
+COPY --from=build /app/plugins/ui/telegram/build  ./plugins/ui/telegram/build
+COPY --from=build /app/plugins/ui/telegram/package.json ./plugins/ui/telegram/package.json
 
 COPY --from=build /app/examples/telegram-ui-app/build      ./examples/telegram-ui-app/build
 COPY --from=build /app/examples/telegram-ui-app/package.json ./examples/telegram-ui-app/package.json

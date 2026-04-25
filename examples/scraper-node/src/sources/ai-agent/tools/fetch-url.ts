@@ -29,6 +29,7 @@ export function makeFetchUrlTool(): Tool {
             const mode: 'text' | 'html' = args?.mode === 'html' ? 'html' : 'text'
             if (!url) return { status: 0, content: '', truncated: false, error: 'empty url' }
 
+            log.trace(`ai-agent.fetch_url: ${url} mode=${mode}`)
             try {
                 const res = await axios.get(url, {
                     timeout: 15000,
@@ -43,6 +44,7 @@ export function makeFetchUrlTool(): Tool {
 
                 const status = res.status
                 if (status >= 400) {
+                    log.debug(`ai-agent.fetch_url: ${url} HTTP ${status}`)
                     return { status, content: '', truncated: false, error: `HTTP ${status}` }
                 }
 
@@ -58,9 +60,10 @@ export function makeFetchUrlTool(): Tool {
 
                 const truncated = content.length > MAX_CONTENT_CHARS
                 if (truncated) content = content.slice(0, MAX_CONTENT_CHARS)
+                log.debug(`ai-agent.fetch_url: ${url} ${status} ${content.length}ch${truncated ? ' (truncated)' : ''}`)
                 return { status, content, truncated }
             } catch (e: any) {
-                log.debug(`ai-agent.fetch_url: ${url}: ${e.message ?? e}`)
+                log.warn(`ai-agent.fetch_url: ${url}: ${e.message ?? e}`)
                 return { status: 0, content: '', truncated: false, error: String(e.message ?? e) }
             }
         },

@@ -23,7 +23,7 @@ running hub and verify end-to-end behavior against the real gRPC + Mongo
 ## What the golden test verifies
 
 `golden-container.test.ts` runs the same regression gate as the Phase 2.7
-loopback test — identical assertion values (`packages/cmd-hub/src/distributed/__tests__/fixtures/`) —
+loopback test — identical assertion values (`packages/core/src/__tests__/__fixtures__/golden-scraper/`) —
 but end-to-end through the containerized hub + a real gRPC node
 instantiated in the test process:
 

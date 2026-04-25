@@ -4,7 +4,7 @@ Operator-level command-line tool for managing a cmd-hub federation: CA setup, no
 
 ## Invocation
 
-The bin lives at `packages/cmd-hub/build/src/cli/hub-cli.js` and is exposed as `cmd-hub` via `@cmd-hub/core`'s `bin` field. Three equivalent forms:
+The bin lives at `packages/core/build/src/cli/hub-cli.js` and is exposed as `cmd-hub` via `@cmd-hub/core`'s `bin` field. Three equivalent forms:
 
 ```bash
 # 1. via npx — resolves through the workspace symlink
@@ -14,7 +14,7 @@ npx cmd-hub <subcommand>
 npm exec --workspace=@cmd-hub/core -- cmd-hub <subcommand>
 
 # 3. direct node invocation (no npm exec roundtrip)
-node packages/cmd-hub/build/src/cli/hub-cli.js <subcommand>
+node packages/core/build/src/cli/hub-cli.js <subcommand>
 ```
 
 The package must be built first:

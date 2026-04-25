@@ -6,21 +6,20 @@ import { makeReportResultsTool } from "./report-results"
 import { SearchQuery, OrgData } from "../../../types"
 import { AsyncQueue } from "../async-queue"
 import { ResolvedAIAgentConfig } from "../config"
+import type { ReportState } from "./emit"
 
-export interface ReportState {
-    yielded: number
-}
+export type { ReportState } from "./emit"
 
-export function buildTools(
+export async function buildTools(
     query: SearchQuery,
     queue: AsyncQueue<OrgData>,
     cfg: ResolvedAIAgentConfig,
     state: ReportState,
-): Tool[] {
+): Promise<Tool[]> {
     return [
         makeWebSearchTool(cfg.webSearchProvider),
         makeFetchUrlTool(),
-        makeDelegateSourceTool(query),
+        await makeDelegateSourceTool(query, queue, state),
         makeReportResultsTool(queue, query, state),
     ]
 }

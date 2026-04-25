@@ -48,20 +48,22 @@ Your new `/echo` command is now live in every UI plugin the hub hosts.
 
 Two tiers: a **cmd-hub** process hosting UI plugins, and N **cmd-node** processes running commands. Every command declares `{name, compatibility_id, version}` in its manifest; the hub forms routing pools from compatible declarations and round-robins across peers.
 
-See [`docs/superpowers/specs/2026-04-23-cmd-hub-distributed-design.md`](docs/superpowers/specs/2026-04-23-cmd-hub-distributed-design.md) for the full design.
+See [`CLAUDE.md`](CLAUDE.md) and [`docs/roadmap.md`](docs/roadmap.md) for repo layout and v2 commitments.
 
 ## Repository layout
 
 ```
 packages/
-  cmd-hub/          Framework + gateway runtime. Exports CmdHubApp, HubDispatcher,
-                    CmdNodeRegistry, FileService (GridFS), gRPC server, built-ins.
-                    Plugin authors import types from here.
-  cmd-node/         Node runtime. CmdNodeApp, event adapter, intercom dispatch,
-                    HubClient, Invoke gRPC server. The package plugin authors
-                    depend on for registering commands.
-  create-cmd-node/  npx create-cmd-node <dir> scaffolder. Template produces a
-                    ready-to-run /echo node in <60 seconds.
+  common/      Shared primitives: Application, Phase, capabilities, decorators.
+  core/        Hub-side: CmdHubApp, dispatcher, command processor, built-ins, CLI.
+  transport/   gRPC bindings, ManifestAggregator, CommandPool, FileService.
+  node/        Node-side: CmdNodeApp, HubClient, InvokeServer.
+
+plugins/
+  storage/mongo/   MongoDB middleware: connection, repos, GridFS file backend.
+  ui/telegram/     Telegram UI plugin (Telegraf, proxy support).
+  ui/cli/          CLI UI plugin.
+  ui/web/          Web UI plugin.
 
 examples/
   telegram-ui-app/  Deployable: cmd-hub gateway + Telegram UI plugin.
@@ -70,9 +72,6 @@ examples/
 docs/
   deploy/README.md  First-run sequence for docker-compose, scale/kill checks.
   roadmap.md        v2 commitments (external PKI, CSFLE, S3, metric-aware routing).
-  superpowers/
-    specs/…         Design spec (authoritative source of truth).
-    plans/…         Phase-by-phase implementation plan.
 ```
 
 ## Getting started (operator)
@@ -88,7 +87,7 @@ cp examples/scraper-node/config/node.env.example   examples/scraper-node/config/
 docker compose build
 docker compose up -d mongo cmd-hub
 docker compose exec cmd-hub \
-  node packages/cmd-hub/build/src/cli/cmd-hub-cli.js node-add scraper-1 --auto-activate
+  node packages/core/build/src/cli/cmd-hub-cli.js node-add scraper-1 --auto-activate
 # Paste nodeId/token into scraper-node config, then:
 docker compose up -d
 ```
@@ -99,7 +98,7 @@ See [`packages/cmd-node/README.md`](packages/cmd-node/README.md) for the plugin 
 
 ## Getting started (UI plugin author)
 
-See [`packages/cmd-hub/README.md`](packages/cmd-hub/README.md) for the framework API. Implement `IHubUIPlugin`, call `dispatcher.handle(...)` on incoming commands, render events back to your users.
+See [`packages/core/README.md`](packages/core/README.md) for the framework API. Implement `IHubUIPlugin`, call `dispatcher.handle(...)` on incoming commands, render events back to your users.
 
 ## Running the tests
 

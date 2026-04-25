@@ -1,4 +1,4 @@
-import { IScraperSource } from "../types"
+import { IScraperSource, SourceAvailability } from "../types"
 import { OrgData, SearchQuery } from "../../types"
 import type { ServiceContext } from "../../exporters/types"
 import { resolveAIAgentConfig } from "./config"
@@ -9,8 +9,11 @@ import { runAgentLoop } from "./loop"
 import { log } from "@cmd-hub/common"
 
 export class AIAgentSource implements IScraperSource {
-    readonly name = 'AI-search'
-    readonly requiresApiKey = false
+    async availability(context?: ServiceContext): Promise<SourceAvailability> {
+        const cfg = await resolveAIAgentConfig(context)
+        if (!cfg) return { ok: false, reason: 'scraper.aiAgent.baseUrl / model not configured' }
+        return { ok: true }
+    }
 
     async* search(
         query: SearchQuery,
@@ -18,28 +21,31 @@ export class AIAgentSource implements IScraperSource {
         context?: ServiceContext,
     ): AsyncGenerator<OrgData> {
         const cfg = await resolveAIAgentConfig(context)
-        if (!cfg) {
-            log.warn('ai-agent: baseUrl or model not configured (system or user), skipping')
-            return
-        }
+        if (!cfg) throw new Error('scraper.aiAgent.baseUrl / model not configured')
+
+        log.info(`ai-agent.search: query="${query.query}" city="${query.city ?? ''}" maxResults=${query.maxResults}`)
+        log.debug(`ai-agent.search: model=${cfg.model} baseUrl=${cfg.baseUrl} provider=${cfg.webSearchProvider} maxToolCalls=${cfg.maxToolCalls} totalTimeoutMs=${cfg.totalTimeoutMs}`)
 
         const client = createClient(cfg)
         const queue = new AsyncQueue<OrgData>()
         const reportState: ReportState = { yielded: 0 }
-        const tools = buildTools(query, queue, cfg, reportState)
+        const tools = await buildTools(query, queue, cfg, reportState)
+        log.trace(`ai-agent.search: tools=[${tools.map(t => t.name).join(', ')}]`)
 
         const loopPromise = runAgentLoop(client, query, tools, cfg)
-            .catch(e => log.error(`ai-agent loop error: ${e?.message ?? e}`))
+            .catch(e => log.error(`ai-agent.search: loop error: ${e?.message ?? e}`))
             .finally(() => queue.close())
 
         let found = 0
         for await (const org of queue) {
             found++
+            log.trace(`ai-agent.search: yield #${found} ${org.name}`)
             onProgress(found)
             yield org
             if (found >= query.maxResults) break
         }
 
         await loopPromise
+        log.info(`ai-agent.search: done found=${found} reported=${reportState.yielded}`)
     }
 }

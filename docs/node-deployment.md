@@ -41,7 +41,7 @@ npm install
 npm run build
 ```
 
-This builds every workspace package, including the `cmd-hub` CLI binary at `packages/cmd-hub/build/src/cli/hub-cli.js`.
+This builds every workspace package, including the `cmd-hub` CLI binary at `packages/core/build/src/cli/hub-cli.js`.
 
 ## Step 2 — generate the CA
 

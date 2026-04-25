@@ -1,25 +1,27 @@
-import { IScraperSource } from "./types"
+import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
-import { getScraperConfig } from "../scraper-config"
+import { DEFAULT_USER_AGENT, getScraperConfig } from "../scraper-config"
 import * as cheerio from "cheerio"
 import axios from "axios"
 import { log } from "@cmd-hub/common"
 
 export class AvitoSource implements IScraperSource {
-    readonly name = 'avito'
-    readonly requiresApiKey = false
+    async availability(): Promise<SourceAvailability> {
+        return { ok: true }
+    }
 
     async* search(query: SearchQuery, onProgress: (found: number) => void): AsyncGenerator<OrgData> {
         const searchQuery = query.city
             ? `${query.query} ${query.city}`
             : query.query
 
+        log.info(`avito.search: query="${searchQuery}" maxResults=${query.maxResults}`)
         let found = 0
         let page = 1
-        const userAgent = (await getScraperConfig()).userAgent
-            || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        const userAgent = (await getScraperConfig()).userAgent || DEFAULT_USER_AGENT
 
         while (found < query.maxResults) {
+            log.trace(`avito.search: page=${page} found=${found}`)
             try {
                 const searchUrl = `https://www.avito.ru/all/predlozheniya_uslug?q=${encodeURIComponent(searchQuery)}&p=${page}`
 
@@ -30,7 +32,7 @@ export class AvitoSource implements IScraperSource {
                         'Accept': 'text/html,application/xhtml+xml',
                         'Accept-Language': 'ru-RU,ru;q=0.9',
                     },
-                    proxy: false, // use env proxy via axios defaults if configured
+                    proxy: false,
                     validateStatus: (status) => status < 500,
                 })
 
@@ -71,12 +73,13 @@ export class AvitoSource implements IScraperSource {
                 await new Promise(r => setTimeout(r, 2000 + Math.random() * 2000))
             } catch (e: any) {
                 if (axios.isAxiosError(e) && e.response?.status === 403) {
-                    log.warn("Avito returned 403 — likely rate-limited or blocked")
+                    log.warn("avito.search: 403 — likely rate-limited or blocked")
                     break
                 }
-                log.error(`Avito search error: ${e.message ?? e}`)
+                log.error(`avito.search: ${e.message ?? e}`)
                 break
             }
         }
+        log.info(`avito.search: done found=${found}`)
     }
 }

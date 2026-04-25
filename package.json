@@ -2,6 +2,8 @@
     "private": true,
     "workspaces": [
         "packages/*",
+        "plugins/storage/*",
+        "plugins/ui/*",
         "examples/*"
     ],
     "scripts": {

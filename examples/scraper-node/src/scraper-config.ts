@@ -1,5 +1,9 @@
 import { ConfigRegistry } from '@cmd-hub/core'
 
+export const DEFAULT_USER_AGENT =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+    '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
 export interface IAIAgentConfig {
     baseUrl?: string
     apiKey?: string
@@ -35,9 +39,7 @@ ConfigRegistry.register({
         yandexXmlKey: '',
         chromePath: '',
         requestDelayMs: 1000,
-        userAgent:
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-            '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        userAgent: DEFAULT_USER_AGENT,
         googleSheets: { credentials: '', spreadsheetId: '' },
         aiAgent: {
             baseUrl: 'http://127.0.0.1:11434/v1',

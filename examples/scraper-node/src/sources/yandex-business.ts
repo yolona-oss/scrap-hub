@@ -1,24 +1,24 @@
-import { IScraperSource } from "./types"
+import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
-import { getScraperConfig } from "../scraper-config"
+import { DEFAULT_USER_AGENT, getScraperConfig } from "../scraper-config"
 import axios from "axios"
 import { log } from "@cmd-hub/common"
 
 export class YandexBusinessSource implements IScraperSource {
-    readonly name = 'yandex-business'
-    readonly requiresApiKey = false
+    async availability(): Promise<SourceAvailability> {
+        return { ok: true }
+    }
 
     async* search(query: SearchQuery, onProgress: (found: number) => void): AsyncGenerator<OrgData> {
         const searchQuery = query.city
             ? `${query.query} ${query.city}`
             : query.query
 
+        log.info(`yandex-business.search: query="${searchQuery}" maxResults=${query.maxResults}`)
         let found = 0
-        const userAgent = (await getScraperConfig()).userAgent
-            || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        const userAgent = (await getScraperConfig()).userAgent || DEFAULT_USER_AGENT
 
         try {
-            // Yandex Maps API (public search endpoint)
             const params = new URLSearchParams({
                 text: searchQuery,
                 type: 'biz',
@@ -37,6 +37,7 @@ export class YandexBusinessSource implements IScraperSource {
 
             const data = res.data
             const features = data?.features || data?.data?.features || []
+            log.trace(`yandex-business.search: ${features.length} features in response`)
 
             for (const feature of features) {
                 const props = feature?.properties?.CompanyMetaData || feature?.properties || {}
@@ -76,9 +77,9 @@ export class YandexBusinessSource implements IScraperSource {
                 if (found >= query.maxResults) break
             }
         } catch (e: any) {
-            log.error(`Yandex Business error: ${e.message ?? e}`)
-            // Yandex Maps may block — this is expected without proper API access
-            log.info("Yandex Business may require Puppeteer for reliable scraping")
+            log.error(`yandex-business.search: ${e.message ?? e}`)
+            log.info("yandex-business.search: may require Puppeteer for reliable scraping")
         }
+        log.info(`yandex-business.search: done found=${found}`)
     }
 }

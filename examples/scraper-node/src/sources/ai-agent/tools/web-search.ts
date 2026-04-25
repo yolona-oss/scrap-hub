@@ -32,10 +32,14 @@ export function makeWebSearchTool(provider: 'serpapi' | 'yandex' | 'duckduckgo')
             const limit = Math.min(Math.max(parseInt(args?.limit ?? 10), 1), 50)
             if (!query) return { results: [], error: 'empty query' }
 
+            log.trace(`ai-agent.web_search[${provider}]: query="${query}" limit=${limit}`)
             try {
-                if (provider === 'serpapi') return await searchSerpapi(query, limit)
-                if (provider === 'yandex') return await searchYandex(query, limit)
-                return await searchDuckDuckGo(query, limit)
+                let res: WebSearchResponse
+                if (provider === 'serpapi') res = await searchSerpapi(query, limit)
+                else if (provider === 'yandex') res = await searchYandex(query, limit)
+                else res = await searchDuckDuckGo(query, limit)
+                log.debug(`ai-agent.web_search[${provider}]: ${res.results.length} results${res.error ? ` (error: ${res.error})` : ''}`)
+                return res
             } catch (e: any) {
                 log.error(`ai-agent.web_search[${provider}]: ${e.message ?? e}`)
                 return { results: [], error: String(e.message ?? e) }
