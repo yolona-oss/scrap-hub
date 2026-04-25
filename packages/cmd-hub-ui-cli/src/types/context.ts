@@ -1,12 +1,12 @@
-import { IManager } from '@cmd-hub/core';
-import { BaseUIContext } from '@cmd-hub/core';
+import type { ManagerRecord } from '@cmd-hub/common'
+import { BaseUIContext } from '@cmd-hub/core'
 
-export interface CLIContext extends BaseUIContext<IManager & { userId: number|string }> {
+export interface CLIContext extends BaseUIContext<ManagerRecord> {
     type: 'cli';
-    manager: IManager & { userId: number|string }
+    manager: ManagerRecord
     userSession: {
         state: string;
-        data: Record<string, any>;
+        data: Record<string, unknown>;
     };
     text: string,
     reply(message: string): Promise<void>;

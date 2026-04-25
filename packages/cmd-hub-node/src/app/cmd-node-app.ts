@@ -1,11 +1,23 @@
 import { z } from 'zod'
+import { EventEmitter } from 'events'
 import {
     Application,
     ApplicationOptions,
+    AppMiddleware,
+    BaseCommandService,
+    CAP_ServiceStore,
     ConfigContributor,
+    CommandRegistration,
+    Phase,
+    log,
     buildCommandFromDecorator,
+    buildProtoArgsFromDataClass,
     getCmdServiceMeta,
+    getCmdCommandMeta,
+    bindArgsForSpec,
+    makeCmdCommandContext,
     CommandArgumentHolder,
+    CmdCommandSpec,
 } from '@cmd-hub/common'
 import { CmdHubProto } from '@cmd-hub/transport'
 import { hardwareInfo } from '../manifest/hardware-info'
@@ -17,58 +29,37 @@ type ProtoCommand = CmdHubProto.Command
 type ProtoArgSpec = CmdHubProto.ArgSpec
 type InvokeStart = CmdHubProto.InvokeStart
 
-/** Minimal view of the `hub` config slice read by `_requireHubField`. Mirrors
- *  the three string fields HubClientMiddleware contributes under its namespace. */
 interface HubConfigFragment {
     hub?: Record<'nodeId' | 'nodeName' | 'version', unknown>
 }
 
-/** Service constructor arguments populated by CmdNodeApp.buildExecutor for
- *  each InvokeStart. Services receive the caller's user id, an input context
- *  bundle (config/params/messages + session), and a second copy of the same
- *  bundle kept for legacy callers that read it directly. */
 export interface ServiceConstructorInput {
-    config: object
-    params: object
-    messages: object
+    config: unknown
+    params: unknown
+    messages: unknown
     sessionId: string
     sessionData: Record<string, unknown>
 }
 
-export type ServiceClass = new (
-    userId: string,
-    ctx: ServiceConstructorInput,
-    input: ServiceConstructorInput,
-) => RunnableService
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ServiceClass = new (...args: any[]) => RunnableService
 
-/**
- * Hub-registered service class. Decorated with `@CmdService` and optionally
- * carrying `static configNamespace` / `static configSchema` for per-service
- * config contribution.
- */
 export interface ServiceClassWithOptionalConfig extends ServiceClass {
     configNamespace?: string
     configSchema?: z.ZodType<unknown>
 }
 
+export type CmdRegistrable = ServiceClassWithOptionalConfig | CmdCommandSpec
+
 export interface CmdNodeAppOptions<Cfg>
     extends Omit<ApplicationOptions<Cfg>, 'baseSchema'> {
     baseSchema?: ApplicationOptions<Cfg>['baseSchema']
-    /**
-     * Optional node identity overrides. When omitted, CmdNodeApp reads these
-     * from `config.hub.{nodeId,nodeName,version}` (the HubClientMiddleware's
-     * config slice), which is the recommended source per the "no process.env,
-     * config.json only" framework directive.
-     */
     nodeId?: string
     nodeName?: string
     version?: string
 }
 
-/**
- * Strip the extra `standalone` field added by `buildCommandFromDecorator` so
- * the proto-layer `ArgSpec` lines up exactly with `CmdHubProto.ArgSpec`.
- */
+/** Drop the `standalone` field so the result lines up with `CmdHubProto.ArgSpec`. */
 function toProtoArgs(args: { name: string; position: number; required: boolean; type: string; description: string; enumValues: string[]; defaultValue: string }[]): ProtoArgSpec[] {
     return args.map((a) => ({
         name: a.name,
@@ -81,21 +72,56 @@ function toProtoArgs(args: { name: string; position: number; required: boolean; 
     }))
 }
 
-/**
- * Node-side Application subclass. Users call `.useCommand(ServiceClass)` to
- * register `@CmdService`-decorated classes, then `.use(new HubClientMiddleware(...))`
- * and `.use(new InvokeServerMiddleware(...))` to wire the network pieces.
- *
- * During `Initialize()` we build the manifest + executor from the registered
- * service classes and stash them on the instance BEFORE `super.Initialize()`
- * so the middlewares can pick them up during their `install()` calls.
- */
+/** Wraps a one-shot `CmdCommandSpec` as a `RunnableService` so the
+ *  executor/event-adapter pipeline works unchanged. */
+function makeFunctionCommandService(
+    spec: CmdCommandSpec,
+    start: InvokeStart,
+    app: Application<unknown>,
+): RunnableService {
+    const ee = new EventEmitter()
+    const ctx = makeCmdCommandContext({
+        args: bindArgsForSpec(spec, start.args),
+        userId: start.userId,
+        sessionId: start.sessionId,
+        registry: app,
+        emit: (event) => {
+            if (event.kind === 'message') {
+                ee.emit('message', event.text)
+            } else {
+                ee.emit('error', event.text)
+            }
+        },
+    })
+
+    return {
+        on: ee.on.bind(ee),
+        off: ee.off.bind(ee),
+        emit: ee.emit.bind(ee),
+        async receiveMsg(_id: string, _args: string[]): Promise<void> { /* one-shot: no intercom */ },
+        async run(): Promise<void> {
+            try {
+                await spec.invokable(ctx)
+                ee.emit('done', '')
+            } catch (e: unknown) {
+                const text = e instanceof Error ? e.message : String(e)
+                ee.emit('error', text)
+                ee.emit('done', '')
+            }
+        },
+    }
+}
+
+/** Node-side Application: register `@CmdService`/`@CmdCommand` classes or
+ *  `CmdCommand({...})` specs via `.useCommand(...)`, wire HubClient +
+ *  InvokeServer middlewares, then `Initialize()`/`run()`. */
 export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
     private readonly _nodeIdOverride?: string
     private readonly _nodeNameOverride?: string
     private readonly _versionOverride?: string
 
     private readonly _serviceClasses: Map<string, ServiceClassWithOptionalConfig> = new Map()
+    private readonly _functionCommands: Map<string, CmdCommandSpec> = new Map()
     private _cachedManifest: NodeManifest | null = null
 
     constructor(opts: CmdNodeAppOptions<Cfg>) {
@@ -111,8 +137,6 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
         this._versionOverride = opts.version
     }
 
-    /** Resolved node identity. Reads constructor overrides first, then
-     *  `config.hub.{nodeId,nodeName,version}`. Throws if neither is available. */
     get nodeId(): string {
         return this._nodeIdOverride ?? this._requireHubField('nodeId')
     }
@@ -137,19 +161,26 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
         return v
     }
 
-    /**
-     * Register a `@CmdService`-decorated service class. Fails loudly on a
-     * duplicate command name — service authors who want multiple instances
-     * of the "same" command should give them distinct @CmdService names.
-     */
-    useCommand(cls: ServiceClassWithOptionalConfig): this {
+    useCommand(reg: CmdRegistrable): this {
+        if (typeof reg === 'object' && typeof (reg as CmdCommandSpec).invokable === 'function') {
+            this._registerFunctionCommand(reg as CmdCommandSpec)
+            return this
+        }
+
+        const cmdMeta = getCmdCommandMeta(reg)
+        if (cmdMeta) {
+            this._registerFunctionCommand(cmdMeta)
+            return this
+        }
+
+        const cls = reg as ServiceClassWithOptionalConfig
         const meta = getCmdServiceMeta(cls)
         if (!meta) {
             throw new Error(
-                `CmdNodeApp.useCommand: ${cls.name ?? '(anon)'} is not decorated with @CmdService`,
+                `CmdNodeApp.useCommand: ${cls.name ?? '(anon)'} is not decorated with @CmdService or @CmdCommand`,
             )
         }
-        if (this._serviceClasses.has(meta.name)) {
+        if (this._serviceClasses.has(meta.name) || this._functionCommands.has(meta.name)) {
             throw new Error(`CmdNodeApp.useCommand: duplicate command name "${meta.name}"`)
         }
         this._serviceClasses.set(meta.name, cls)
@@ -157,30 +188,32 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
         return this
     }
 
-    useCommands(arr: ServiceClassWithOptionalConfig[]): this {
-        for (const cls of arr) this.useCommand(cls)
+    useCommands(arr: CmdRegistrable[]): this {
+        for (const reg of arr) this.useCommand(reg)
         return this
     }
 
-    /** Alias for useCommand; kept for symmetry with the hub-side API. */
-    useService(cls: ServiceClassWithOptionalConfig): this {
-        return this.useCommand(cls)
+    private _registerFunctionCommand(spec: CmdCommandSpec): void {
+        if (this._functionCommands.has(spec.name) || this._serviceClasses.has(spec.name)) {
+            throw new Error(`CmdNodeApp.useCommand: duplicate command name "${spec.name}"`)
+        }
+        this._functionCommands.set(spec.name, spec)
+        this._cachedManifest = null
     }
 
-    /** Snapshot of the registered service classes keyed by command name. */
     get services(): ReadonlyMap<string, ServiceClassWithOptionalConfig> {
         return this._serviceClasses
     }
 
-    /**
-     * Build a proto-shaped NodeManifest from the registered service classes.
-     * Hardware info is captured fresh on every call; metrics are placeholders
-     * — HubClientMiddleware owns the live metrics feed.
-     */
-    buildManifest(): NodeManifest {
+    get functionCommands(): ReadonlyMap<string, CmdCommandSpec> {
+        return this._functionCommands
+    }
+
+    async buildManifest(): Promise<NodeManifest> {
         const commands: ProtoCommand[] = []
         for (const [, cls] of this._serviceClasses) {
-            const cmd = buildCommandFromDecorator(cls)
+            const cmd = await buildCommandFromDecorator(cls)
+            const meta = getCmdServiceMeta(cls)
             commands.push({
                 name: cmd.name,
                 compatibilityId: cmd.compatibilityId,
@@ -188,6 +221,21 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
                 description: cmd.description,
                 args: toProtoArgs(cmd.args),
                 aliases: cmd.aliases,
+                requires: (meta?.requires ?? []).map(k => k as string),
+            })
+        }
+        for (const [, spec] of this._functionCommands) {
+            const args = spec.argsClass
+                ? toProtoArgs(await buildProtoArgsFromDataClass(spec.argsClass, spec.name))
+                : []
+            commands.push({
+                name: spec.name,
+                compatibilityId: spec.compatibilityId,
+                version: spec.version,
+                description: spec.description,
+                args,
+                aliases: [],
+                requires: (spec.requires ?? []).map(k => k as string),
             })
         }
         return {
@@ -203,20 +251,30 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
             configs: [],
             hardware: hardwareInfo(),
             metrics: { gauges: [], counters: [], histograms: [] },
+            publishedCapabilities: this.manifestSnapshot().capabilities.map(c => c.key),
         }
     }
 
-    /**
-     * Build the `IExecutor` the InvokeServer middleware feeds into
-     * `makeInvokeServerImpl`. The executor looks up the service class by
-     * command name, parses the InvokeStart args into the service's config
-     * data-class, and constructs a fresh service instance per invocation.
-     */
     protected buildExecutor(): IExecutor {
         const serviceClasses = this._serviceClasses
-        const manifestBuilder = () => this.buildManifest()
+        const functionCommands = this._functionCommands
+        const getCachedManifest = (): NodeManifest => {
+            if (!this._cachedManifest) {
+                throw new Error(
+                    'CmdNodeApp.executor.getManifest: manifest not yet built — ' +
+                    'Initialize() must complete before the executor handles RPCs',
+                )
+            }
+            return this._cachedManifest
+        }
+        const app = this
+
         return {
             async createService(start: InvokeStart): Promise<RunnableService> {
+                const fnSpec = functionCommands.get(start.commandName)
+                if (fnSpec) {
+                    return makeFunctionCommandService(fnSpec, start, app)
+                }
                 const cls = serviceClasses.get(start.commandName)
                 if (!cls) {
                     throw new Error(`no service registered for command "${start.commandName}"`)
@@ -230,10 +288,12 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
                     sessionId: start.sessionId,
                     sessionData: {},
                 }
-                return new cls(start.userId, input, input)
+                // `name` is persisted into `account_modules.name` as a string,
+                // so pass the registered command name (not `input`).
+                return new cls(start.userId, input, start.commandName)
             },
             getManifest(): NodeManifest {
-                return manifestBuilder()
+                return getCachedManifest()
             },
         }
     }
@@ -245,35 +305,68 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
             const ns = cls.configNamespace
             const schema = cls.configSchema
             if (!ns || !schema) continue
-            if (seen.has(ns)) {
-                // Collision detection lives in Application._buildMergedSchema; we just
-                // let duplicates through here so the caller sees the richer error.
-            }
+            // Duplicates fall through; Application._buildMergedSchema reports them.
             seen.add(ns)
             out.push({ namespace: ns, schema })
         }
         return out
     }
 
-    async Initialize(): Promise<void> {
-        // Build the manifest + executor and publish them via the typed
-        // capability registry so middlewares (installed by super.Initialize())
-        // can read them out.
-        this._cachedManifest = this.buildManifest()
-        this.provide(CAP_NodeManifest, this._cachedManifest)
-        this.provide(CAP_NodeExecutor, this.buildExecutor())
+    protected _collectRegisteredCommands(): CommandRegistration[] {
+        const out: CommandRegistration[] = []
+        for (const [, cls] of this._serviceClasses) {
+            const meta = getCmdServiceMeta(cls)
+            if (!meta) continue
+            out.push({
+                name: meta.name,
+                requires: (meta.requires ?? []).map(k => k as string),
+            })
+        }
+        for (const [, spec] of this._functionCommands) {
+            out.push({
+                name: spec.name,
+                requires: (spec.requires ?? []).map(k => k as string),
+            })
+        }
+        return out
+    }
 
+    async Initialize(): Promise<void> {
+        this.provide(CAP_NodeExecutor, this.buildExecutor())
+        // Manifest is built at BeforeServices, after Storage/Transport caps
+        // have published — building earlier would ship an empty
+        // publishedCapabilities and break UI federationRequires checks.
+        this._installManifestRefreshHook()
         await super.Initialize()
     }
 
-    async run(): Promise<void> {
-        // The node is passively driven by incoming gRPC streams; run() just
-        // parks the process until terminate() is called.
-        await new Promise<void>(() => { /* never resolves */ })
+    private _installManifestRefreshHook(): void {
+        const refresh: AppMiddleware = {
+            name: 'CmdNodeAppManifestRefresh',
+            phase: Phase.BeforeServices,
+            install: async (app) => {
+                this._cachedManifest = await this.buildManifest()
+                this.provide(CAP_NodeManifest, this._cachedManifest)
+                log.info(
+                    `CmdNodeAppManifestRefresh: refreshed CAP_NodeManifest with ` +
+                    `${this._cachedManifest.publishedCapabilities.length} published caps`,
+                )
+                const store = app.get(CAP_ServiceStore)
+                if (store) {
+                    BaseCommandService.setStore(store)
+                    log.info('CmdNodeAppManifestRefresh: wired BaseCommandService.setStore from CAP_ServiceStore')
+                }
+            },
+        }
+        this.use(refresh)
     }
 
-    /** Convenience accessor used by tests. */
-    getManifest(): NodeManifest {
-        return this._cachedManifest ?? this.buildManifest()
+    async run(): Promise<void> {
+        // Passive: driven by incoming gRPC streams until terminate().
+        await new Promise<void>(() => {})
+    }
+
+    async getManifest(): Promise<NodeManifest> {
+        return this._cachedManifest ?? (await this.buildManifest())
     }
 }

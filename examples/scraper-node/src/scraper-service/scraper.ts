@@ -2,7 +2,7 @@ import { OrgData, SearchQuery } from "../types"
 import { SourceRegistry } from "../sources/registry"
 import { ExporterRegistry } from "../exporters/registry"
 import { ExportResult, ServiceContext } from "../exporters/types"
-import log from "@logger"
+import { log } from "@cmd-hub/common"
 
 
 function normalizeString(s: string | null): string {

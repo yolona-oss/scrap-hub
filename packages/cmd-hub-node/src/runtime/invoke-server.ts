@@ -222,7 +222,29 @@ export async function startNodeGrpcServer(
         boundAddress,
         port,
         async shutdown() {
-            await new Promise<void>((resolve) => server.tryShutdown(() => resolve()))
+            // tryShutdown() waits for every open http2 session to close —
+            // including the hub's long-lived Invoke channel to this node.
+            // Fall back to forceShutdown after a short grace period so a
+            // hung peer (or a hub that hasn't yet noticed our heartbeat
+            // ended) can't block our process exit indefinitely.
+            const GRACE_MS = 2000
+            await new Promise<void>((resolve) => {
+                let done = false
+                const finish = () => {
+                    if (done) return
+                    done = true
+                    resolve()
+                }
+                const timer = setTimeout(() => {
+                    try { server.forceShutdown() } catch { /* ignore */ }
+                    finish()
+                }, GRACE_MS)
+                timer.unref?.()
+                server.tryShutdown(() => {
+                    clearTimeout(timer)
+                    finish()
+                })
+            })
         },
     }
 }

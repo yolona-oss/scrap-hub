@@ -1,7 +1,7 @@
 import { IScraperSource } from "./types"
 import { OrgData, SearchQuery } from "../types"
 import { getScraperConfig } from "../scraper-config"
-import log from "@logger"
+import { log } from "@cmd-hub/common"
 
 export class GoogleSearchSource implements IScraperSource {
     readonly name = 'google'

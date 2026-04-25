@@ -1,35 +1,47 @@
-import { getConfig, getInitialConfig } from '@cmd-hub/core'
 import { BaseUI } from '@cmd-hub/core'
 import { MessageType } from '@cmd-hub/core'
-import { FilesWrapper, Manager } from '@cmd-hub/core'
 
 import { TelegramUI_BuiltIns, toRegister } from './constants/commands'
 import { TgContext } from "./types"
 import { ITelegramPlugin } from './types/plugin'
 
 import { LockManager } from '@cmd-hub/core'
-import { log } from '@cmd-hub/common'
+import type { UIFederationRequires } from '@cmd-hub/core'
+import {
+    log,
+    readConfigSlice,
+    requireCap,
+    CAP_ManagerRepo,
+    CAP_AccountRepo,
+    CAP_InvitationLinkRepo,
+    CAP_CmdAliasRepo,
+    CAP_PendingDeleteRepo,
+    CAP_StorageConnection,
+    CAP_ServiceStore,
+    CAP_HttpAgent,
+    type ManagerRecord,
+    type MessageHistoryInput,
+    type AppLike,
+} from '@cmd-hub/common'
+import type { DispatcherRepos } from '@cmd-hub/core'
 
 import crypto from 'crypto'
+import type { Agent } from 'http'
 import * as telegraf from 'telegraf'
 import chalk from 'chalk'
 import { anyToString } from '@cmd-hub/core'
 import { IUICommandProcessed } from '@cmd-hub/core'
 import { InlineKeyboardButton } from 'telegraf/typings/core/types/typegram'
 import { UiUnicodeSymbols, handleCalibrationCallback } from '@cmd-hub/core'
-import type { IMsgHistoryDto, MessageOptions } from '@cmd-hub/core'
+import type { MessageOptions } from '@cmd-hub/core'
 import { z } from 'zod'
-import { readConfigSlice, type AppLike } from '@cmd-hub/common'
 
-/** Telegram-specific adapter: turn a TgContext into the common
- *  message-history DTO. Inlined here because cmd-hub's db schema
- *  shouldn't know about telegram context shapes. */
-function fromTgContext(ctx: TgContext): IMsgHistoryDto {
+function fromTgContext(ctx: TgContext): MessageHistoryInput {
     return {
         chatId: ctx.chat!.id,
         userId: ctx.from!.id,
         text: ctx.text ?? "",
-        message_id: ctx.message!.message_id,
+        messageId: ctx.message!.message_id,
     }
 }
 
@@ -59,25 +71,39 @@ export class TelegramUI extends BaseUI<TgContext> {
     public bot!: telegraf.Telegraf<TgContext>
     public dispatcher!: CmdDispatcher<TgContext>
     private isActive: boolean = false
+    private repos: DispatcherRepos | null = null
 
-    /** ConfigContributor fields — CmdHubApp merges this slice into the
-     *  merged app schema, so `config.telegram.{botToken,adminUserIds}` is
-     *  validated at Initialize() before onAppAttach() fires. */
+    public requireRepos(callerName: string): DispatcherRepos {
+        if (!this.repos) {
+            throw new Error(`TelegramUI.${callerName}: not attached to app — onAppAttach didn't run`)
+        }
+        return this.repos
+    }
+
+    readonly federationRequires: UIFederationRequires = {
+        essential: [CAP_StorageConnection, CAP_ServiceStore],
+        supported: [],
+    }
+
     readonly namespace = 'telegram' as const
     readonly schema = z.object({
         botToken: z.string().min(1),
+        botName: z.string().min(1).default('CmdHub'),
+        primaryAdminId: z.union([z.string(), z.number()]),
         adminUserIds: z.array(z.union([z.string(), z.number()])).default([]),
     })
 
-    /**
-     * Parameterless: token comes from `config.telegram.botToken` (validated
-     * by the contributor schema above); the dispatcher is attached during
-     * `onAppAttach(app)` by `CmdHubApp.run()`.
-     *
-     * Back-compat: the old signature `new TelegramUI(botToken, dispatcher)`
-     * still works. Pass both eagerly if you're bootstrapping without
-     * CmdHubApp.
-     */
+    private tgConfig: z.infer<TelegramUI['schema']> | null = null
+
+    public requireTgConfig(callerName: string): z.infer<TelegramUI['schema']> {
+        if (!this.tgConfig) {
+            throw new Error(`TelegramUI.${callerName}: not attached to app — onAppAttach didn't run`)
+        }
+        return this.tgConfig
+    }
+
+    /** Parameterless form is preferred; the back-compat constructor lets you
+     *  bootstrap without CmdHubApp by passing token + dispatcher. */
     constructor(
         botToken?: string,
         dispatcher?: CmdDispatcher<TgContext>,
@@ -91,27 +117,36 @@ export class TelegramUI extends BaseUI<TgContext> {
         }
     }
 
-    /**
-     * Called by CmdHubApp during run(). Lazy-initializes the Telegraf bot
-     * from config.telegram.botToken and the CmdDispatcher (every UI owns
-     * its own dispatcher; they don't share one).
-     */
     async onAppAttach(app: AppLike): Promise<void> {
+        const cfg = readConfigSlice(app, this)
+        this.tgConfig = cfg
         if (!this.bot) {
-            const cfg = readConfigSlice(app, this)
-            this.bot = new telegraf.Telegraf<TgContext>(cfg.botToken)
+            // If a ProxyMiddleware published an HTTP agent, route api.telegram.org through it.
+            const agent = app.get(CAP_HttpAgent) as Agent | undefined
+            const tgOpts: Partial<telegraf.Telegraf.Options<TgContext>> | undefined =
+                agent ? { telegram: { agent } } : undefined
+            this.bot = new telegraf.Telegraf<TgContext>(cfg.botToken, tgOpts)
         }
         if (!this.dispatcher) {
             this.dispatcher = new CmdDispatcher<TgContext>()
         }
+        this.repos = {
+            manager:        requireCap(app, CAP_ManagerRepo),
+            account:        requireCap(app, CAP_AccountRepo),
+            invitationLink: requireCap(app, CAP_InvitationLinkRepo),
+            cmdAlias:       requireCap(app, CAP_CmdAliasRepo),
+            pendingDelete:  requireCap(app, CAP_PendingDeleteRepo),
+        }
+        this.lifecycle.attachRepo(this.repos.pendingDelete)
+        // Must finish before CmdHubApp's per-UI capability validator runs.
+        if (!this.dispatcher.isInitialized()) {
+            this.dispatcher.done()
+        }
     }
 
     max_message_width() {
-        //return 48 // at slim screen
-        return 72 // at wide screen
+        return 72
     }
-
-    // Platform-specific implementations for BaseUI
 
     protected async sendMessageImpl(user_id: string, message: string, mk_opts?: IMarkupOption[], options?: MessageOptions): Promise<string> {
         const extra: any = {}
@@ -149,7 +184,6 @@ export class TelegramUI extends BaseUI<TgContext> {
     }
 
     private async setupActions() {
-        // bot auth algorithm actions
         this.bot.action(RegExp(auth_cb_prefix.directJoinRequestToAdmin + "*"), (ctx, next) => sendJoinRequestToAdmin.call(this, ctx, next))
         this.bot.action(RegExp(auth_cb_prefix.approveJoinRequest + "*"),       (ctx, next) => approveJoinRequest.call(this, ctx, next))
         this.bot.action(RegExp(auth_cb_prefix.rejectJoinRequest + "*"),        (ctx, next) => rejectJoinRequest.call(this, ctx, next))
@@ -162,21 +196,18 @@ export class TelegramUI extends BaseUI<TgContext> {
             await ctx.deleteMessage()
         })
 
-        // handle calibration buttons
         this.bot.action(RegExp("calibrate_*"), async (ctx) => {
             const width = parseInt(ctx.match.input.slice("calibrate_".length))
             if (!isNaN(width)) {
-                const result = await handleCalibrationCallback(ctx.from!.id, width)
+                const result = await handleCalibrationCallback(this.requireRepos('calibrate').manager, ctx.from!.id, width)
                 await ctx.answerCbQuery(result)
                 await ctx.deleteMessage()
             }
         })
 
-        // handle dashboard buttons
         this.bot.action(RegExp("svc_dash_*"), async (ctx) => {
             const action = ctx.match.input.slice("svc_dash_".length)
             const userId = String(ctx.from!.id)
-            // Find the dashboard that owns this callback
             const activeServices = this.dispatcher.UserActiveServices(userId)
             for (const svc of activeServices) {
                 const dashboard = this.dispatcher.getDashboard(userId, svc.name)
@@ -189,7 +220,6 @@ export class TelegramUI extends BaseUI<TgContext> {
             await ctx.answerCbQuery('Dashboard not found')
         })
 
-        // handle builder buttons
         this.bot.action(RegExp("builder_*"), async (ctx) => {
             const action = String(ctx.match.input.slice("builder_".length))
             const res = await this.dispatcher.handleCommand(action, action, ctx as any, this)
@@ -212,10 +242,8 @@ export class TelegramUI extends BaseUI<TgContext> {
             const asCommand = firstWord?.slice(1) ?? ""
             const isCommandAlike = firstWord && firstWord.startsWith("/")
 
-            // Track user's input message for cleanup:
-            // - builder input (value entry) → 'builder' (cleaned when build completes)
-            // - non-command text (unrecognized) → 'system' (cleaned after TTL)
-            // - command input → not tracked (produces a result the user keeps)
+            // Track user input messages for cleanup. Commands aren't tracked
+            // because they produce a result the user keeps.
             const userId = String(ctx.from?.id ?? '')
             const userMsgId = ctx.message?.message_id
             if (userId && userMsgId) {
@@ -244,7 +272,6 @@ export class TelegramUI extends BaseUI<TgContext> {
             throw new Error("TelegemUI::init() command handler not inited")
         }
 
-        // apply builtin tg commands to cmd handler
         const tgCommands = this.registerTgComands()
         const commands = this.dispatcher.toUICommands().concat(tgCommands.map(cmd => cmd.command) as IUICommandProcessed[])
 
@@ -254,7 +281,6 @@ export class TelegramUI extends BaseUI<TgContext> {
         this.setCommandHandler(commands)
         this.setByTextCmdHandler()
 
-        // Plugin commands
         for (const p of this.plugins) {
             const tp = p as ITelegramPlugin
             if (tp.setupCommands) {
@@ -262,16 +288,34 @@ export class TelegramUI extends BaseUI<TgContext> {
             }
         }
 
-        // assign to autocomplete
         await this.bot.telegram.setMyCommands(commands)
 
         this.setInitialized()
     }
 
+    /** Re-pushes the merged command list when a node attaches/detaches. */
+    async onFederationChange(): Promise<void> {
+        if (!this.bot || !this.dispatcher.isInitialized()) return
+        const tgCommands = TelegramUI_BuiltIns.map(toRegister)
+        const commands = this.dispatcher.toUICommands()
+            .concat(tgCommands.map(cmd => cmd.command) as IUICommandProcessed[])
+        try {
+            this.verifyCommands(commands)
+        } catch (e) {
+            log.warn(`onFederationChange: refusing to push invalid command list: ${(e as Error)?.message ?? e}`)
+            return
+        }
+        try {
+            await this.bot.telegram.setMyCommands(commands)
+            log.info(`onFederationChange: refreshed Telegram command list (${commands.length} commands)`)
+        } catch (e) {
+            log.warn(`onFederationChange: setMyCommands failed: ${(e as Error)?.message ?? e}`)
+        }
+    }
+
     private async setupAuth() {
-        // Authorization
         this.bot.use(async (ctx, next) => {
-            const manager = await Manager.findOne({ userId: ctx.from!.id })
+            const manager = await this.requireRepos('auth').manager.findByUserId(ctx.from!.id)
             if (manager) {
                 ctx.type = 'telegram'
                 ctx.manager = manager
@@ -282,7 +326,7 @@ export class TelegramUI extends BaseUI<TgContext> {
                     return next()
                 }
             }
-            const botName = (await getConfig()).bot.name
+            const botName = this.requireTgConfig('setupAuth').botName
             const sent = await ctx.replyWithMarkdownV2(`Welcome to ${botName}. To start using bot you need to be aproved by bot administrator.\n" +
 "Click on button for send approve request`,
                 telegraf.Markup.inlineKeyboard([ [ { text: "Send", callback_data: auth_cb_prefix.directJoinRequestToAdmin + " " + ctx.from!.id  }, ] ]))
@@ -291,22 +335,24 @@ export class TelegramUI extends BaseUI<TgContext> {
     }
 
     private async setupHistorySave() {
+        const self = this
         this.bot.on('message', async function(ctx, next) {
+            const repos = self.requireRepos('historySave')
             if (ctx.manager) {
-                const manager = await Manager.findById(ctx.manager.id)
-                if (manager) {
-                    await manager.appendMessageHistory(fromTgContext(ctx as TgContext))
+                const handle = await repos.manager.handleById(ctx.manager.id)
+                if (handle) {
+                    await handle.appendMessage(fromTgContext(ctx as TgContext))
                 }
             } else if (ctx.message.from.is_bot) {
-                // TODO be pretty to use OPC :>
-                const manager = await Manager.findById(ctx.chat.id)
-                if (manager) {
-                    await manager.appendMessageHistory({
+                // chat.id used as numeric userId — bot-as-manager convention.
+                const handle = await repos.manager.handleByUserId(ctx.chat.id)
+                if (handle) {
+                    await handle.appendMessage({
                         chatId: ctx.chat!.id,
-                        userId: manager.userId,
-                        message_id: ctx.message?.message_id,
+                        userId: handle.record.userId,
+                        messageId: ctx.message?.message_id,
                         text: ctx.text ?? "",
-                        timestamp: ctx.message?.date ? ctx.message.date : undefined
+                        timestamp: ctx.message?.date ? ctx.message.date : undefined,
                     })
                 }
             } else {
@@ -316,9 +362,9 @@ export class TelegramUI extends BaseUI<TgContext> {
         })
 
         this.bot.on('edited_message', async function(ctx, next) {
-            const mamanger = await Manager.findById(ctx.manager.id)
-            if (mamanger) {
-                await mamanger.appendMessageHistory(fromTgContext(ctx as TgContext))
+            const handle = await self.requireRepos('historyEdit').manager.handleById(ctx.manager.id)
+            if (handle) {
+                await handle.appendMessage(fromTgContext(ctx as TgContext))
             } else {
                 log.debug(`No manager in ctx for editing history message. user: ${ctx.from?.id}, chat: ${ctx.chat?.id}`)
             }
@@ -354,29 +400,28 @@ export class TelegramUI extends BaseUI<TgContext> {
             throw new Error("TelegemUI::run() not inited")
         }
 
-        const Config = await getConfig()
+        const tgCfg = this.requireTgConfig('run')
 
         if (this.isActive) {
             throw new Error("TelegemUI::run() already running")
         }
 
+        const repos = this.requireRepos('run')
         try {
+            const primaryAdminId = Number(tgCfg.primaryAdminId)
+            if (Number.isNaN(primaryAdminId)) {
+                throw new Error(`config.telegram.primaryAdminId must coerce to a number, got "${tgCfg.primaryAdminId}"`)
+            }
             let adminExisted = true
-            let admin = await Manager.findOne({ userId: Config.bot.admin_id })
+            const admin = await repos.manager.findByUserId(primaryAdminId)
             if (!admin) {
                 log.info("Creating admin...")
                 adminExisted = false
-                const defaultAvatar = await FilesWrapper.getDefaultAvatar()
-                if (!defaultAvatar) {
-                    throw new Error("TelegemUI::run() default avatar not found")
-                }
-                await Manager.create({
+                await repos.manager.createWithAccount({
                     isAdmin: true,
                     name: "Admin",
-                    userId: Config.bot.admin_id,
-                    online: false,
-                    avatar: defaultAvatar.id,
-                    useGreeting: true
+                    userId: primaryAdminId,
+                    useGreeting: true,
                 })
             }
             log.info("Starting Telegram-bot service...")
@@ -385,14 +430,15 @@ export class TelegramUI extends BaseUI<TgContext> {
             })
             if (adminExisted) {
                 log.info("Sending welcome message to admins...")
-                for (let manager of await Manager.find()) {
+                for (const manager of await repos.manager.list()) {
                     if (!manager.useGreeting) {
                         continue
                     }
                     try {
                         await this.notifyManagers(manager.userId, `${UiUnicodeSymbols.info} Service now online`)
-                    } catch (e: any) {
-                        log.warn(`Failed to send startup greeting to manager ${manager.userId}: ${e.message ?? e}`)
+                    } catch (e: unknown) {
+                        const message = (e as Error)?.message ?? String(e)
+                        log.warn(`Failed to send startup greeting to manager ${manager.userId}: ${message}`)
                     }
                 }
             }
@@ -422,9 +468,10 @@ export class TelegramUI extends BaseUI<TgContext> {
 
         // Persist pending deletes for next startup
         await this.lifecycle.persistAll()
-        await Manager.updateMany({ online: true }, { online: false })
-        let managers = await Manager.find()
-        for (let manager of managers) {
+        const repos = this.requireRepos('terminate')
+        await repos.manager.setAllOffline()
+        const managers = await repos.manager.list()
+        for (const manager of managers) {
             if (!manager.useGreeting) { continue }
             try {
                 await this.notifyManagers(manager.userId, `${UiUnicodeSymbols.info} Service going offline`)
@@ -603,14 +650,14 @@ export class TelegramUI extends BaseUI<TgContext> {
 
     public lock(lockManager: LockManager): boolean {
         return typeof lockManager.createLockFile(
-            crypto.hash("sha256", getInitialConfig().bot.token)
+            crypto.hash("sha256", this.requireTgConfig('lock').botToken)
         ) === 'string'
     }
 
     public unlock(lockManager: LockManager): boolean {
         return lockManager.deleteLockFile(
             LockManager.createLockFileName(
-                crypto.hash("sha256", getInitialConfig().bot.token)
+                crypto.hash("sha256", this.requireTgConfig('unlock').botToken)
             )
         )
     }

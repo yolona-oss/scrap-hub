@@ -1,18 +1,16 @@
 import { CqContext } from '../types';
-import { getInitialConfig } from '@cmd-hub/core';
-import { Manager, FilesWrapper } from '@cmd-hub/core';
-import { log } from '@cmd-hub/common';
-import { anyToString } from '@cmd-hub/core';
+import { anyToString } from '@cmd-hub/core'
+import { log } from '@cmd-hub/common'
 
-import { TelegramUI } from "../telegram-ui";
-import { auth_cb_prefix, decodeCbData } from "./../constants/callback";
+import { TelegramUI } from "../telegram-ui"
+import { auth_cb_prefix, decodeCbData } from "./../constants/callback"
 
-import * as tg from "telegraf";
+import * as tg from "telegraf"
 
 export async function sendJoinRequestToAdmin(this: TelegramUI, ctx: CqContext, next: () => void) {
     try {
-        let id = decodeCbData.auth.joinReqRedirection(ctx.match.input)
-        let keyboard = tg.Markup.inlineKeyboard([
+        const id = decodeCbData.auth.joinReqRedirection(ctx.match.input)
+        const keyboard = tg.Markup.inlineKeyboard([
             [
                 {
                     text: "Approve",
@@ -25,10 +23,10 @@ export async function sendJoinRequestToAdmin(this: TelegramUI, ctx: CqContext, n
             ]
         ])
 
-        const adminId = getInitialConfig().bot.admin_id
+        const adminId = this.requireTgConfig('sendJoinRequestToAdmin').primaryAdminId
         const sent = await this.bot.telegram.sendMessage(adminId, "Approve request from @" + ctx.from!.username, keyboard)
         this.lifecycle.track(String(adminId), String(sent.message_id), 'system')
-    } catch (e: any) {
+    } catch (e: unknown) {
         log.error(`Auth: sendJoinRequestToAdmin failed: ${anyToString(e)}`)
     }
     next();
@@ -36,19 +34,16 @@ export async function sendJoinRequestToAdmin(this: TelegramUI, ctx: CqContext, n
 
 export async function approveJoinRequest(this: TelegramUI, ctx: CqContext, next: () => void) {
     try {
-        let userId = Number(
-            decodeCbData.auth.joinReqApprove(ctx.match.input)
-        )
-        let member = await this.bot.telegram.getChatMember(userId, userId);
-        await Manager.create({
+        const userId = Number(decodeCbData.auth.joinReqApprove(ctx.match.input))
+        const member = await this.bot.telegram.getChatMember(userId, userId)
+        await this.requireRepos('approveJoinRequest').manager.createWithAccount({
             userId: userId,
             name: member.user.first_name + " " + member.user.last_name,
-            avatar: (await FilesWrapper.getDefaultAvatar())!.id,
-            useGreeting: true
+            useGreeting: true,
         })
 
         await this.trackedSend(userId, "Your request have been accepted. Now you are can use this bot", 'system')
-    } catch (e: any) {
+    } catch (e: unknown) {
         log.error(`Auth: approveJoinRequest failed: ${anyToString(e)}`)
     }
     next();
@@ -56,11 +51,9 @@ export async function approveJoinRequest(this: TelegramUI, ctx: CqContext, next:
 
 export async function rejectJoinRequest(this: TelegramUI, ctx: CqContext, next: () => void) {
     try {
-        let userId = Number(
-            decodeCbData.auth.joinReqReject(ctx.match.input)
-        )
+        const userId = Number(decodeCbData.auth.joinReqReject(ctx.match.input))
         await this.trackedSend(userId, "Your request have been rejected", 'system')
-    } catch (e: any) {
+    } catch (e: unknown) {
         log.error(`Auth: rejectJoinRequest failed: ${anyToString(e)}`)
     }
     next();

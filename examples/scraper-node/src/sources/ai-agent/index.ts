@@ -6,10 +6,10 @@ import { createClient } from "./client"
 import { AsyncQueue } from "./async-queue"
 import { buildTools, ReportState } from "./tools"
 import { runAgentLoop } from "./loop"
-import log from "@logger"
+import { log } from "@cmd-hub/common"
 
 export class AIAgentSource implements IScraperSource {
-    readonly name = 'ai-agent'
+    readonly name = 'AI-search'
     readonly requiresApiKey = false
 
     async* search(

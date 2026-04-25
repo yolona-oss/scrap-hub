@@ -4,15 +4,15 @@
 // (ui-telegram / ui-cli / ui-web / transport / node) through here.
 
 // Application lifecycle
-export { AppCmdhub, CmdHubApp } from './cmdhub'
-export type { IUIWithAttach } from './cmdhub'
+export { CmdHubApp } from './cmdhub'
+export type { IUIWithAttach, UIFederationRequires } from './cmdhub'
 export { Application } from './application'
 
 // Middlewares
 export { GrpcServerMiddleware } from './middleware/grpc-server-middleware'
 export type { GrpcServerMiddlewareOptions } from './middleware/grpc-server-middleware'
-export { UploadEndpointMiddleware } from './middleware/upload-endpoint-middleware'
 export { CmdNodeClientMiddleware } from './middleware/cmd-node-client-middleware'
+export { ConfigBootMiddleware } from './middleware/config-boot-middleware'
 
 // Remote invoker
 export { RemoteCmdInvoker, protoToDashboardEvent } from './ui/command-processor/remote-invoker'
@@ -55,13 +55,11 @@ export {
     sessionIdValidator,
 } from './ui/types/command/service/utils/session-id-generator'
 
-// Database
-export { Manager, Account, AccountModule, AccountSession, File, CmdAlias, MsgHistory, DefaultAssets, FilesWrapper, MongoConnect, InvitationLink } from './db'
-export type { IManager, IFile, IAccount, IAccountSession, IAccountModule, IInvitationLink } from './db'
-
-// Config
-export { ConfigSign, getConfig, getInitialConfig, createConfigIfNotExists, updateConfig } from './config'
-export type { ConfigType } from './config'
+// NOTE: All entity models (Manager, Account, AccountModule, AccountSession,
+// MsgHistory, CmdAlias, PendingDelete, InvitationLink, File) and their helpers
+// (createManagerWithAccount) live in @cmd-hub/storage-mongo. UI plugins and
+// other consumers should import them from there directly. The framework
+// itself only depends on the abstract repo interfaces in @cmd-hub/common.
 
 // Constants
 export * from './constants'
@@ -86,9 +84,6 @@ export { isValidConfigPath } from './utils/validation'
 export type { TableField, TextField, MarkupField } from './utils/table-designer'
 export { shuffle } from './utils/array'
 export { anyToString } from './utils/misc'
-
-// Message history types (for UIs that want to persist chat logs)
-export type { IMsgHistory, IMsgHistoryDto } from './db/schemes/messages-history'
 
 // Calibration callback (used by UIs wiring the /calibrate flow)
 export { handleCalibrationCallback, CALIBRATE_CB_PREFIX, CALIBRATE_WIDTHS } from './ui/command-processor/built-in-cmd/calibrate-cmd'

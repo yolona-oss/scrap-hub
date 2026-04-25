@@ -4,17 +4,14 @@ import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
 import { CmdArgument } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
-import { IManager } from "../../../db"
+import type { ManagerRecord } from "@cmd-hub/common"
 
 class DashboardArgs {
     @CmdArgument({
         required: false,
         position: 1,
         description: "Service name to show dashboard for",
-        // Common's CmdArgumentOptionSetter default is (any, any) to avoid
-        // dragging CmdDispatcher/IManager into common. Annotate to restore
-        // inference on `.map(s => s.name)`.
-        pairOptions: async (_: string, handler: CmdDispatcher<any>, owner: IManager) => {
+        pairOptions: async (_: string, handler: CmdDispatcher<any>, owner: ManagerRecord) => {
             return handler.UserActiveServices(String(owner.userId)).map(s => s.name)
         }
     })

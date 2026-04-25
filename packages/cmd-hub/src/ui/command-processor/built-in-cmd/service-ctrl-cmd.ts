@@ -6,14 +6,14 @@ import { CmdDispatcher } from "../dispatcher"
 import { anyToString } from "../../../utils/misc"
 import { UiUnicodeSymbols } from "../../../ui"
 import { CmdArgumentProxy } from "../arg-proxy"
-import { IManager } from "../../../db"
+import type { ManagerRecord } from "@cmd-hub/common"
 
 class ServiceStopArgs {
     @CmdArgument({
         required: true,
         position: 1,
         description: "Service name to stop",
-        pairOptions: async (_: string, handler: CmdDispatcher<any>, owner: IManager) => {
+        pairOptions: async (_: string, handler: CmdDispatcher<any>, owner: ManagerRecord) => {
             return handler.ActiveServices.get(String(owner.userId))?.map(s => s.name) ?? []
         }
     })
@@ -66,7 +66,7 @@ const ServiceRunCommand: BuiltInCommand = {
                 await ctx.reply(`${UiUnicodeSymbols.error} No remote invoker attached.`)
                 return
             }
-            const res = await invoker.invokeLegacy(userId, {command: serviceName, proxy: new CmdArgumentProxy([]), raw: []}, ctx, uiImpl as any)
+            const res = await invoker.invokeLegacy(userId, {command: serviceName, proxy: new CmdArgumentProxy([]), raw: []}, ctx, uiImpl)
             await ctx.reply(`${UiUnicodeSymbols.success} Service "${serviceName}" started: ${JSON.stringify(res)}`)
         } catch (e: any) {
             await ctx.reply(`Service ${serviceName} termination error: ${anyToString(e)}.`)
@@ -82,7 +82,7 @@ class ServiceSendMsgArgs {
         required: true,
         position: 1,
         description: "Service name to send message",
-        pairOptions: async function(_: string, dispatcher: CmdDispatcher<any>, owner: IManager): Promise<string[]> {
+        pairOptions: async function(_: string, dispatcher: CmdDispatcher<any>, owner: ManagerRecord): Promise<string[]> {
             return dispatcher.UserActiveServices(String(owner.userId)).map(s => s.name)
         }
     })

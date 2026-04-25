@@ -6,4 +6,8 @@ module.exports = {
         '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
     },
     testMatch: ['**/__tests__/**/*.test.ts'],
+    moduleNameMapper: {
+        // chalk v5 ships ESM-only; reuse the common-side stub.
+        '^chalk$': '<rootDir>/../cmd-hub-common/src/__mocks__/chalk.ts',
+    },
 }

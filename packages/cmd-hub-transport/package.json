@@ -15,8 +15,6 @@
         "@cmd-hub/common": "*",
         "@grpc/grpc-js": "^1.10.0",
         "bcryptjs": "^3.0.3",
-        "express": "^5.0.1",
-        "mongoose": "^8.9.5",
         "node-forge": "^1.4.0"
     },
     "devDependencies": {

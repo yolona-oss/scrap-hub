@@ -3,7 +3,7 @@ import type { ServiceContext } from "../exporters/types"
 import { ExporterRegistry } from "../exporters/registry"
 import { OrgData, SearchQuery } from "../types"
 import { getScraperConfig } from "../scraper-config"
-import log from "@logger"
+import { log } from "@cmd-hub/common"
 
 export class GoogleSheetsExporter implements IExporter {
     readonly name = 'google-sheets'

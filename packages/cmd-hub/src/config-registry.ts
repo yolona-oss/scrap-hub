@@ -1,128 +1,144 @@
 import * as fs from 'fs'
+import type { ISystemConfigRepo, IUserConfigRepo } from '@cmd-hub/common'
 import { main_config_path } from './constants/path'
 import { isValidConfigPath } from './utils/validation'
-
-// Lazy logger to avoid circular dependency (logger → config → config-registry → logger)
-function getLog() {
-    return require('@logger').default ?? require('@logger')
-}
-
-// Lazy DB imports to avoid circular dependency (db → config → config-registry → db)
-function getSystemConfigModel() {
-    return require('@core/db').SystemConfig
-}
-function getUserConfigModel() {
-    return require('@core/db').UserConfig
-}
+import log from './application/logger'
 
 export type ConfigScope = 'bootstrap' | 'system' | 'user'
 
 export interface ConfigModuleDef {
     name: string
-    defaults: Record<string, any>
+    defaults: Record<string, unknown>
     sensitive?: string[]
     scope: ConfigScope
 }
 
+/** Static config registry. Modules `register(...)` at load time;
+ *  `ConfigBootMiddleware` later calls `attachRepos(...)`. Until then,
+ *  system/user reads return defaults and writes throw. */
 export class ConfigRegistry {
     private static modules = new Map<string, ConfigModuleDef>()
-    private static bootstrapData: Record<string, any> = {}
+    private static bootstrapData: Record<string, unknown> = {}
     private static bootstrapLoaded = false
+    private static systemRepo: ISystemConfigRepo | null = null
+    private static userRepo: IUserConfigRepo | null = null
 
     static register(module: ConfigModuleDef): void {
+        // Called at module-load time before logger is wired — do not log.
         ConfigRegistry.modules.set(module.name, module)
-        // Don't log here — register() is called at module-load time before logger is ready
+    }
+
+    static attachRepos(systemRepo: ISystemConfigRepo, userRepo: IUserConfigRepo): void {
+        ConfigRegistry.systemRepo = systemRepo
+        ConfigRegistry.userRepo = userRepo
+    }
+
+    /** Idempotent seed: rows already in the store are left alone. */
+    static async seedSystemDefaults(): Promise<void> {
+        if (!ConfigRegistry.bootstrapLoaded) ConfigRegistry.loadBootstrap()
+        const repo = ConfigRegistry.requireSystemRepo('seedSystemDefaults')
+
+        for (const [name, mod] of ConfigRegistry.modules) {
+            if (mod.scope === 'bootstrap') continue
+
+            const fromFile = ConfigRegistry.bootstrapData[name]
+            const fromFileObj = ConfigRegistry.coerceToRecord(fromFile)
+            const seed = fromFileObj && Object.keys(fromFileObj).length > 0
+                ? { ...mod.defaults, ...fromFileObj }
+                : { ...mod.defaults }
+
+            const existing = await repo.findByModule(name)
+            if (existing) continue
+            await repo.insertIfAbsent(name, seed)
+            const tag = fromFileObj && Object.keys(fromFileObj).length > 0
+                ? `migrated "${name}" from config.json`
+                : `created "${name}" with defaults`
+            log.info(`ConfigRegistry: ${tag} in system store`)
+        }
     }
 
     // --- Bootstrap (config.json, sync, before DB) ---
 
     static loadBootstrap(): void {
         try {
-            ConfigRegistry.bootstrapData = JSON.parse(fs.readFileSync(main_config_path).toString())
+            const raw = JSON.parse(fs.readFileSync(main_config_path).toString())
+            ConfigRegistry.bootstrapData = ConfigRegistry.coerceToRecord(raw) ?? {}
             ConfigRegistry.bootstrapLoaded = true
-        } catch (e: any) {
-            console.error(`ConfigRegistry: failed to load bootstrap config: ${e.message ?? e}`)
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e)
+            console.error(`ConfigRegistry: failed to load bootstrap config: ${message}`)
         }
     }
 
-    static getBootstrap<T = any>(moduleName: string): T {
+    static getBootstrap<T = unknown>(moduleName: string): T {
         if (!ConfigRegistry.bootstrapLoaded) ConfigRegistry.loadBootstrap()
         const mod = ConfigRegistry.modules.get(moduleName)
         const defaults = mod?.defaults ?? {}
-        return { ...defaults, ...(ConfigRegistry.bootstrapData[moduleName] ?? {}) } as T
+        const fileSection = ConfigRegistry.coerceToRecord(ConfigRegistry.bootstrapData[moduleName]) ?? {}
+        return { ...defaults, ...fileSection } as T
     }
 
-    // --- System config (MongoDB, shared) ---
+    // --- System config (repo-backed) ---
 
-    static async getSystem<T = any>(moduleName: string): Promise<T> {
+    static async getSystem<T = unknown>(moduleName: string): Promise<T> {
         const mod = ConfigRegistry.modules.get(moduleName)
         const defaults = mod?.defaults ?? {}
+        if (!ConfigRegistry.systemRepo) return defaults as T
         try {
-            const doc = await getSystemConfigModel().findOne({ module: moduleName })
+            const doc = await ConfigRegistry.systemRepo.findByModule(moduleName)
             return { ...defaults, ...(doc?.data ?? {}) } as T
-        } catch (_) {
+        } catch {
             return defaults as T
         }
     }
 
-    static async setSystem(moduleName: string, path: string, value: any): Promise<void> {
+    static async setSystem(moduleName: string, path: string, value: unknown): Promise<void> {
         if (!isValidConfigPath(path)) throw new Error(`Invalid config path: "${path}"`)
-        await getSystemConfigModel().findOneAndUpdate(
-            { module: moduleName },
-            { $set: { [`data.${path}`]: value } },
-            { upsert: true, new: true }
-        )
+        const repo = ConfigRegistry.requireSystemRepo('setSystem')
+        await repo.setPath(moduleName, path, value)
         const mod = ConfigRegistry.modules.get(moduleName)
-        const isSensitive = mod?.sensitive?.some(s => path.toLowerCase().includes(s.toLowerCase()))
-        getLog().trace(`ConfigRegistry: set system ${moduleName}.${path} = ${isSensitive ? '***' : JSON.stringify(value)}`)
+        const isSensitive = mod?.sensitive?.some(s => path.toLowerCase().includes(s.toLowerCase())) ?? false
+        log.trace(`ConfigRegistry: set system ${moduleName}.${path} = ${isSensitive ? '***' : JSON.stringify(value)}`)
     }
 
     static async clearSystem(moduleName: string): Promise<void> {
-        await getSystemConfigModel().findOneAndUpdate(
-            { module: moduleName },
-            { $set: { data: {} } },
-            { upsert: true }
-        )
+        const repo = ConfigRegistry.requireSystemRepo('clearSystem')
+        await repo.clear(moduleName)
     }
 
-    // --- User config (MongoDB, per-user) ---
+    // --- User config (repo-backed) ---
 
-    static async getUser<T = any>(moduleName: string, userId: string): Promise<T> {
+    static async getUser<T = unknown>(moduleName: string, userId: string): Promise<T> {
         const mod = ConfigRegistry.modules.get(moduleName)
         const defaults = mod?.defaults ?? {}
+        if (!ConfigRegistry.systemRepo || !ConfigRegistry.userRepo) return defaults as T
         try {
-            const sysDoc = await getSystemConfigModel().findOne({ module: moduleName })
-            const userDoc = await getUserConfigModel().findOne({ userId, module: moduleName })
+            const sysDoc = await ConfigRegistry.systemRepo.findByModule(moduleName)
+            const userDoc = await ConfigRegistry.userRepo.findByUserAndModule(userId, moduleName)
             // Priority: user > system > defaults
             return { ...defaults, ...(sysDoc?.data ?? {}), ...(userDoc?.data ?? {}) } as T
-        } catch (_) {
+        } catch {
             return defaults as T
         }
     }
 
-    static async setUser(moduleName: string, userId: string, path: string, value: any): Promise<void> {
+    static async setUser(moduleName: string, userId: string, path: string, value: unknown): Promise<void> {
         if (!isValidConfigPath(path)) throw new Error(`Invalid config path: "${path}"`)
-        await getUserConfigModel().findOneAndUpdate(
-            { userId, module: moduleName },
-            { $set: { [`data.${path}`]: value } },
-            { upsert: true, new: true }
-        )
+        const repo = ConfigRegistry.requireUserRepo('setUser')
+        await repo.setPath(userId, moduleName, path, value)
         const mod = ConfigRegistry.modules.get(moduleName)
-        const isSensitive = mod?.sensitive?.some(s => path.toLowerCase().includes(s.toLowerCase()))
-        getLog().trace(`ConfigRegistry: set user[${userId}] ${moduleName}.${path} = ${isSensitive ? '***' : JSON.stringify(value)}`)
+        const isSensitive = mod?.sensitive?.some(s => path.toLowerCase().includes(s.toLowerCase())) ?? false
+        log.trace(`ConfigRegistry: set user[${userId}] ${moduleName}.${path} = ${isSensitive ? '***' : JSON.stringify(value)}`)
     }
 
     static async clearUser(moduleName: string, userId: string): Promise<void> {
-        await getUserConfigModel().findOneAndUpdate(
-            { userId, module: moduleName },
-            { $set: { data: {} } },
-            { upsert: true }
-        )
+        const repo = ConfigRegistry.requireUserRepo('clearUser')
+        await repo.clear(userId, moduleName)
     }
 
-    // --- Unified get (respects scope) ---
+    // --- Unified get / set (respects scope) ---
 
-    static async get<T = any>(moduleName: string, userId?: string): Promise<T> {
+    static async get<T = unknown>(moduleName: string, userId?: string): Promise<T> {
         const mod = ConfigRegistry.modules.get(moduleName)
         if (!mod) return {} as T
 
@@ -137,9 +153,7 @@ export class ConfigRegistry {
         }
     }
 
-    // --- Unified set (respects scope) ---
-
-    static async set(moduleName: string, path: string, value: any, userId?: string): Promise<void> {
+    static async set(moduleName: string, path: string, value: unknown, userId?: string): Promise<void> {
         const mod = ConfigRegistry.modules.get(moduleName)
         if (!mod) throw new Error(`Config module "${moduleName}" not registered`)
 
@@ -162,28 +176,6 @@ export class ConfigRegistry {
         }
     }
 
-    // --- Migrate config.json non-bootstrap sections to MongoDB (first run) ---
-
-    static async migrateToMongoDB(): Promise<void> {
-        if (!ConfigRegistry.bootstrapLoaded) ConfigRegistry.loadBootstrap()
-
-        for (const [name, mod] of ConfigRegistry.modules) {
-            if (mod.scope === 'bootstrap') continue
-
-            const existing = await getSystemConfigModel().findOne({ module: name })
-            if (!existing) {
-                const fromFile = ConfigRegistry.bootstrapData[name]
-                if (fromFile && Object.keys(fromFile).length > 0) {
-                    await getSystemConfigModel().create({ module: name, data: { ...mod.defaults, ...fromFile } })
-                    getLog().info(`ConfigRegistry: migrated "${name}" from config.json to MongoDB`)
-                } else {
-                    await getSystemConfigModel().create({ module: name, data: mod.defaults })
-                    getLog().info(`ConfigRegistry: created "${name}" with defaults in MongoDB`)
-                }
-            }
-        }
-    }
-
     // --- Query helpers ---
 
     static list(): string[] {
@@ -198,35 +190,70 @@ export class ConfigRegistry {
         return ConfigRegistry.modules.get(name)
     }
 
-    static async describe(moduleName: string, userId?: string): Promise<{ key: string, value: any, sensitive: boolean }[]> {
-        const data = await ConfigRegistry.get(moduleName, userId)
+    static async describe(
+        moduleName: string,
+        userId?: string,
+    ): Promise<{ key: string, value: unknown, sensitive: boolean }[]> {
+        const data = await ConfigRegistry.get<Record<string, unknown>>(moduleName, userId)
         const mod = ConfigRegistry.modules.get(moduleName)
         const sensitiveKeys = mod?.sensitive ?? []
-        return flattenForDisplay(data as any, '', sensitiveKeys)
+        return flattenForDisplay(data, '', sensitiveKeys)
+    }
+
+    // --- Internals ---
+
+    private static requireSystemRepo(callerName: string): ISystemConfigRepo {
+        if (!ConfigRegistry.systemRepo) {
+            throw new Error(
+                `ConfigRegistry.${callerName}: no system-config repo attached — ` +
+                `register a storage middleware (e.g. MongoStorageMiddleware) and ConfigBootMiddleware before this call`,
+            )
+        }
+        return ConfigRegistry.systemRepo
+    }
+
+    private static requireUserRepo(callerName: string): IUserConfigRepo {
+        if (!ConfigRegistry.userRepo) {
+            throw new Error(
+                `ConfigRegistry.${callerName}: no user-config repo attached — ` +
+                `register a storage middleware (e.g. MongoStorageMiddleware) and ConfigBootMiddleware before this call`,
+            )
+        }
+        return ConfigRegistry.userRepo
+    }
+
+    private static coerceToRecord(value: unknown): Record<string, unknown> | null {
+        return value !== null && typeof value === 'object' && !Array.isArray(value)
+            ? value as Record<string, unknown>
+            : null
     }
 }
 
-function setNestedValue(obj: any, path: string, value: any): void {
+function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
     const parts = path.split('.')
     let target = obj
     for (let i = 0; i < parts.length - 1; i++) {
-        if (!target[parts[i]] || typeof target[parts[i]] !== 'object') {
-            target[parts[i]] = {}
+        const next = target[parts[i]]
+        if (next !== null && typeof next === 'object' && !Array.isArray(next)) {
+            target = next as Record<string, unknown>
+        } else {
+            const fresh: Record<string, unknown> = {}
+            target[parts[i]] = fresh
+            target = fresh
         }
-        target = target[parts[i]]
     }
     target[parts[parts.length - 1]] = value
 }
 
 function flattenForDisplay(
-    obj: any, prefix: string, sensitiveKeys: string[]
-): { key: string, value: any, sensitive: boolean }[] {
-    const result: { key: string, value: any, sensitive: boolean }[] = []
-    for (const key in obj) {
+    obj: Record<string, unknown>, prefix: string, sensitiveKeys: string[],
+): { key: string, value: unknown, sensitive: boolean }[] {
+    const result: { key: string, value: unknown, sensitive: boolean }[] = []
+    for (const key of Object.keys(obj)) {
         const fullKey = prefix ? `${prefix}.${key}` : key
         const val = obj[key]
-        if (val && typeof val === 'object' && !Array.isArray(val)) {
-            result.push(...flattenForDisplay(val, fullKey, sensitiveKeys))
+        if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
+            result.push(...flattenForDisplay(val as Record<string, unknown>, fullKey, sensitiveKeys))
         } else {
             const isSensitive = sensitiveKeys.some(s => fullKey.toLowerCase().includes(s.toLowerCase()))
                 || ['token', 'key', 'secret', 'password', 'apikey', 'authtoken', 'credentials'].some(s => fullKey.toLowerCase().includes(s))

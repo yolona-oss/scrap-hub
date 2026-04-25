@@ -1,4 +1,6 @@
-import { BaseUIContext, IUI } from "../../../ui/types"
+import { BaseUIContext } from "../../../ui/types"
+// Wider `@cmd-hub/common` IUI so callers don't re-narrow.
+import type { IUI } from "@cmd-hub/common"
 import { IMarkupButton } from "../types/markup"
 import { UiUnicodeSymbols } from "../../../ui/ui-unicode-symbols"
 import { ProgressTracker } from "./progress"
@@ -59,17 +61,10 @@ export class ServiceDashboard<Ctx extends BaseUIContext = BaseUIContext> {
     private attached = false
     private terminated = false
 
-    /** Progress bar tracker */
     public readonly progress = new ProgressTracker()
-
-    /** Custom action buttons registered by the service */
     private intercomActions: Array<{ id: string, label: string, icon?: string, args?: string[] }> = []
 
-    /**
-     * Intercom-send callback. Forwards user button clicks (pause/stop/intercom_*)
-     * back to the remote node. Set via DashboardOptions, or assigned directly
-     * by RemoteCmdInvoker once the gRPC handle opens.
-     */
+    /** Forwards button clicks back to the remote node. Wired by RemoteCmdInvoker. */
     public sendIntercom: (actionId: string, args: string[]) => Promise<void> | void
 
     constructor(

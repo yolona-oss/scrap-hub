@@ -46,7 +46,7 @@ function mkApp() {
 }
 
 describe('CmdNodeApp', () => {
-    it('useCommand rejects undecorated classes and duplicate names', () => {
+    it('useCommand rejects undecorated classes and duplicate names', async () => {
         const app = mkApp()
         expect(() => app.useCommand(UndecoratedService as any))
             .toThrow(/@CmdService/)
@@ -56,9 +56,9 @@ describe('CmdNodeApp', () => {
             .toThrow(/duplicate command name/)
     })
 
-    it('buildManifest returns a NodeManifest with the registered commands', () => {
+    it('buildManifest returns a NodeManifest with the registered commands', async () => {
         const app = mkApp().useCommand(ScraperService as any)
-        const manifest = app.buildManifest()
+        const manifest = await app.buildManifest()
         expect(manifest.nodeId).toBe('n-1')
         expect(manifest.nodeName).toBe('node-1')
         expect(manifest.version).toBe('0.0.1')
@@ -70,7 +70,7 @@ describe('CmdNodeApp', () => {
         expect(manifest.hardware?.cpuCores).toBeGreaterThan(0)
     })
 
-    it('useCommands registers many at once', () => {
+    it('useCommands registers many at once', async () => {
         @CmdService({
             name: 'other',
             description: 'x',
@@ -85,17 +85,12 @@ describe('CmdNodeApp', () => {
             async run(): Promise<void> {}
         }
         const app = mkApp().useCommands([ScraperService as any, OtherService as any])
-        const manifest = app.buildManifest()
+        const manifest = await app.buildManifest()
         const names = manifest.commands.map((c) => c.name).sort()
         expect(names).toEqual(['other', 'scraper'])
     })
 
-    it('useService is an alias for useCommand', () => {
-        const app = mkApp().useService(ScraperService as any)
-        expect(app.services.has('scraper')).toBe(true)
-    })
-
-    it('_collectSubclassContributors surfaces static configNamespace+configSchema', () => {
+    it('_collectSubclassContributors surfaces static configNamespace+configSchema', async () => {
         const app = mkApp().useCommand(ScraperService as any)
         // Access the protected method through a cast for this test.
         const contributors = (app as any)._collectSubclassContributors() as Array<{ namespace: string; schema: unknown }>

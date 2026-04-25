@@ -1,7 +1,7 @@
 import { Tool } from "./types"
 import { SourceRegistry } from "../../registry"
 import { OrgData, SearchQuery } from "../../../types"
-import log from "@logger"
+import { log } from "@cmd-hub/common"
 
 interface DelegateResult {
     orgs: OrgData[]

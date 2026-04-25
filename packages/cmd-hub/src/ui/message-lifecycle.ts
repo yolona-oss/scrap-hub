@@ -1,8 +1,7 @@
 import { BaseUIContext } from "./types/context"
 import { IUI } from "./types/ui"
-import { PendingDelete } from "../db"
 import log from "../application/logger"
-import type { MessageType } from '@cmd-hub/common'
+import type { MessageType, IPendingDeleteRepo } from '@cmd-hub/common'
 
 export type { MessageType }
 
@@ -25,20 +24,29 @@ const DEFAULT_TTL: Record<MessageType, number | null> = {
 export class MessageLifecycleManager<Ctx extends BaseUIContext> {
     private tracked = new Map<string, TrackedMessage[]>()
     private ttlConfig: Record<MessageType, number | null>
+    private repo: IPendingDeleteRepo | null = null
 
     constructor(
         private uiImpl: IUI<Ctx>,
-        ttlOverrides?: Partial<Record<MessageType, number | null>>
+        ttlOverrides?: Partial<Record<MessageType, number | null>>,
     ) {
         this.ttlConfig = { ...DEFAULT_TTL, ...ttlOverrides }
+    }
+
+    /** Wire the persistence repo. UIs call this from `onAppAttach` once
+     *  `MongoStorageMiddleware` has run. Until attached, persistence calls
+     *  no-op (in-memory tracking still works). */
+    attachRepo(repo: IPendingDeleteRepo): void {
+        this.repo = repo
     }
 
     /**
      * On startup: load pending deletes from DB, delete them, clear the collection
      */
     async restoreAndCleanup(): Promise<void> {
+        if (!this.repo) return
         try {
-            const pending = await PendingDelete.find({})
+            const pending = await this.repo.list()
             if (pending.length === 0) return
 
             log.info(`MessageLifecycle: restoring ${pending.length} pending deletes from previous session`)
@@ -50,10 +58,11 @@ export class MessageLifecycleManager<Ctx extends BaseUIContext> {
                     log.debug(`MessageLifecycle: failed to restore delete ${doc.messageId} (may be too old)`)
                 }
             }
-            await PendingDelete.deleteMany({})
+            await this.repo.deleteAll()
             log.info(`MessageLifecycle: restore complete, cleared pending deletes`)
-        } catch (e: any) {
-            log.debug(`MessageLifecycle: restore failed (DB may not be connected yet): ${e.message ?? e}`)
+        } catch (e: unknown) {
+            const message = (e as Error)?.message ?? String(e)
+            log.debug(`MessageLifecycle: restore failed (DB may not be connected yet): ${message}`)
         }
     }
 
@@ -147,8 +156,9 @@ export class MessageLifecycleManager<Ctx extends BaseUIContext> {
      * Persist all currently tracked messages to DB (call before shutdown)
      */
     async persistAll(): Promise<void> {
+        if (!this.repo) return
         let count = 0
-        for (const [_, messages] of this.tracked) {
+        for (const [, messages] of this.tracked) {
             for (const msg of messages) {
                 await this.persist(msg)
                 count++
@@ -172,26 +182,24 @@ export class MessageLifecycleManager<Ctx extends BaseUIContext> {
     }
 
     private async persist(msg: TrackedMessage): Promise<void> {
+        if (!this.repo) return
         try {
-            await PendingDelete.updateOne(
-                { userId: msg.userId, messageId: msg.messageId },
-                {
-                    userId: msg.userId,
-                    messageId: msg.messageId,
-                    type: msg.type,
-                    createdAt: msg.createdAt,
-                    deleteAfter: msg.deleteAfter || Date.now(),
-                },
-                { upsert: true }
-            )
+            await this.repo.upsert({
+                userId:      msg.userId,
+                messageId:   msg.messageId,
+                type:        msg.type,
+                createdAt:   msg.createdAt,
+                deleteAfter: msg.deleteAfter || Date.now(),
+            })
         } catch (_) {
             log.debug(`MessageLifecycle: failed to persist message ${msg.messageId}`)
         }
     }
 
     private async unpersist(userId: string, messageId: string): Promise<void> {
+        if (!this.repo) return
         try {
-            await PendingDelete.deleteOne({ userId, messageId })
+            await this.repo.deleteOne(userId, messageId)
         } catch (_) {
             log.debug(`MessageLifecycle: failed to unpersist message ${messageId}`)
         }

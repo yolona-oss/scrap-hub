@@ -4,10 +4,9 @@ import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
 import { CmdArgument } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
-import { Account, Manager } from "../../../db"
 import { TableDesigner } from "../../../utils/table-designer"
 import { isValidConfigPath } from "../../../utils/validation"
-import log from "../../../application/logger"
+import { CAP_ManagerRepo, CAP_AccountRepo } from '@cmd-hub/common'
 
 class SConfigArgs {
     @CmdArgument({
@@ -40,12 +39,12 @@ class SConfigArgs {
     clear?: string
 }
 
-function flattenObject(obj: any, prefix = ''): { key: string, value: any }[] {
-    const result: { key: string, value: any }[] = []
-    for (const key in obj) {
+function flattenObject(obj: unknown, prefix = ''): { key: string, value: unknown }[] {
+    const result: { key: string, value: unknown }[] = []
+    if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return result
+    for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
         const fullKey = prefix ? `${prefix}.${key}` : key
-        const val = obj[key]
-        if (val && typeof val === 'object' && !Array.isArray(val)) {
+        if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
             result.push(...flattenObject(val, fullKey))
         } else {
             result.push({ key: fullKey, value: val })
@@ -54,7 +53,7 @@ function flattenObject(obj: any, prefix = ''): { key: string, value: any }[] {
     return result
 }
 
-function maskSensitive(key: string, value: any): string {
+function maskSensitive(key: string, value: unknown): string {
     const str = String(value ?? '')
     const sensitiveKeys = ['token', 'key', 'secret', 'password', 'apikey', 'authtoken', 'credentials']
     const isSensitive = sensitiveKeys.some(s => key.toLowerCase().includes(s))
@@ -68,8 +67,9 @@ export const SConfigCommand: BuiltInCommand = {
     command: BuiltInUiCommandsEnum.SCONFIG,
     description: "View or edit saved service configs",
     args: new SConfigArgs,
+    requires: [CAP_ManagerRepo, CAP_AccountRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
-        const userId = String(ctx.manager!.userId)
+        const repos = this.requireRepos('sconfig')
         const serviceName = args.getPos(1) ?? args.get('service')
         const key = args.getPos(2) ?? args.get('key')
         const doClear = args.has('clear')
@@ -77,8 +77,8 @@ export const SConfigCommand: BuiltInCommand = {
         // Extract raw value from message text: everything after the key is the value.
         // This supports JSON, multi-word strings, and other complex values.
         let value: string | undefined = args.getPos(3) ?? args.get('value')
-        if (key && (ctx as any).text) {
-            const rawText: string = (ctx as any).text
+        const rawText = (ctx as { text?: string }).text
+        if (key && rawText) {
             const keyIdx = rawText.indexOf(key)
             if (keyIdx >= 0) {
                 const rawValue = rawText.slice(keyIdx + key.length).trim()
@@ -86,12 +86,16 @@ export const SConfigCommand: BuiltInCommand = {
             }
         }
 
-        const owner = await Manager.findOne({ userId: ctx.manager!.userId })
+        const owner = await repos.manager.findByUserId(ctx.manager!.userId)
         if (!owner) {
             await ctx.reply(`${UiUnicodeSymbols.error} Manager not found`)
             return
         }
-        const account = await Account.findById(owner.account)
+        if (!owner.accountId) {
+            await ctx.reply(`${UiUnicodeSymbols.error} Manager has no account`)
+            return
+        }
+        const account = await repos.account.handleById(owner.accountId)
         if (!account) {
             await ctx.reply(`${UiUnicodeSymbols.error} Account not found`)
             return
@@ -105,9 +109,9 @@ export const SConfigCommand: BuiltInCommand = {
 
             for (const name of serviceNames) {
                 try {
-                    const { account_module } = await account.getModuleByNameOrCreate(name)
-                    const config = account_module.data?.config
-                    if (config && Object.keys(config).length > 0) {
+                    const { module } = await account.getModuleByNameOrCreate(name)
+                    const config = (module.record.data.config ?? {}) as Record<string, unknown>
+                    if (Object.keys(config).length > 0) {
                         const fields = flattenObject(config)
                         text += ` ${UiUnicodeSymbols.arrowRight} ${name} (${fields.length} fields)\n`
                         hasAny = true
@@ -123,11 +127,10 @@ export const SConfigCommand: BuiltInCommand = {
             return
         }
 
-        const { account_module } = await account.getModuleByNameOrCreate(serviceName)
+        const { module } = await account.getModuleByNameOrCreate(serviceName)
 
         if (doClear) {
-            account_module.set("data.config", {})
-            await account_module.save()
+            await module.replaceConfig({})
             await ctx.reply(`${UiUnicodeSymbols.success} Cleared ${serviceName} config. Defaults will be used on next start.`)
             return
         }
@@ -138,23 +141,22 @@ export const SConfigCommand: BuiltInCommand = {
                 return
             }
             // Parse JSON values so objects/arrays are stored natively in MongoDB
-            let parsedValue: any = value
+            let parsedValue: unknown = value
             try { parsedValue = JSON.parse(value) } catch (_) {}
             // Limit depth of parsed objects to prevent DoS
             if (typeof parsedValue === 'object' && JSON.stringify(parsedValue).length > 10000) {
                 await ctx.reply(`${UiUnicodeSymbols.error} Value too large`)
                 return
             }
-            account_module.set(`data.config.${key}`, parsedValue)
-            await account_module.save()
+            await module.setDataPath(`config.${key}`, parsedValue)
             const display = typeof parsedValue === 'object' ? JSON.stringify(parsedValue).slice(0, 100) : String(parsedValue)
             await ctx.reply(`${UiUnicodeSymbols.success} Set ${serviceName}.${key} = ${maskSensitive(key, display)}`)
             return
         }
 
         // Show config
-        const config = account_module.data?.config
-        if (!config || Object.keys(config).length === 0) {
+        const config = (module.record.data.config ?? {}) as Record<string, unknown>
+        if (Object.keys(config).length === 0) {
             await ctx.reply(`${UiUnicodeSymbols.info} No saved config for "${serviceName}". Start the service to create one.`)
             return
         }
@@ -165,7 +167,7 @@ export const SConfigCommand: BuiltInCommand = {
             title: `${UiUnicodeSymbols.gear} ${serviceName} config`,
             header: ['Key', 'Value'],
             body: fields.map(({ key: k, value: v }) => [k, maskSensitive(k, v)]),
-        }, (ctx.manager as any)?.messageWidth ?? 72)
+        }, ctx.manager?.messageWidth ?? 72)
 
         await ctx.reply(`<pre>${table}</pre>Use /sconfig ${serviceName} &lt;key&gt; &lt;value&gt; to update.`, { parse_mode: 'HTML' })
     }

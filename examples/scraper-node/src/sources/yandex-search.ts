@@ -3,7 +3,7 @@ import { OrgData, SearchQuery } from "../types"
 import { getScraperConfig } from "../scraper-config"
 import * as cheerio from "cheerio"
 import axios from "axios"
-import log from "@logger"
+import { log } from "@cmd-hub/common"
 
 export class YandexSearchSource implements IScraperSource {
     readonly name = 'yandex'

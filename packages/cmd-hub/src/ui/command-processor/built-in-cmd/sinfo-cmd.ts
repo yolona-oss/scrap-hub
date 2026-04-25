@@ -4,15 +4,15 @@ import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
 import { CmdArgument } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
-import { Account, Manager, IManager } from "../../../db"
 import { TableDesigner } from "../../../utils/table-designer"
+import { CAP_ManagerRepo, CAP_AccountRepo, type ManagerRecord } from "@cmd-hub/common"
 
 class SInfoArgs {
     @CmdArgument({
         required: false,
         position: 1,
         description: "Service name",
-        pairOptions: async (_: string, handler: CmdDispatcher<any>, owner: IManager) => {
+        pairOptions: async (_: string, handler: CmdDispatcher<any>, owner: ManagerRecord) => {
             return handler.UserActiveServices(String(owner.userId)).map(s => s.name)
                 .concat(handler.getRegistredServiceNames())
                 .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i) // unique
@@ -21,16 +21,16 @@ class SInfoArgs {
     service?: string
 }
 
-function flattenObject(obj: any, prefix = '', maxDepth = 3, depth = 0): { key: string, value: string }[] {
+function flattenObject(obj: unknown, prefix = '', maxDepth = 3, depth = 0): { key: string, value: string }[] {
     const result: { key: string, value: string }[] = []
     if (depth >= maxDepth) {
         result.push({ key: prefix || '(root)', value: typeof obj === 'object' ? '{...}' : String(obj) })
         return result
     }
-    for (const key in obj) {
+    if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return result
+    for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
         const fullKey = prefix ? `${prefix}.${key}` : key
-        const val = obj[key]
-        if (val && typeof val === 'object' && !Array.isArray(val)) {
+        if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
             result.push(...flattenObject(val, fullKey, maxDepth, depth + 1))
         } else if (Array.isArray(val)) {
             result.push({ key: fullKey, value: `[${val.length} items]` })
@@ -41,11 +41,19 @@ function flattenObject(obj: any, prefix = '', maxDepth = 3, depth = 0): { key: s
     return result
 }
 
+interface ServiceData {
+    config?: Record<string, unknown>
+    params?: Record<string, unknown>
+    sessionData?: Record<string, unknown>
+}
+
 export const SInfoCommand: BuiltInCommand = {
     command: BuiltInUiCommandsEnum.SINFO,
     description: "Show service runtime data, saved config, and session state",
     args: new SInfoArgs,
+    requires: [CAP_ManagerRepo, CAP_AccountRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
+        const repos = this.requireRepos('sinfo')
         const userId = String(ctx.manager!.userId)
         const serviceName = args.getPos(1) ?? args.get('service')
 
@@ -54,13 +62,14 @@ export const SInfoCommand: BuiltInCommand = {
             return
         }
 
-        const owner = await Manager.findOne({ userId: ctx.manager!.userId })
+        const owner = await repos.manager.findByUserId(ctx.manager!.userId)
         if (!owner) { await ctx.reply(`${UiUnicodeSymbols.error} Manager not found`); return }
-        const account = await Account.findById(owner.account)
+        if (!owner.accountId) { await ctx.reply(`${UiUnicodeSymbols.error} Manager has no account`); return }
+        const account = await repos.account.handleById(owner.accountId)
         if (!account) { await ctx.reply(`${UiUnicodeSymbols.error} Account not found`); return }
 
         const designer = new TableDesigner()
-        const w = (ctx.manager as any)?.messageWidth ?? 72
+        const w = ctx.manager?.messageWidth ?? 72
 
         let text = `${UiUnicodeSymbols.gear} Service info: ${serviceName}\n`
 
@@ -69,7 +78,8 @@ export const SInfoCommand: BuiltInCommand = {
         if (activeService) {
             text += `${UiUnicodeSymbols.success} Status: RUNNING | Session: ${activeService.SessionId}\n\n`
 
-            const cfgFields = flattenObject((activeService as any).data?.config ?? {})
+            const liveData = activeService.runtimeData as ServiceData
+            const cfgFields = flattenObject(liveData.config ?? {})
             if (cfgFields.length > 0) {
                 text += designer.make({
                     title: `${UiUnicodeSymbols.gear} Runtime config`,
@@ -78,7 +88,7 @@ export const SInfoCommand: BuiltInCommand = {
                 }, w)
             }
 
-            const paramFields = flattenObject((activeService as any).data?.params ?? {})
+            const paramFields = flattenObject(liveData.params ?? {})
             if (paramFields.length > 0) {
                 text += designer.make({
                     title: `${UiUnicodeSymbols.magnifierGlass} Runtime params`,
@@ -87,7 +97,7 @@ export const SInfoCommand: BuiltInCommand = {
                 }, w)
             }
 
-            const sessFields = flattenObject((activeService as any).data?.sessionData ?? {})
+            const sessFields = flattenObject(liveData.sessionData ?? {})
             if (sessFields.length > 0) {
                 text += designer.make({
                     title: `${UiUnicodeSymbols.clock} Session data`,
@@ -101,8 +111,8 @@ export const SInfoCommand: BuiltInCommand = {
 
         // Saved DB data
         try {
-            const { account_module } = await account.getModuleByNameOrCreate(serviceName)
-            const moduleData = account_module.data ?? {}
+            const { module } = await account.getModuleByNameOrCreate(serviceName)
+            const moduleData = module.record.data
 
             const dbCfg = flattenObject(moduleData.config ?? {})
             if (dbCfg.length > 0) {
@@ -115,14 +125,14 @@ export const SInfoCommand: BuiltInCommand = {
                 text += `${UiUnicodeSymbols.lock} DB module config: (empty)\n`
             }
 
-            const sessions = await account_module.getSessions()
+            const sessions = await module.getSessions()
             if (sessions.length > 0) {
                 text += designer.make({
                     title: `${UiUnicodeSymbols.clock} DB sessions`,
                     header: ['Session', 'Fields'],
                     body: sessions.map(sess => {
-                        const sessData = flattenObject(sess.data ?? {})
-                        return [sess.name, String(sessData.length)]
+                        const sessData = flattenObject(sess.record.data ?? {})
+                        return [sess.record.name, String(sessData.length)]
                     }),
                 }, w)
             }

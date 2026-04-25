@@ -3,17 +3,9 @@ import 'reflect-metadata'
 // Mock heavy deps BEFORE any imports to break circular chains
 const mockLog = { trace: jest.fn(), debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
 jest.mock('../application/logger', () => ({ __esModule: true, default: mockLog, log: mockLog }))
-jest.mock('../config', () => ({ getConfig: jest.fn(), getInitialConfig: jest.fn(() => ({})), ConfigSign: {} }))
 jest.mock('../config-registry', () => ({ ConfigRegistry: { register: jest.fn() } }))
-jest.mock('../db', () => ({
-    Manager: {}, Account: {}, AccountModule: {}, AccountSession: {},
-    File: {}, CmdAlias: {}, MsgHistory: {}, DefaultAssets: {},
-    PendingDelete: {}, SystemConfig: {}, UserConfig: {},
-    MongoConnect: jest.fn(), FilesWrapper: { getDefaultAvatar: jest.fn() },
-}))
-jest.mock('../db/mongoose', () => ({ MongoConnect: jest.fn() }))
-// UI impls now live in sibling packages (@cmd-hub/ui-telegram, etc.).
-// The cmd-hub barrel no longer re-exports them.
+// All entity models live in @cmd-hub/storage-mongo now; the parser/interpreter
+// tests don't touch storage so no model mocks are needed.
 
 import { CBParser } from '../ui/command-processor/builder/interpreter/parser'
 import { CBInterpreter } from '../ui/command-processor/builder/interpreter/interpreter'

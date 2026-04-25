@@ -5,7 +5,7 @@ import { CmdDispatcher } from "../dispatcher"
 import { CmdArgument } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
 import { TableDesigner } from "../../../utils/table-designer"
-import { InvitationLink } from "../../../db"
+import { CAP_InvitationLinkRepo } from '@cmd-hub/common'
 import crypto from 'crypto'
 
 class InviteArgs {
@@ -41,16 +41,18 @@ export const InviteCommand: BuiltInCommand = {
     command: BuiltInUiCommandsEnum.INVITE,
     description: "Create or list invitation links (admin only)",
     args: new InviteArgs,
+    requires: [CAP_InvitationLinkRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
         if (!ctx.manager?.isAdmin) {
             await ctx.reply(`${UiUnicodeSymbols.error} Admin access required`)
             return
         }
 
+        const repo = this.requireRepos('invite').invitationLink
         const doList = args.has('list')
 
         if (doList) {
-            const links = await InvitationLink.find({}).sort({ _id: -1 }).limit(20)
+            const links = await repo.listRecent(20)
             if (links.length === 0) {
                 await ctx.reply(`${UiUnicodeSymbols.info} No invitation links yet.`)
                 return
@@ -66,7 +68,7 @@ export const InviteCommand: BuiltInCommand = {
                     l.usedBy ? String(l.usedBy) : '-',
                     l.expiresAt ? l.expiresAt.toISOString().slice(0, 16) : 'never',
                 ]),
-            }, (ctx.manager as any)?.messageWidth ?? 72)
+            }, ctx.manager?.messageWidth ?? 72)
 
             await ctx.reply(`<pre>${table}</pre>`, { parse_mode: 'HTML' })
             return
@@ -78,11 +80,7 @@ export const InviteCommand: BuiltInCommand = {
         const token = crypto.randomUUID()
         const expiresAt = expiresMs ? new Date(Date.now() + expiresMs) : undefined
 
-        await InvitationLink.create({
-            token,
-            createdBy: ctx.manager.userId,
-            expiresAt,
-        })
+        await repo.create({ token, createdBy: ctx.manager.userId, expiresAt })
 
         const expiryText = expiresAt
             ? `expires ${expiresAt.toISOString().slice(0, 16)}`

@@ -2,6 +2,23 @@ import { WithInit } from "../../types/with-init";
 import { validateWithNeighborsMap } from "../../types/with-neighbors";
 import { BaseUIContext } from "../../ui/types";
 
+/** Local mirror of the proto ArgSpec the dispatcher's builder consumes. */
+export interface RemoteArgSpec {
+    name: string
+    position: number
+    required: boolean
+    type: string
+    description: string
+    enumValues: string[]
+    defaultValue: string
+}
+
+export interface RemoteCommandSpec {
+    name: string
+    description: string
+    args: ReadonlyArray<RemoteArgSpec>
+}
+
 import log from '../../application/logger';
 
 import { CommandSequenceHandler } from "./sequence-handler";
@@ -22,8 +39,22 @@ import {
 } from "./handlers";
 import { isContainsAll } from "../../utils/array";
 import { anyToString } from "../../utils/misc";
-import { Account, IAccountSession, Manager } from "../../db";
+import type {
+    IManagerRepo,
+    IAccountRepo,
+    IInvitationLinkRepo,
+    ICmdAliasRepo,
+    IPendingDeleteRepo,
+} from "@cmd-hub/common";
 import { CmdArgumentMetadataRaw, getCmdArgMetadata, isFunc, isService, IUICommandProcessed } from "../../ui/types/command";
+
+export interface DispatcherRepos {
+    readonly manager: IManagerRepo
+    readonly account: IAccountRepo
+    readonly invitationLink: IInvitationLinkRepo
+    readonly cmdAlias: ICmdAliasRepo
+    readonly pendingDelete: IPendingDeleteRepo
+}
 
 import {
     SetVariableCommand,
@@ -63,32 +94,33 @@ import { HandleCommandAlias } from "./handlers/alias";
 import { ICommandHandlerChain } from "./handlers/abstract-handler";
 import { ServiceDashboard } from "./dashboard";
 
-// TODO split to service manager
 export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit {
-    private active_services: Map<string, Array<BaseCommandService<any>>> // userId -> services
-    private dashboards: Map<string, ServiceDashboard<UIContextType>> = new Map() // "userId:serviceName" -> dashboard
-    private cmd_registry: Map<string, IUICommandEntry<UIContextType>> // command -> invokable
+    private active_services: Map<string, Array<BaseCommandService<any>>>
+    private dashboards: Map<string, ServiceDashboard<UIContextType>> = new Map()
+    private cmd_registry: Map<string, IUICommandEntry<UIContextType>>
 
-    /** Sequence handler need to now about all neighbors of commands to initialize,
-     * because it will be initialized in this.done() */
+    /** Initialised in done() — see neighbours map validation. */
     private sequenceHandler!: CommandSequenceHandler
     private cmdBuilder: CommandBuilder
-    /** RemoteCmdInvoker is injected by CmdNodeClientMiddleware once the gRPC
-     *  client + ManifestAggregator are wired. May be null in bootstrap-only
-     *  tests that never attach a node. */
+    /** Null in bootstrap-only tests that never attach a node. */
     private _remoteInvoker: RemoteCmdInvoker | null = null
-    /** Reference to the federation's ManifestAggregator, populated by
-     *  GrpcServerMiddleware. `toUICommands()` merges aggregated remote
-     *  commands on top of locally-registered built-ins. Null when no
-     *  transport middleware has run yet. */
     private _manifestAggregator: {
-        listManifests(): Array<{ commands: Array<{ name: string; description: string; args?: unknown[] }> }>
+        listManifests(): Array<{
+            commands: Array<{
+                name: string
+                description: string
+                args?: ReadonlyArray<RemoteArgSpec>
+            }>
+        }>
+        findCommand?(name: string): {
+            name: string
+            description: string
+            args?: ReadonlyArray<RemoteArgSpec>
+        } | undefined
         configModuleOwners(module: string): string[]
     } | null = null
-    /** gRPC-backed node client. Used by /config to fan ConfigReload RPCs
-     *  out to every node that declared a module's schema. Null when the
-     *  transport tier isn't wired (bootstrap-only tests). */
     private _nodeClient: { configReload?(nodeId: string, moduleName: string): Promise<void> } | null = null
+    private _repos: DispatcherRepos | null = null
     private chain: ICommandHandlerChain<UIContextType>
 
     constructor() {
@@ -104,32 +136,53 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         this.chain.use(new HandleInvokation<UIContextType>)
     }
 
-    /** Attach the gRPC-backed invoker. Called by CmdNodeClientMiddleware during
-     *  Application install. */
     attachRemoteInvoker(invoker: RemoteCmdInvoker): void {
         this._remoteInvoker = invoker
     }
 
-    /** Attach the federation's ManifestAggregator. Called by
-     *  GrpcServerMiddleware during Application install. */
     attachManifestAggregator(agg: NonNullable<typeof this._manifestAggregator>): void {
         this._manifestAggregator = agg
     }
 
-    /** Attach the gRPC-backed node client for cross-node RPCs like
-     *  ConfigReload. Called by CmdNodeClientMiddleware. */
     attachNodeClient(client: NonNullable<typeof this._nodeClient>): void {
         this._nodeClient = client
     }
 
-    /** Fan a `ConfigReload` out to every node that declared the given
-     *  config module. Errors from individual nodes are swallowed (a node
-     *  being offline must not fail the hub-side /config write). Returns
-     *  `{ notified, failed }` for caller reporting.
-     *
-     *  Returns `null` when transport isn't wired — the caller should
-     *  treat that as "nothing to fan out, just persist locally".
-     */
+    attachRepos(repos: DispatcherRepos): void {
+        this._repos = repos
+    }
+
+    /** Throws when no storage middleware has run. */
+    requireRepos(callerName: string): DispatcherRepos {
+        if (!this._repos) {
+            throw new Error(
+                `CmdDispatcher.${callerName}: no repos attached — ` +
+                `register a storage middleware (e.g. MongoStorageMiddleware) and use CmdHubApp`,
+            )
+        }
+        return this._repos
+    }
+
+    /** Prefer `requireRepos()`. The nullable getter is for autocomplete /
+     *  pairOptions callbacks that run before boot validation and degrade
+     *  silently when repos aren't yet attached. */
+    get repos(): DispatcherRepos | null { return this._repos }
+
+    /** Local commands only; remote commands flow
+     *  through their own (future Phase C) distributed validation path. */
+    collectRegisteredCommands(): { name: string; requires: readonly string[] }[] {
+        const out: { name: string; requires: readonly string[] }[] = []
+        for (const [name, entry] of this.cmd_registry) {
+            out.push({
+                name,
+                requires: (entry.requires ?? []).map(k => k as string),
+            })
+        }
+        return out
+    }
+
+    /** Fan a ConfigReload to every node that declared the module. Errors
+     *  per-node are swallowed; returns null when transport isn't wired. */
     async fanoutConfigReload(moduleName: string): Promise<{ notified: number; failed: number } | null> {
         if (!this._manifestAggregator || !this._nodeClient?.configReload) return null
         const owners = this._manifestAggregator.configModuleOwners(moduleName)
@@ -148,7 +201,13 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
 
     public async handleCommand(command: string, userText: string, ctx: UIContextType, uiImpl: IUI<UIContextType>): Promise<IHandleResult> {
         const splited = userText.trim().split(" ")
-        const args = splited.slice(1)
+        // Rewrite `name=value` → `--name value` so the builder grammar stays one shape.
+        const args = splited.slice(1).flatMap((tok) => {
+            if (tok.startsWith('-')) return [tok]
+            const eq = tok.indexOf('=')
+            if (eq <= 0) return [tok]
+            return [`--${tok.slice(0, eq)}`, tok.slice(eq + 1)]
+        })
         const _userId = ctx.manager?.userId
 
         if (!_userId) {
@@ -165,9 +224,9 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             return await this.chain.handle({
                 dispatcher: this,
                 command: command,
-                text: userText,
+                text: [command, ...args].join(' '),
                 userId: String(_userId),
-                ownerId: String(ctx.manager!._id),
+                ownerId: String(ctx.manager!.id),
                 words: args,
                 uiCtx: ctx,
                 uiImpl: uiImpl
@@ -187,33 +246,30 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         entries.forEach(entry => this.register(entry))
     }
 
-    public register({command, invokable}: ICmdRegisterEntry<UIContextType>) {
+    public register({command, invokable, requires}: ICmdRegisterEntry<UIContextType>) {
         if (this.isInitialized()) {
             throw new Error("Not permitted to register command after init");
         }
 
         this.validateCmdName(command.command)
-        this.registerWrapper({command, invokable})
+        this.registerWrapper({command, invokable, requires})
     }
 
     /**
     * @description All command registred with this method not allowed to use in sequence
     */
-    unBoundRegister({command, invokable}: ICmdRegisterEntry<UIContextType>) {
+    unBoundRegister({command, invokable, requires}: ICmdRegisterEntry<UIContextType>) {
         this.validateCmdName(command.command)
-        this.registerWrapper({command, invokable}, false)
+        this.registerWrapper({command, invokable, requires}, false)
     }
 
     private validateCmdName(command: string) {
         if (command in this.cmd_registry) {
             throw new Error("CommandHandler.register() command already registered: " + command);
         }
-        //if (BuiltInCommandNames.includes(command)) {
-        //    throw new Error("CommandHandler.register() command already registered as default: " + command);
-        //}
     }
 
-    private registerWrapper({command, invokable}: ICmdRegisterEntry<UIContextType>, bounded = true) {
+    private registerWrapper({command, invokable, requires}: ICmdRegisterEntry<UIContextType>, bounded = true) {
         let argsDesc: (CmdArgumentMetadataRaw&{name: string})[] = []
         if (command.args) {
             const _args = command.args
@@ -235,7 +291,8 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
                 args: argsDesc,
                 next: command.next,
                 prev: command.prev,
-                seqBounded: bounded
+                seqBounded: bounded,
+                requires,
             },
         );
     }
@@ -293,6 +350,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             )
         )
 
+        log.info(`CmdDispatcher: registered ${targets.length} command(s)`)
         this.setInitialized()
     }
 
@@ -328,9 +386,10 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
     }
 
     public isService(name: string): boolean {
-        const cb = this.getInvokable(name)
+        const cb = this.tryGetInvokable(name)
         if (!cb) {
-            log.debug(`Trying check invokable type for command "${name}" but command not found.`)
+            // Remote commands aren't in the local registry; treat as not-a-service.
+            log.debug(`isService("${name}"): not in local registry`)
             return false
         }
         return isService(cb.invokable)
@@ -338,21 +397,26 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
 
     isAllArgsPassed(command: string, passedArgs: string[]): boolean {
         const cmd = this.cmd_registry.get(command)
-        if (!cmd) {
-            log.error(`While processing command "${command}" with passed arguments "${passedArgs.join(", ")}", command not found`)
-            return true // maybe dispatch exception?
-        }
-        if (isFunc(cmd.invokable)) {
-            if (!cmd.args || cmd.args.length === 0) {
-                return true
+        if (cmd) {
+            if (isFunc(cmd.invokable)) {
+                if (!cmd.args || cmd.args.length === 0) {
+                    return true
+                }
+                const requiredArgs = cmd.args.filter(a => a.required)
+                return passedArgs.length >= requiredArgs.length
             }
-
-            const requiredArgs = cmd.args.filter(a => a.required)
-            return passedArgs.length >= requiredArgs.length
-        } else {
-            // services always neet to be configured ?
+            // Services always open the builder, even with all args typed.
             return false
         }
+
+        const remote = this.tryGetRemoteCommand(command)
+        if (remote) {
+            const requiredCount = remote.args.filter(a => a.required).length
+            return passedArgs.length >= requiredCount
+        }
+
+        log.error(`While processing command "${command}" with passed arguments "${passedArgs.join(", ")}", command not found`)
+        return true
     }
 
     isBuiltInCommand(command: string) {
@@ -363,11 +427,6 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         return this.cmd_registry.has(command)
     }
 
-    /**
-     * Returns the remote command invoker. Consumers must null-check — the
-     * invoker is injected by CmdNodeClientMiddleware and will be absent in
-     * tests that don't wire the distributed stack.
-     */
     get CommandInvoker(): RemoteCmdInvoker | null {
         return this._remoteInvoker
     }
@@ -453,25 +512,18 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         const cmd = this.getInvokable(serviceName)
         if (isFunc(cmd.invokable)) {
             return []
-        } else {
-            const owner = await Manager.findOne({userId})
-            if (!owner) {
-                return []
-            }
-            const account = await Account.findOne({owner_id: owner._id})
-            if (!account) {
-                return []
-            }
-
-            const data_module = await account.getModuleByName(serviceName)
-            if (!data_module) {
-                return []
-            }
-
-            const sessions = (await data_module.populate<{session_ids: IAccountSession[]}>('session_ids')).session_ids
-
-            return sessions.map(s => s.name)
         }
+        const repos = this._repos
+        if (!repos) return []
+
+        const owner = await repos.manager.findByUserId(userId)
+        if (!owner) return []
+        const account = await repos.account.handleByOwnerId(owner.id)
+        if (!account) return []
+        const moduleHandle = await account.getModuleByName(serviceName)
+        if (!moduleHandle) return []
+        const sessions = await moduleHandle.getSessions()
+        return sessions.map(s => s.record.name)
     }
 
     isServiceActive(userId: string, serviceName: string) {
@@ -488,6 +540,31 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             throw new Error(`Command ${UiUnicodeSymbols.arrowRight} "${command}" not found.`)
         }
         return cb!
+    }
+
+    /** Non-throwing variant of `getInvokable`. */
+    tryGetInvokable(command: string): IUICommandEntry<UIContextType> | undefined {
+        return this.cmd_registry.get(command)
+    }
+
+    /** Pool-backed name index when available; falls back to linear walk
+     *  for older test fixtures that mock the aggregator without `findCommand`. */
+    tryGetRemoteCommand(command: string): RemoteCommandSpec | undefined {
+        const agg = this._manifestAggregator
+        if (!agg) return undefined
+        if (agg.findCommand) {
+            const c = agg.findCommand(command)
+            if (!c) return undefined
+            return { name: c.name, description: c.description, args: c.args ?? [] }
+        }
+        for (const m of agg.listManifests()) {
+            for (const c of m.commands) {
+                if (c.name === command) {
+                    return { name: c.name, description: c.description, args: c.args ?? [] }
+                }
+            }
+        }
+        return undefined
     }
 
     public getRegistredServiceNames(): string[] {
@@ -523,10 +600,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             })
         )
 
-        // Merge in remote commands aggregated from connected nodes. Local
-        // built-ins win on name collision (hub-side commands like `/help`
-        // shouldn't get shadowed by a node that happens to declare the
-        // same name).
+        // Local built-ins (e.g. `/help`) win on name collision with remote nodes.
         if (this._manifestAggregator) {
             const localNames = new Set(commands)
             for (const m of this._manifestAggregator.listManifests()) {

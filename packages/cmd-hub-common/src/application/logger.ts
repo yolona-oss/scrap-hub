@@ -1,5 +1,20 @@
-import { appendFileSync, mkdirSync, existsSync } from 'fs'
+import { appendFileSync } from 'fs'
+import chalk from 'chalk'
+import { ColorName } from 'chalk'
 import path from 'path'
+import { createDirIfNotExist } from '../utils/fs-tools'
+
+// Bootstrap-time defaults read from env. The framework's `Application` calls
+// `log.configure({ level, toFile })` after validating its merged zod config,
+// so these are only the values used during module-load and very early boot
+// (before any middleware has run). Override per-deployment via env vars or
+// the `log` config namespace.
+function envLogLevel(): string {
+    return process.env.CMD_HUB_LOG_LEVEL ?? 'trace'
+}
+function envLogToFile(): boolean {
+    return process.env.CMD_HUB_LOG_TO_FILE === '1' || process.env.CMD_HUB_LOG_TO_FILE === 'true'
+}
 
 function logTime() {
     return new Date().toLocaleString("ru").replace(', ', ' ')
@@ -13,49 +28,77 @@ enum LogLevel {
     ERROR = 4,
 }
 
+function logLevelToColor(level: LogLevel) {
+    switch (level) {
+        case LogLevel.TRACE:
+            return chalk.cyan
+        case LogLevel.DEBUG:
+            return chalk.blue
+        case LogLevel.INFO:
+            return chalk.green
+        case LogLevel.WARN:
+            return chalk.yellow
+        case LogLevel.ERROR:
+            return chalk.red
+        default:
+            return chalk.white
+    }
+}
+
 function logLevelToSymbol(level: LogLevel) {
     switch (level) {
-        case LogLevel.TRACE: return 'TT'
-        case LogLevel.DEBUG: return 'DD'
-        case LogLevel.INFO: return 'II'
-        case LogLevel.WARN: return 'WW'
-        case LogLevel.ERROR: return 'EE'
-        default: return '??'
+        case LogLevel.TRACE:
+            return 'TT'
+        case LogLevel.DEBUG:
+            return 'DD'
+        case LogLevel.INFO:
+            return 'II'
+        case LogLevel.WARN:
+            return 'WW'
+        case LogLevel.ERROR:
+            return 'EE'
+        default:
+            return '??'
     }
 }
 
-function stringToLogLevel(str: string): LogLevel {
+function stringToLogLevel(str: string) {
     switch (str.toLowerCase()) {
-        case 'trace': return LogLevel.TRACE
-        case 'debug': return LogLevel.DEBUG
-        case 'info':  return LogLevel.INFO
-        case 'warn':  return LogLevel.WARN
-        case 'error': return LogLevel.ERROR
-        default: return LogLevel.TRACE
+        case 'trace':
+            return LogLevel.TRACE
+        case 'debug':
+            return LogLevel.DEBUG
+        case 'info':
+            return LogLevel.INFO
+        case 'warn':
+            return LogLevel.WARN
+        case 'error':
+            return LogLevel.ERROR
+        default:
+            log.warn(`Unknown log level: ${str}`)
+            return LogLevel.TRACE
     }
+    //throw new Error(`Unknown log level: ${str}`)
 }
 
-function createDirIfNotExist(dir: string) {
-    try {
-        if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    } catch {
-        // Non-fatal — readonly filesystem or permission denied. File logging
-        // will simply fail later if attempted.
-    }
-}
+// TODO preserve multiline to output like:
+// [time]:[II] => msga uga buga
+//                resume buaa default   
+//                fdsfas dasf asdf asdf asd f
+// [time]:[II] => next log msg
 
 export class log {
     private static instance?: log
 
-    private static log_file: string = ''
+    private static log_file: string
     private static cur_level: LogLevel = LogLevel.TRACE
-    private static prefix_len: number = 0
+    private static prefix_len: number // if log level change we need to update this, but now log level marks are same size
     private log_to_file: (...arg: any[]) => void
 
     private constructor() {
-        log.cur_level = stringToLogLevel(process.env.CMDHUB_LOG_LEVEL ?? 'trace')
-        log.prefix_len = this.prefix(LogLevel.TRACE).length - 10
-        if (process.env.CMDHUB_LOG_TO_FILE === '1' || process.env.CMDHUB_LOG_TO_FILE === 'true') {
+        log.cur_level = stringToLogLevel(envLogLevel())
+        log.prefix_len = this.prefix(LogLevel.TRACE).length - 10 // wtf?
+        if (envLogToFile()) {
             this.log_to_file = (...arg: any[]) => {
                 try {
                     appendFileSync(log.log_file, logTime() + ' - ' + arg.join(" ") + "\n")
@@ -68,6 +111,7 @@ export class log {
         }
     }
 
+
     static get Instance(): log {
         if (!log.instance) {
             const curDate = new Date().toLocaleDateString("ru")
@@ -75,34 +119,62 @@ export class log {
 
             this.log_file = path.join(".", '.log', `${curDate}_${curTime}`)
             createDirIfNotExist(".log")
-            log.instance = new log()
+            log.instance = new log();
         }
-        return log.instance
+        return log.instance;
+    }
+
+    /** Post-bootstrap reconfiguration. Called by `Application.Initialize()`
+     *  after the merged config is validated, so a deployment's `log` slice
+     *  (level, toFile) overrides the env-var bootstrap defaults. Both
+     *  fields are optional — pass only what you want to change. */
+    static configure(opts: { level?: string; toFile?: boolean }): void {
+        const inst = log.Instance
+        if (typeof opts.level === 'string') {
+            log.cur_level = stringToLogLevel(opts.level)
+        }
+        if (typeof opts.toFile === 'boolean') {
+            if (opts.toFile) {
+                inst.log_to_file = (...arg: any[]) => {
+                    try {
+                        appendFileSync(log.log_file, logTime() + ' - ' + arg.join(" ") + "\n")
+                    } catch (e) {
+                        console.error(e)
+                    }
+                }
+            } else {
+                inst.log_to_file = () => { /* no-op */ }
+            }
+        }
     }
 
     private prefix(level: LogLevel) {
+        //const {functionName, lineNumber} = getInvokerDetails()
         const time = logTime()
-        const mark = logLevelToSymbol(level)
+        const mark = logLevelToColor(level)(logLevelToSymbol(level))
+
         return `[${time}]:[${mark}] ->`
     }
 
     private formatMsg(...args: any[]): any[] {
-        const cols = process.stdout.columns ?? 80
-        const repetTimes = cols < log.prefix_len ? 0 : log.prefix_len
-        const ret: any[] = []
+        const repetTimes = process.stdout.columns < log.prefix_len ? 0 : log.prefix_len
+        let ret = new Array<any>() // "any" to save object pretty print
         for (const arg of args) {
             if (typeof arg === 'string') {
                 const slices = arg.split('\n')
                 let first = true
+                // not add \n if slices not contains \n
                 for (const slice of slices) {
-                    const ws = first ? "" : " ".repeat(repetTimes)
+                    let ws = first ? "" : " ".repeat(repetTimes)
                     if (first) { first = false }
+                    // TODO fix
                     ret.push(ws + slice + (slices.length === 1 && arg.endsWith('\n') ? '' : '\n'))
                 }
             } else {
                 ret.push(arg)
             }
         }
+        // remove last \n if its string
         if (typeof ret[ret.length - 1] === 'string' && ret[ret.length - 1].endsWith('\n')) {
             ret[ret.length - 1] = ret[ret.length - 1].slice(0, -1)
         }
@@ -123,39 +195,16 @@ export class log {
     static debug(...arg: any[]) { log.Instance.log_filter(LogLevel.DEBUG, ...arg) }
     static trace(...arg: any[]) { log.Instance.log_filter(LogLevel.TRACE, ...arg) }
 
-    /**
-     * Post-bootstrap override for the level / file-sink that the env-var
-     * defaults picked up at require time. `Application.Initialize()` calls
-     * this once after config.json has parsed, so `config.json` beats
-     * `CMDHUB_LOG_LEVEL` when both are set.
-     */
-    static configure(opts: { level?: string; toFile?: boolean }): void {
-        // Force-init the singleton so subsequent log calls use the new config.
-        const inst = log.Instance
-        if (opts.level) {
-            log.cur_level = stringToLogLevel(opts.level)
-        }
-        if (typeof opts.toFile === 'boolean') {
-            if (opts.toFile) {
-                inst.log_to_file = (...arg: any[]) => {
-                    try {
-                        appendFileSync(log.log_file, logTime() + ' - ' + arg.join(" ") + "\n")
-                    } catch (e) {
-                        console.error(e)
-                    }
-                }
-            } else {
-                inst.log_to_file = () => { /* no-op */ }
-            }
-        }
-    }
-
-    lineSep(symbol: string = '~') {
-        const cols = process.stdout.columns ?? 80
-        console.log(symbol.slice(0, 1).repeat(cols))
+    lineSep(symbol: string = '~', color: ColorName = 'white') {
+        const cols = process.stdout.columns
+        console.log(
+            chalk.bold(
+                chalk[color]((symbol.slice(0, 1)).repeat(cols))
+            )
+        )
     }
 }
 
-// Create singleton eagerly
+// createtion time set trigger
 log.Instance
 export default log

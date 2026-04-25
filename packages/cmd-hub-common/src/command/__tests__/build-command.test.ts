@@ -25,8 +25,8 @@ class MsgCls {
 class FakeService {}
 
 describe('buildCommandFromDecorator', () => {
-    it('builds a Command with merged ArgSpecs from config + params + messages', () => {
-        const cmd = buildCommandFromDecorator(FakeService)
+    it('builds a Command with merged ArgSpecs from config + params + messages', async () => {
+        const cmd = await buildCommandFromDecorator(FakeService)
         expect(cmd.name).toBe('scraper')
         expect(cmd.description).toBe('scrape')
         expect(cmd.compatibilityId).toBe('com.example.scraper')
@@ -38,8 +38,8 @@ describe('buildCommandFromDecorator', () => {
         expect(query.position).toBe(1)
     })
 
-    it('throws on an undecorated service class', () => {
+    it('throws on an undecorated service class', async () => {
         class Unadorned {}
-        expect(() => buildCommandFromDecorator(Unadorned)).toThrow(/@CmdService/)
+        await expect(buildCommandFromDecorator(Unadorned)).rejects.toThrow(/@CmdService/)
     })
 })

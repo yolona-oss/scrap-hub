@@ -1,8 +1,13 @@
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import mongoose from 'mongoose'
 import { z } from 'zod'
-import { MongoMiddleware, Application } from '@cmd-hub/common'
-import { NodeRecordModel, CAP_CmdNodeClient } from '@cmd-hub/transport'
+import { Application } from '@cmd-hub/common'
+import { CAP_CmdNodeClient } from '@cmd-hub/transport'
+import {
+    MongoStorageMiddleware,
+    GridFsStorageMiddleware,
+    NodeRecordModel,
+} from '@cmd-hub/storage-mongo'
 import { GrpcServerMiddleware } from '../grpc-server-middleware'
 import { CmdNodeClientMiddleware } from '../cmd-node-client-middleware'
 
@@ -22,17 +27,19 @@ describe('CmdNodeClientMiddleware', () => {
         await rs.stop()
     })
 
-    it('publishes _cmdNodeClient on the app after install', async () => {
+    it('publishes CAP_CmdNodeClient on the app after install', async () => {
         const app = new TestApp({
             configPath: '',
             baseSchema: z.object({}),
             inlineConfig: {
-                mongo: { url: rs.getUri('cnc-mw-test'), migrateConfigRegistry: false },
-                grpc: { bindAddress: '127.0.0.1:0', publicBaseUrl: 'http://127.0.0.1:0' },
-            } as any,
+                storage: { url: rs.getUri('cnc-mw-test') },
+                gridfs: { publicBaseUrl: 'http://127.0.0.1:0', bindAddress: '127.0.0.1:0' },
+                grpc: { bindAddress: '127.0.0.1:0' },
+            },
             name: 'cnc-mw-test-app',
         })
-            .use(new MongoMiddleware())
+            .use(new MongoStorageMiddleware())
+            .use(new GridFsStorageMiddleware())
             .use(new GrpcServerMiddleware({ insecure: true }))
             .use(new CmdNodeClientMiddleware())
 

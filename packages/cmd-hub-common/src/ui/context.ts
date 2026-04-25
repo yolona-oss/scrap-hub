@@ -1,21 +1,15 @@
 /**
  * Minimal shape the UI layer needs from whatever "manager" entity the app uses.
- * In cmd-hub the concrete `Manager` mongoose doc satisfies this automatically
- * because it declares `userId: number | string`.
- *
- * A handful of optional fields (`_id`, `isAdmin`, `messageWidth`) are exposed
- * here so the built-in dispatcher/command code can read them without requiring
- * every downstream consumer to narrow the generic. Concrete implementations are
- * free to provide them (mongoose docs do) or leave them undefined.
+ * Mirrors the public `ManagerRecord` shape (id is a string; no mongoose
+ * leakage). UIs can extend this generic with their own fields if needed.
  */
 export interface IBaseUIContextManager {
+    /** String primary-key. For Mongo this is the hex of `_id`; future backends
+     *  use whatever string id makes sense. */
+    id: string
     userId: number | string
-    /** Primary-key id on the underlying record. Typed loosely so mongoose's
-     *  ObjectId (which has toString()) is assignable without common needing
-     *  a mongoose type dep. */
-    _id?: string | { toString(): string }
     isAdmin?: boolean
-    messageWidth?: number
+    messageWidth?: number | null
 }
 
 /**

@@ -1,24 +1,36 @@
-import { CmdArgument, IArgumentCompiled } from "../../../ui/types/command"
+import { CmdArgument } from "../../../ui/types/command"
 import { BuiltInAccountCommandsEnum } from "../constants"
-import { Account, Manager } from "../../../db"
-import log from '../../../application/logger';
+import log from '../../../application/logger'
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdDispatcher } from "../dispatcher"
 
-import "reflect-metadata";
+import "reflect-metadata"
 import { extractValueFromObject } from "../../../utils/object"
 import { UiUnicodeSymbols } from "../../../ui"
-import { CmdArgumentProxy } from "../arg-proxy";
-import { isValidConfigPath } from "../../../utils/validation";
+import { CmdArgumentProxy } from "../arg-proxy"
+import { isValidConfigPath } from "../../../utils/validation"
+import { CAP_ManagerRepo, CAP_AccountRepo, type IAccountRepo } from "@cmd-hub/common"
 
-async function getAllUserModules(accountId: string): Promise<string[]> {
-    const account = await Account.findById(accountId)
+async function listModuleNames(repo: IAccountRepo, accountId: string): Promise<string[]> {
+    const account = await repo.handleById(accountId)
     if (!account) {
-        log.error(`RemoveVarialbe::pairOptions Account ${accountId} not found`)
+        log.error(`account-ctrl: account ${accountId} not found`)
         return []
     }
+    const modules = await account.getModules()
+    return modules.map(m => m.record.name)
+}
 
-    return (await account.getModules()).map(m => m.name)
+/** Helper called by `pairOptions` callbacks to grab the dispatcher's repos
+ *  bag at autocomplete time. */
+async function listModuleNamesViaDispatcher(
+    dispatcher: CmdDispatcher<any>,
+    accountId: string | null,
+): Promise<string[]> {
+    if (!accountId) return []
+    const repos = dispatcher.repos
+    if (!repos) return []
+    return listModuleNames(repos.account, accountId)
 }
 
 class SetVariableArgs {
@@ -53,15 +65,20 @@ const SetVariableCommand: BuiltInCommand = {
     command: BuiltInAccountCommandsEnum.SET_VARIABLE,
     description: "Create or update variable for user execution context",
     args: SetVariableArgs,
+    requires: [CAP_ManagerRepo, CAP_AccountRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
+        const repos = this.requireRepos('setVariable')
         const userId = String(ctx.manager!.userId)
-        const user = await Manager.findOne({userId: Number(userId)})
-        const account = await Account.findById(user!.account)
+        const owner = await repos.manager.findByUserId(userId)
+        if (!owner?.accountId) {
+            throw new Error(`Account not found. User: ${userId}`)
+        }
+        const account = await repos.account.handleById(owner.accountId)
         if (!account) {
-            throw new Error(`Account ${user!.account} not found. User: ${userId}`)
+            throw new Error(`Account ${owner.accountId} not found. User: ${userId}`)
         }
 
-        const module_name = args.getOrThrow('module')
+        const moduleName = args.getOrThrow('module')
         const path = args.getOrThrow('path')
         const value = args.getOrThrow('value')
 
@@ -69,22 +86,19 @@ const SetVariableCommand: BuiltInCommand = {
             await ctx.reply(`${UiUnicodeSymbols.error} Invalid path: "${path}"`)
             return
         }
-        const { account_module } = await account.getModuleByNameOrCreate(module_name)
-        account_module.set(`data.${path}`, value)
-        await account_module.save()
-        await ctx.reply(`Variable "${path}" set to "${value}" on module "${module_name}"`)
+        const { module } = await account.getModuleByNameOrCreate(moduleName)
+        await module.setDataPath(path, value)
+        await ctx.reply(`Variable "${path}" set to "${value}" on module "${moduleName}"`)
     }
 }
-
-/////////////////////////
 
 class RemoveVariableArgs {
     @CmdArgument({
         required: true,
         description: "Module name",
         position: 1,
-        pairOptions: async (_, __, owner) => {
-            return await getAllUserModules(owner.account.toString())
+        pairOptions: async (_, dispatcher, owner) => {
+            return listModuleNamesViaDispatcher(dispatcher, owner.accountId)
         }
     })
     module!: String
@@ -98,29 +112,31 @@ class RemoveVariableArgs {
     path!: String
 }
 
-/////////////////////////
-
 const RemoveVariableCommand: BuiltInCommand = {
     command: BuiltInAccountCommandsEnum.REMOVE_VARIABLE,
     description: "Remove variable for user execution context",
     args: RemoveVariableArgs,
+    requires: [CAP_ManagerRepo, CAP_AccountRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
+        const repos = this.requireRepos('removeVariable')
         const userId = String(ctx.manager!.userId)
-        const user = await Manager.findOne({userId: Number(userId)})
-        const account = await Account.findById(user!.account)
+        const owner = await repos.manager.findByUserId(userId)
+        if (!owner?.accountId) {
+            throw new Error(`${UiUnicodeSymbols.error} Account not found.\nUser: ${UiUnicodeSymbols.user} "${userId}"`)
+        }
+        const account = await repos.account.handleById(owner.accountId)
         if (!account) {
-            throw new Error(`${UiUnicodeSymbols.error} Account "${user!.account}" ${UiUnicodeSymbols.magnifierGlass} not found.\nUser: ${UiUnicodeSymbols.user} "${userId}"`)
+            throw new Error(`${UiUnicodeSymbols.error} Account "${owner.accountId}" ${UiUnicodeSymbols.magnifierGlass} not found.\nUser: ${UiUnicodeSymbols.user} "${userId}"`)
         }
 
-        const module_name = args.getOrThrow('module')
+        const moduleName = args.getOrThrow('module')
         const path = args.getOrThrow('path')
 
-        const account_module = await account.getModuleByName(module_name)
-        if (!account_module) {
-            throw new Error(`${UiUnicodeSymbols.error} Module "${module_name}" ${UiUnicodeSymbols.magnifierGlass} not found.`)
+        const module = await account.getModuleByName(moduleName)
+        if (!module) {
+            throw new Error(`${UiUnicodeSymbols.error} Module "${moduleName}" ${UiUnicodeSymbols.magnifierGlass} not found.`)
         }
-        account_module.set(`data.${path}`, undefined)
-        await account_module.save()
+        await module.setDataPath(path, undefined)
         await ctx.reply(`Field ${UiUnicodeSymbols.arrowRight} "${path}" removed`)
     }
 }
@@ -130,8 +146,8 @@ class GetVariableArgs {
         required: true,
         position: 1,
         description: "Module name",
-        pairOptions: async (_, __, owner) => {
-            return await getAllUserModules(owner.account.toString())
+        pairOptions: async (_, dispatcher, owner) => {
+            return listModuleNamesViaDispatcher(dispatcher, owner.accountId)
         }
     })
     module!: String
@@ -149,32 +165,34 @@ const GetVariableCommand: BuiltInCommand = {
     command: BuiltInAccountCommandsEnum.GET_VARIABLE,
     description: "Get variable for user execution context",
     args: GetVariableArgs,
+    requires: [CAP_ManagerRepo, CAP_AccountRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
+        const repos = this.requireRepos('getVariable')
         const userId = String(ctx.manager!.userId)
-        const user = await Manager.findOne({userId: Number(userId)})
-        const account = await Account.findById(user!.account)
+        const owner = await repos.manager.findByUserId(userId)
+        if (!owner?.accountId) {
+            throw new Error(`Account not found. User: ${userId}`)
+        }
+        const account = await repos.account.handleById(owner.accountId)
         if (!account) {
-            throw new Error(`Account ${user!.account} not found. User: ${userId}`)
+            throw new Error(`Account ${owner.accountId} not found. User: ${userId}`)
         }
 
-        const module_name = args.getOrThrow('module')
+        const moduleName = args.getOrThrow('module')
         const path = args.getOrThrow('path')
 
-        const account_module = await account.getModuleByName(module_name)
-        if (!account_module) {
-            throw new Error(`Module ${UiUnicodeSymbols.arrowRight} "${module_name}" not found`)
+        const module = await account.getModuleByName(moduleName)
+        if (!module) {
+            throw new Error(`Module ${UiUnicodeSymbols.arrowRight} "${moduleName}" not found`)
         }
 
-        const value = extractValueFromObject(account_module.data, path)
-
+        const value = extractValueFromObject(module.record.data, path)
         await ctx.reply(`${UiUnicodeSymbols.magnifierGlass} Data found: "${path}" = "${value}"`)
     }
 }
 
-/////////////////////////
-
 export {
     SetVariableCommand,
     RemoveVariableCommand,
-    GetVariableCommand
+    GetVariableCommand,
 }

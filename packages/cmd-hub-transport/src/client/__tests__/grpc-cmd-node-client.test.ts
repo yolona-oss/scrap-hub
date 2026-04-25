@@ -28,6 +28,7 @@ function startMockNodeServer(onStart: (
                 commands: [], services: [], configs: [],
                 hardware: { cpuCores: 0, totalMemoryBytes: 0, os: '', arch: '', hostname: '' },
                 metrics: { gauges: [], counters: [], histograms: [] },
+                publishedCapabilities: [],
             } as NodeManifest)
         },
     }

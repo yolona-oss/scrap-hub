@@ -16,6 +16,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { ManifestAggregator, FakeCmdNodeClient, CmdHubProto } from '@cmd-hub/transport'
+import type { IUI, BaseUIContext } from '@cmd-hub/common'
 import { RemoteCmdInvoker } from '../ui/command-processor/remote-invoker'
 import type { DashboardEvent } from '../ui/command-processor/dashboard'
 import {
@@ -85,11 +86,13 @@ describe('golden scraper loopback', () => {
                 description: 'golden scraper',
                 args: [],
                 aliases: [],
+                requires: [],
             }],
             services: [],
             configs: [],
             hardware: {} as any,
             metrics: {} as any,
+            publishedCapabilities: [],
         })
 
         const client = new FakeCmdNodeClient(async (_nodeId, _start, emit) => {
@@ -110,11 +113,14 @@ describe('golden scraper loopback', () => {
             createDashboard: () => dashboard as any,
         })
 
+        // The test's dashboard factory ignores `session.uiHandle`, but the
+        // type contract requires a real `UIHandle`. Pass an empty stub —
+        // mocks are an acceptable place for an `as unknown` bridge.
         const result = await invoker.invoke({
             command: 'scraper',
             args: {},
             userId: 'golden-user',
-            uiHandle: null,
+            uiHandle: { ctx: null, uiImpl: {} as unknown as IUI<BaseUIContext, unknown> },
         })
 
         expect(result.success).toBe(true)

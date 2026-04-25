@@ -21,7 +21,7 @@ import {
     toDescriptor
 } from "./service-data"
 
-import { COMMAND_ARG_DESC_KEY, CommandMetadata, decodePositionalName } from "../command"
+import { COMMAND_ARG_DESC_KEY, CommandMetadata, decodePositionalName, isEncodedPositionalName } from "../command"
 
 import 'reflect-metadata'
 
@@ -99,6 +99,12 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
     private _intercomActions: IntercomAction[] = []
 
     protected data: ServiceDataType
+
+    /** Read-only view of the service's runtime data. The dispatcher's `/sinfo`
+     *  built-in reads this to render runtime config/params/sessionData panels.
+     *  External callers must not mutate; subclasses still have direct
+     *  protected access via `this.data`. */
+    get runtimeData(): Readonly<ServiceDataType> { return this.data }
 
     constructor(
         protected userId: string,
@@ -272,7 +278,7 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
         if (inputData.config) {
             const configBag = inputData.config as Record<string, unknown>
             for (const key of Object.keys(configBag)) {
-                if (key.startsWith('positional-')) {
+                if (isEncodedPositionalName(key)) {
                     const { name } = decodePositionalName(key)
                     decodedInputConfig[name] = configBag[key]
                 } else {

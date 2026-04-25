@@ -1,5 +1,4 @@
 import * as grpc from '@grpc/grpc-js'
-import mongoose from 'mongoose'
 import { z } from 'zod'
 import {
     IAppMiddleware,
@@ -7,6 +6,10 @@ import {
     Phase,
     AppLike,
     readConfigSlice,
+    requireCap,
+    log,
+    CAP_FileBackend,
+    CAP_NodeRecordRepo,
 } from '@cmd-hub/common'
 import {
     startHubGrpcServer,
@@ -14,7 +17,6 @@ import {
     CmdNodeRegistry,
     ManifestAggregator,
     FileService,
-    GridFSBackend,
     MetricStore,
     InternalTokenVerifier,
     InMemoryChannelResolver,
@@ -24,7 +26,6 @@ import {
     CAP_CmdNodeRegistry,
     CAP_ManifestAggregator,
     CAP_FileService,
-    CAP_GridFSBackend,
     CAP_MetricStore,
     CAP_NodeChannelResolver,
     CAP_GrpcBoundAddress,
@@ -35,40 +36,19 @@ export interface GrpcServerMiddlewareOptions {
     insecure?: boolean
 }
 
-/** Optional `tls` config slice — consumed by GrpcServerMiddleware when
- *  `insecure` is not set. Kept as a named interface so downstream
- *  apps can embed it in their own zod schema. */
-interface TlsConfigSlice {
-    tls?: {
-        caCertPath?: string
-        serverCertPath?: string
-        serverKeyPath?: string
-    }
-}
-
-/**
- * Starts the hub-side gRPC server and publishes the transport-layer
- * primitives via the typed capability registry so later middlewares
- * (UploadEndpointMiddleware, CmdNodeClientMiddleware) and the CmdHubApp
- * can find them.
- *
- * Contributed config:
- *   grpc.bindAddress: string     — e.g. "0.0.0.0:50051" or "127.0.0.1:0" in tests
- *   grpc.publicBaseUrl: string   — used by the upload endpoint to build URLs
- *   tls.caCertPath / serverCertPath / serverKeyPath — required unless `insecure`
- *
- * Published capabilities (see @cmd-hub/transport/capabilities):
- *   CAP_CmdNodeRegistry, CAP_ManifestAggregator, CAP_FileService,
- *   CAP_GridFSBackend, CAP_MetricStore, CAP_NodeChannelResolver,
- *   CAP_GrpcBoundAddress.
- */
+/** Hub-side gRPC server. Reads `grpc.{bindAddress,tls.*}`; TLS paths are
+ *  required unless `opts.insecure` is set. */
 export class GrpcServerMiddleware implements IAppMiddleware, ConfigContributor {
     readonly name = 'GrpcServerMiddleware'
     readonly phase = Phase.Transport
     readonly namespace = 'grpc'
     readonly schema = z.object({
         bindAddress: z.string().min(1),
-        publicBaseUrl: z.string().min(1),
+        tls: z.object({
+            caCertPath: z.string().default(''),
+            serverCertPath: z.string().default(''),
+            serverKeyPath: z.string().default(''),
+        }).default({}),
     })
 
     private _handle: HubGrpcServerHandle | null = null
@@ -77,16 +57,20 @@ export class GrpcServerMiddleware implements IAppMiddleware, ConfigContributor {
 
     async install(app: AppLike): Promise<void> {
         const cfg = readConfigSlice(app, this)
-        const tls = (app.config as TlsConfigSlice | null)?.tls
 
-        const registry = new CmdNodeRegistry({ tokens: new InternalTokenVerifier() })
+        const fileBackend = requireCap(
+            app, CAP_FileBackend,
+            'GrpcServerMiddleware needs a file-backend middleware (e.g. GridFsStorageMiddleware) before it',
+        )
+        const nodeRepo = requireCap(
+            app, CAP_NodeRecordRepo,
+            'GrpcServerMiddleware needs a storage middleware (e.g. MongoStorageMiddleware) before it',
+        )
+
+        const registry = new CmdNodeRegistry({ tokens: new InternalTokenVerifier(), repo: nodeRepo })
         const aggregator = new ManifestAggregator()
         const metrics = new MetricStore()
-        const gridfsBackend = new GridFSBackend({
-            conn: mongoose.connection,
-            hubPublicBaseUrl: cfg.publicBaseUrl,
-        })
-        const fileService = new FileService(gridfsBackend)
+        const fileService = new FileService(fileBackend)
         const resolver = new InMemoryChannelResolver(
             (addr) => new CmdHubProto.CmdNodeServiceClient(addr, grpc.credentials.createInsecure()),
         )
@@ -94,9 +78,9 @@ export class GrpcServerMiddleware implements IAppMiddleware, ConfigContributor {
         const credentials = this.opts.insecure
             ? grpc.ServerCredentials.createInsecure()
             : hubServerCredentialsFromPaths({
-                caCertPath: tls?.caCertPath ?? '',
-                hubCertPath: tls?.serverCertPath ?? '',
-                hubKeyPath: tls?.serverKeyPath ?? '',
+                caCertPath: cfg.tls.caCertPath,
+                hubCertPath: cfg.tls.serverCertPath,
+                hubKeyPath: cfg.tls.serverKeyPath,
             })
         const fpResolver = this.opts.insecure ? undefined : mTlsFingerprintResolver()
 
@@ -109,13 +93,18 @@ export class GrpcServerMiddleware implements IAppMiddleware, ConfigContributor {
             metrics,
             resolveFingerprint: fpResolver,
             onNodeRegistered: (nodeId, addr) => resolver.attach(nodeId, addr),
-            onNodeDisconnected: (nodeId) => resolver.detach(nodeId),
+            onNodeDisconnected: (nodeId) => {
+                // Detach BOTH so a reconnect doesn't hit "already attached"
+                // and get the node demoted to DISABLED.
+                resolver.detach(nodeId)
+                aggregator.detach(nodeId)
+            },
         })
 
+        log.info(`GrpcServerMiddleware: hub gRPC bound at ${this._handle.boundAddress} (insecure=${!!this.opts.insecure})`)
         app.provide(CAP_CmdNodeRegistry, registry)
         app.provide(CAP_ManifestAggregator, aggregator)
         app.provide(CAP_FileService, fileService)
-        app.provide(CAP_GridFSBackend, gridfsBackend)
         app.provide(CAP_MetricStore, metrics)
         app.provide(CAP_NodeChannelResolver, resolver)
         app.provide(CAP_GrpcBoundAddress, this._handle.boundAddress)
@@ -133,7 +122,6 @@ export class GrpcServerMiddleware implements IAppMiddleware, ConfigContributor {
         app.revoke(CAP_CmdNodeRegistry)
         app.revoke(CAP_ManifestAggregator)
         app.revoke(CAP_FileService)
-        app.revoke(CAP_GridFSBackend)
         app.revoke(CAP_MetricStore)
         app.revoke(CAP_NodeChannelResolver)
         app.revoke(CAP_GrpcBoundAddress)

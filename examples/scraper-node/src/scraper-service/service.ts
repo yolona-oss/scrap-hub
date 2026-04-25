@@ -1,5 +1,5 @@
 import { BaseCommandService, CmdService } from "@cmd-hub/common"
-import { BLANK_USER_ID } from "@core/ui/command-processor"
+import { BLANK_USER_ID } from "@cmd-hub/core"
 import { z } from "zod"
 import {
     scraperDefaultData,
@@ -11,7 +11,7 @@ import {
 import { OrgScraper } from "./scraper"
 import { SearchQuery } from "../types"
 import { SourceRegistry } from "../sources/registry"
-import log from "@logger"
+import { log } from "@cmd-hub/common"
 
 export const SCRAPER_NAME = 'scraper'
 export const SCRAPER_DESCRIPTION = 'Search and collect organization data from open sources'
@@ -41,6 +41,16 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
         googleSheets: z.object({
             credentials: z.string().default(''),
             spreadsheetId: z.string().default(''),
+        }).default({}),
+        aiAgent: z.object({
+            baseUrl: z.string().default('http://127.0.0.1:11434/v1'),
+            apiKey: z.string().default(''),
+            model: z.string().default('qwen2.5:7b'),
+            temperature: z.number().default(0.2),
+            webSearchProvider: z.enum(['serpapi', 'yandex', 'duckduckgo']).default('duckduckgo'),
+            maxToolCalls: z.number().int().positive().default(25),
+            toolTimeoutMs: z.number().int().positive().default(60_000),
+            totalTimeoutMs: z.number().int().positive().default(300_000),
         }).default({}),
     })
 

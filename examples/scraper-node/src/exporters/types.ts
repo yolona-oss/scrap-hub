@@ -1,5 +1,5 @@
 import { OrgData, SearchQuery } from "../types"
-import type { ServiceContext } from "@core/ui/types/command/service"
+import type { ServiceContext } from "@cmd-hub/core"
 
 export type { ServiceContext }
 

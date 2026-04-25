@@ -1,20 +1,45 @@
 import { CLIContext } from './types';
 import { ICLIPlugin } from './types/plugin';
-import { CmdDispatcher, CLI_USER_ID, CLI_USER_NAME } from '@cmd-hub/core';
-
-import { BaseUI } from '@cmd-hub/core';
-import { FilesWrapper, IManager, Manager } from '@cmd-hub/core';
-
-import { LockManager } from '@cmd-hub/core';
-import { log } from '@cmd-hub/common';
+import {
+    CmdDispatcher,
+    CLI_USER_ID,
+    CLI_USER_NAME,
+    BaseUI,
+    LockManager,
+} from '@cmd-hub/core';
+import {
+    requireCap,
+    CAP_ManagerRepo,
+    CAP_AccountRepo,
+    CAP_InvitationLinkRepo,
+    CAP_CmdAliasRepo,
+    CAP_PendingDeleteRepo,
+    type ManagerRecord,
+    type AppLike,
+    log,
+} from '@cmd-hub/common';
+import type { DispatcherRepos } from '@cmd-hub/core';
 
 import readline from 'readline';
+
+const PLACEHOLDER_MANAGER: ManagerRecord = {
+    id: '',
+    userId: CLI_USER_ID,
+    name: CLI_USER_NAME,
+    isAdmin: true,
+    online: false,
+    accountId: null,
+    useGreeting: true,
+    messageWidth: null,
+    passwordHash: null,
+}
 
 export class CLIUI extends BaseUI<CLIContext> {
     private context: CLIContext;
     private rl?: readline.Interface
     private isActive: boolean = false
     private cmds: string[]
+    private repos: DispatcherRepos | null = null
 
     constructor(
         public readonly dispatcher: CmdDispatcher<CLIContext>
@@ -22,7 +47,7 @@ export class CLIUI extends BaseUI<CLIContext> {
         super()
         this.context = {
             type: 'cli',
-            manager: {} as IManager & { userId: number|string },
+            manager: { ...PLACEHOLDER_MANAGER },
             userSession: { state: '', data: {} },
             text: "",
             reply: async (message: string) => {
@@ -34,14 +59,25 @@ export class CLIUI extends BaseUI<CLIContext> {
         this.setInitialized()
     }
 
+    /** Read repo capabilities once the storage middleware has installed. */
+    async onAppAttach(app: AppLike): Promise<void> {
+        this.repos = {
+            manager:        requireCap(app, CAP_ManagerRepo),
+            account:        requireCap(app, CAP_AccountRepo),
+            invitationLink: requireCap(app, CAP_InvitationLinkRepo),
+            cmdAlias:       requireCap(app, CAP_CmdAliasRepo),
+            pendingDelete:  requireCap(app, CAP_PendingDeleteRepo),
+        }
+    }
+
     // Platform-specific implementations for BaseUI
 
-    protected async sendMessageImpl(_user_id: string, message: string, _markup?: any[], _options?: any): Promise<string> {
+    protected async sendMessageImpl(_user_id: string, message: string, _markup?: unknown[], _options?: unknown): Promise<string> {
         console.log('[' + new Date().toLocaleTimeString("ru") + ']' + "[CLI] < " + message)
         return String(Date.now())
     }
 
-    protected async editMessageImpl(_user_id: string, _message_id: string, message?: string, _markup?: any[], _options?: any): Promise<void> {
+    protected async editMessageImpl(_user_id: string, _message_id: string, message?: string, _markup?: unknown[], _options?: unknown): Promise<void> {
         if (message) {
             console.log('[' + new Date().toLocaleTimeString("ru") + ']' + "[CLI] (edit) < " + message)
         }
@@ -84,22 +120,16 @@ export class CLIUI extends BaseUI<CLIContext> {
             throw new Error("CLIUI::run() already running")
         }
 
-        let manager = await Manager.findOne({userId: CLI_USER_ID})
-        if (!manager) {
-            const avatar = await FilesWrapper.getDefaultAvatar()
-            if (!avatar) {
-                throw new Error("Default avatar not found")
-            }
-
-            manager = await Manager.create({
-                isAdmin: true,
-                name: CLI_USER_NAME,
-                userId: CLI_USER_ID,
-                online: false,
-                avatar: avatar.id,
-                useGreeting: true
-            })
+        if (!this.repos) {
+            throw new Error("CLIUI::run() not attached to app — onAppAttach didn't run")
         }
+
+        const manager = await this.repos.manager.createWithAccount({
+            isAdmin: true,
+            name: CLI_USER_NAME,
+            userId: CLI_USER_ID,
+            useGreeting: true,
+        })
         this.context.manager = manager
 
         // Collect completions from plugins

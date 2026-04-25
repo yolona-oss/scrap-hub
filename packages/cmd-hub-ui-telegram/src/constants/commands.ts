@@ -1,14 +1,11 @@
-import { FilesWrapper, Manager } from '@cmd-hub/core';
-
 import { TelegramUI } from '../telegram-ui'
-import { TgCommand, TextContext, TgContext } from '../types'
-import { shuffle } from '@cmd-hub/core';
-import { CmdArgument } from '@cmd-hub/core';
-import { log } from '@cmd-hub/common';
-import { anyToString } from '@cmd-hub/core';
-import { ICmdRegisterEntry } from '@cmd-hub/core';
-import { BaseUIContext } from '@cmd-hub/core';
-import { CmdArgumentProxy } from '@cmd-hub/core';
+import { TgCommand, TgContext } from '../types'
+import { shuffle } from '@cmd-hub/core'
+import { CmdArgument } from '@cmd-hub/core'
+import { log } from '@cmd-hub/common'
+import { anyToString } from '@cmd-hub/core'
+import { ICmdRegisterEntry } from '@cmd-hub/core'
+import { CmdArgumentProxy } from '@cmd-hub/core'
 
 export function toRegister(cmd: TgCommand): ICmdRegisterEntry<TgContext> {
     return {
@@ -71,26 +68,9 @@ const SetNameCommand: TgCommand = {
     description: "Set your name",
     args: SetNameArgs,
     invokable: async function(this: TelegramUI, args: CmdArgumentProxy, ctx) {
-        const name = args.getOrThrow("name")
-
-        await ctx.manager!.updateOne({ $set: { name: name } });
+        const name = String(args.getOrThrow("name"))
+        await this.requireRepos('setname').manager.updateById(ctx.manager!.id, { name })
         await this.trackedSend(ctx.manager!.userId, "Now your will called " + name, 'result')
-    }
-}
-
-const SetAvatarFromAccountCommand: TgCommand = {
-    command: "set_avatar_from_account",
-    description: "Update your avatar from current on account",
-    invokable: async function(this: TelegramUI, _, ctx) {
-        let photos = await (ctx as TextContext).telegram.getUserProfilePhotos((ctx as TextContext).from.id, 0, 1);
-        let file   = await (ctx as TextContext).telegram.getFile(photos.photos[0][0].file_id);
-        let url    = await (ctx as TextContext).telegram.getFileLink(file.file_id);
-        let l_file = await FilesWrapper.saveFile(url.href, "avatars");
-        if (l_file) {
-            await ctx.manager!.updateOne({ $set: { avatar: l_file.id } });
-        } else {
-            await this.trackedSend(ctx.manager!.userId, "Loading error. Try another time ^_^", 'system')
-        }
     }
 }
 
@@ -98,7 +78,7 @@ const GoOfflineCommand: TgCommand = {
     command: "gooffline",
     description: "Go offline",
     invokable: async function(this: TelegramUI, _, ctx) {
-        await ctx.manager!.updateOne({ $set: { online: false } });
+        await this.requireRepos('gooffline').manager.updateById(ctx.manager!.id, { online: false })
     },
 }
 
@@ -106,7 +86,7 @@ const GoOnlineCommand: TgCommand = {
     command: "goonline",
     description: "Go online",
     invokable: async function(this: TelegramUI, _, ctx) {
-        await ctx.manager!.updateOne({ $set: { online: true } });
+        await this.requireRepos('goonline').manager.updateById(ctx.manager!.id, { online: true })
     },
 }
 
@@ -114,7 +94,9 @@ const StatusCommand: TgCommand = {
     command: "status",
     description: "Get your status",
     invokable: async function(this: TelegramUI, _, ctx) {
-        await this.trackedSend(ctx.manager!.userId, "Your status: " + (ctx.manager!.online ? "online" : "offline"), 'result')
+        const manager = await this.requireRepos('status').manager.findById(ctx.manager!.id)
+        const online = manager?.online ?? false
+        await this.trackedSend(ctx.manager!.userId, "Your status: " + (online ? "online" : "offline"), 'result')
     }
 }
 
@@ -135,8 +117,9 @@ const SetGreetingCommand: TgCommand = {
     args: SetGreetingArgs,
     invokable: async function(this: TelegramUI, args: CmdArgumentProxy, ctx) {
         const greeting = args.getOrThrow("greeting")
-
-        await ctx.manager!.updateOne({ $set: { useGreeting: (greeting === 'on') } });
+        await this.requireRepos('setgreeting').manager.updateById(ctx.manager!.id, {
+            useGreeting: (greeting === 'on'),
+        })
         await this.trackedSend(ctx.manager!.userId, "Startup greeting setted to: " + greeting, 'result')
     }
 }
@@ -147,25 +130,26 @@ const WipeChatCommand: TgCommand = {
     args: [],
     invokable: async function(this: TelegramUI, _, ctx) {
         const chatId = (ctx as TgContext).chat!.id
-        const manager = await Manager.findById(ctx.manager!.id)
-        if (!manager) return
+        const repos = this.requireRepos('wipe_chat')
+        const handle = await repos.manager.handleById(ctx.manager!.id)
+        if (!handle) return
 
-        const history = await manager.getMessagesHistory()
+        const history = await handle.getMessagesHistory()
         let deleted = 0
         let failed = 0
 
         for (const msg of history) {
-            if (!msg.message_id) continue
+            if (!msg.messageId) continue
             try {
-                await this.bot.telegram.deleteMessage(chatId, msg.message_id)
+                await this.bot.telegram.deleteMessage(chatId, msg.messageId)
                 deleted++
             } catch (_) {
                 failed++
             }
             try {
-                await manager.deleteMessage(msg.message_id)
+                await handle.deleteMessage(msg.messageId)
             } catch (e) {
-                log.debug(`Wipe chat: failed to remove history entry ${msg.message_id}: ${anyToString(e)}`)
+                log.debug(`Wipe chat: failed to remove history entry ${msg.messageId}: ${anyToString(e)}`)
             }
         }
 
@@ -182,10 +166,9 @@ const WipeChatCommand: TgCommand = {
 export const TelegramUI_BuiltIns = [
     StartCommand,
     SetNameCommand,
-    SetAvatarFromAccountCommand,
     GoOfflineCommand,
     GoOnlineCommand,
     StatusCommand,
     SetGreetingCommand,
-    WipeChatCommand
+    WipeChatCommand,
 ]

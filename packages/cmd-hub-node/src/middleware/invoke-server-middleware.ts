@@ -6,6 +6,7 @@ import {
     Phase,
     AppLike,
     readConfigSlice,
+    log,
 } from '@cmd-hub/common'
 import {
     startNodeGrpcServer,
@@ -71,6 +72,7 @@ export class InvokeServerMiddleware implements IAppMiddleware, ConfigContributor
 
         app.provide(CAP_NodeInvokeServer, this.handle)
         app.provide(CAP_NodeInvokeBoundAddress, this.handle.boundAddress)
+        log.info(`InvokeServer: gRPC bound at ${this.handle.boundAddress} (insecure=${this.opts.credentials === undefined})`)
     }
 
     async uninstall(app: AppLike): Promise<void> {

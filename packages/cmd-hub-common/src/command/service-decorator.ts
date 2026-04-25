@@ -1,4 +1,5 @@
 import 'reflect-metadata'
+import type { CapabilityKey } from '../application/capability'
 
 const META_KEY = Symbol.for('cmd-hub.CmdService')
 
@@ -14,6 +15,12 @@ export interface CmdServiceMeta {
     config: CmdDataClass
     params: CmdDataClass
     messages: CmdDataClass
+    /** Capability keys the service must have available at run time.
+     *  Validated at `Application.Initialize()` after middleware install:
+     *  if any required cap isn't published, boot fails with a
+     *  `CapabilityValidationError` that aggregates every gap across every
+     *  registered service. */
+    requires?: ReadonlyArray<CapabilityKey<unknown>>
 }
 
 function assertMeta(meta: CmdServiceMeta): void {
@@ -26,6 +33,9 @@ function assertMeta(meta: CmdServiceMeta): void {
     if (!meta.messages) throw new Error('@CmdService: messages class is required')
     if (!/^\d+\.\d+\.\d+/.test(meta.version)) {
         throw new Error(`@CmdService: version must be semver, got "${meta.version}"`)
+    }
+    if (meta.requires !== undefined && !Array.isArray(meta.requires)) {
+        throw new Error('@CmdService: `requires` must be an array of capability keys')
     }
 }
 

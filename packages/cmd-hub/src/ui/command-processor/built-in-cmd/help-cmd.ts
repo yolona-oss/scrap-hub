@@ -87,7 +87,7 @@ const CommonHelp: BuiltInCommand = {
     command: BuiltInHelpCommandsEnum.HELP_COMMAND,
     description: "List all available commands.",
     invokable: async function(this: CmdDispatcher<any>, _, ctx) {
-        const w = (ctx.manager as any)?.messageWidth
+        const w = ctx.manager?.messageWidth ?? undefined
         const commands = this.toUICommands()
         const commandsStr = uiCommandsToString(commands, w)
         await ctx.reply(`<pre>${commandsStr}</pre>`, { parse_mode: 'HTML' })
@@ -117,7 +117,7 @@ const ConcreetHelp: BuiltInCommand = {
         const command = args.getOrThrow('command')
 
         try {
-            const w = (ctx.manager as any)?.messageWidth
+            const w = ctx.manager?.messageWidth ?? undefined
             const cb = this.getInvokable(command)
             const commandHelpStr = isService(cb.invokable) ? serviceToString(command, cb, w) : commonToString(command, cb, w)
             await ctx.reply(`<pre>${commandHelpStr}</pre>`, { parse_mode: 'HTML' })

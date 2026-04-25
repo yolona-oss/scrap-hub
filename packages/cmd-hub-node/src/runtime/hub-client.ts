@@ -1,4 +1,5 @@
 import * as grpc from '@grpc/grpc-js'
+import { log } from '@cmd-hub/common'
 import { CmdHubProto } from '@cmd-hub/transport'
 import type { MetricsCollector } from '../manifest/metrics-collector'
 
@@ -8,13 +9,8 @@ type HeartbeatClient = CmdHubProto.HeartbeatClient
 type HeartbeatServer = CmdHubProto.HeartbeatServer
 type NodeManifest = CmdHubProto.NodeManifest
 
-/**
- * Minimal surface of the generated `CmdHubServiceClient` the node runtime needs.
- * Tests swap this out for an in-process fake. The runtime uses only the single
- * 3-arg `register` and 1-arg `heartbeat` overloads; fakes only need to satisfy
- * those. The concrete generated client has extra overloads but is structurally
- * compatible when wrapped in `makeHubClientFromGenerated`.
- */
+/** Minimal slice of the generated client the runtime uses. Tests swap this
+ *  out for in-process fakes. */
 export interface IHubServiceClient {
     register(
         request: RegisterRequest,
@@ -25,8 +21,6 @@ export interface IHubServiceClient {
     close(): void
 }
 
-/** Adapts the generated `CmdHubServiceClient` (which has overloaded register/heartbeat)
- *  to the single-signature `IHubServiceClient` shape used by the runtime. */
 function wrapGeneratedClient(raw: CmdHubProto.CmdHubServiceClient): IHubServiceClient {
     return {
         register: (req, md, cb) => raw.register(req, md, cb),
@@ -39,33 +33,17 @@ export interface HubClientOptions {
     address: string
     token: string
     nodeId: string
-    /** Listen address of THIS node's InvokeServer — hub uses it to dial back. */
+    /** This node's InvokeServer address — hub dials back here. */
     listenAddress: string
-    /**
-     * mTLS client cert fingerprint. When running against an insecure server
-     * this doubles as the header value since there's no TLS handshake to
-     * extract it from.
-     */
+    /** mTLS client-cert fingerprint; on insecure transports doubles as the
+     *  metadata-header value. */
     certFingerprint?: string
     heartbeatIntervalMs?: number
-    /** Override channel credentials. Defaults to insecure. */
     credentials?: grpc.ChannelCredentials
-    /** Override the underlying client — primarily for tests. */
+    /** Test seam. */
     client?: IHubServiceClient
 }
 
-/**
- * Node-side gRPC client that talks to the hub. Responsible for:
- *  - the Register unary call on boot (manifest upload, fingerprint + token auth)
- *  - the Heartbeat bidi stream (periodic metric samples, server-side shutdown signal)
- *
- * Lifecycle:
- *   const c = new HubClient(opts)
- *   await c.register(manifest)
- *   c.startHeartbeat(metricsCollector)
- *   ...
- *   await c.close()
- */
 export class HubClient {
     private readonly client: IHubServiceClient
     private readonly ownsClient: boolean
@@ -107,12 +85,14 @@ export class HubClient {
             manifest,
             listenAddress: this.opts.listenAddress,
         }
+        log.info(`HubClient: registering "${this.opts.nodeId}" → ${this.opts.address} (${manifest.commands.length} commands)`)
         const resp = await new Promise<RegisterResponse>((resolve, reject) => {
             this.client.register(req, md, (err, r) => {
                 if (err) reject(err); else resolve(r)
             })
         })
         this._registerResponse = resp
+        log.info(`HubClient: registered (assignedState=${resp.assignedState}, pollInterval=${resp.pollIntervalMs}ms)`)
         return resp
     }
 
@@ -131,12 +111,14 @@ export class HubClient {
         const stream = this.client.heartbeat(md)
         this.hbStream = stream
 
-        // Drain incoming messages — we don't do anything fancy with them yet.
-        stream.on('data', (_msg: HeartbeatServer) => { /* shutdown signal handling later */ })
-        stream.on('error', (_err) => {
+        log.info(`HubClient: heartbeat starting (interval=${intervalMs}ms)`)
+        stream.on('data', (_msg: HeartbeatServer) => { /* shutdown signalling tbd */ })
+        stream.on('error', (e) => {
+            log.warn(`HubClient: heartbeat errored: ${(e as Error)?.message ?? e}`)
             this.stopHeartbeat()
         })
         stream.on('end', () => {
+            log.info('HubClient: heartbeat ended')
             this.stopHeartbeat()
         })
 
@@ -150,7 +132,7 @@ export class HubClient {
             try { this.hbStream.write(msg) } catch { /* stream closed */ }
         }
 
-        // First tick immediately so the hub sees the node is alive without waiting.
+        // First tick is eager so the hub sees liveness without waiting one interval.
         tick()
         this.hbTimer = setInterval(tick, intervalMs)
         this.hbTimer.unref?.()

@@ -11,15 +11,20 @@ import { IMarkupOption } from '@cmd-hub/core'
 import { MessageOptions } from '@cmd-hub/core'
 import { exposeCmdArgumentOptions } from '@cmd-hub/core'
 import { CBDescriptorCompiler } from '@cmd-hub/core'
-import { FilesWrapper, IManager, Manager, Account, InvitationLink } from '@cmd-hub/core'
-import type { IInvitationLink } from '@cmd-hub/core'
 import { LockManager } from '@cmd-hub/core'
-import { log } from '@cmd-hub/common'
+import {
+    log,
+    requireCap,
+    CAP_ManagerRepo,
+    CAP_AccountRepo,
+    CAP_InvitationLinkRepo,
+    CAP_CmdAliasRepo,
+    CAP_PendingDeleteRepo,
+    type ManagerRecord,
+    type AppLike,
+} from '@cmd-hub/common'
+import type { DispatcherRepos } from '@cmd-hub/core'
 import crypto from 'crypto'
-
-// InvitationLink moved to @cmd-hub/core/db; re-export for back-compat.
-export { InvitationLink }
-export type { IInvitationLink }
 
 // --- Password hashing ---
 
@@ -90,7 +95,7 @@ setInterval(() => {
 // --- WebUI ---
 
 interface AuthenticatedSocket extends Socket {
-    manager?: IManager & { userId: number | string }
+    manager?: ManagerRecord
 }
 
 export class WebUI extends BaseUI<WebContext> {
@@ -101,6 +106,7 @@ export class WebUI extends BaseUI<WebContext> {
     private isActive = false
     private sockets = new Map<string, AuthenticatedSocket>()
     private userSockets = new Map<string, Set<string>>()
+    private repos: DispatcherRepos | null = null
 
     constructor(
         port: number,
@@ -115,18 +121,36 @@ export class WebUI extends BaseUI<WebContext> {
         this.setInitialized()
     }
 
+    async onAppAttach(app: AppLike): Promise<void> {
+        this.repos = {
+            manager:        requireCap(app, CAP_ManagerRepo),
+            account:        requireCap(app, CAP_AccountRepo),
+            invitationLink: requireCap(app, CAP_InvitationLinkRepo),
+            cmdAlias:       requireCap(app, CAP_CmdAliasRepo),
+            pendingDelete:  requireCap(app, CAP_PendingDeleteRepo),
+        }
+        this.lifecycle.attachRepo(this.repos.pendingDelete)
+    }
+
+    private requireRepos(callerName: string): DispatcherRepos {
+        if (!this.repos) {
+            throw new Error(`WebUI.${callerName}: not attached to app — onAppAttach didn't run`)
+        }
+        return this.repos
+    }
+
     // --- BaseUI abstract implementations ---
 
     protected async sendMessageImpl(user_id: string, message: string, mk_opts?: IMarkupOption[], options?: MessageOptions): Promise<string> {
         const msgId = crypto.randomUUID()
-        const payload: any = { id: msgId, text: message, markup: mk_opts }
+        const payload: Record<string, unknown> = { id: msgId, text: message, markup: mk_opts }
         if (options?.parseMode) payload.parseMode = options.parseMode
         this.emitToUser(user_id, 'message', payload)
         return msgId
     }
 
     protected async editMessageImpl(user_id: string, message_id: string, message?: string, mk_opts?: IMarkupOption[], options?: MessageOptions): Promise<void> {
-        const payload: any = { id: message_id, text: message, markup: mk_opts }
+        const payload: Record<string, unknown> = { id: message_id, text: message, markup: mk_opts }
         if (options?.parseMode) payload.parseMode = options.parseMode
         this.emitToUser(user_id, 'message:edit', payload)
     }
@@ -195,13 +219,14 @@ export class WebUI extends BaseUI<WebContext> {
         // --- Auth: login with name + password ---
         this.app.post('/api/auth/login', async (req, res) => {
             try {
+                const repos = this.requireRepos('login')
                 const { name, password } = req.body
                 if (!name) {
                     res.status(400).json({ error: 'Name required' })
                     return
                 }
 
-                const manager = await Manager.findOne({ name })
+                const manager = await repos.manager.findByName(name)
                 if (!manager) {
                     res.status(401).json({ error: 'Invalid credentials' })
                     return
@@ -232,8 +257,8 @@ export class WebUI extends BaseUI<WebContext> {
                     name: manager.name,
                     isAdmin: manager.isAdmin,
                 })
-            } catch (e: any) {
-                log.error(`WebUI API error: ${e.message ?? e}`)
+            } catch (e: unknown) {
+                log.error(`WebUI API error: ${(e as Error)?.message ?? e}`)
                 res.status(500).json({ error: 'Internal server error' })
             }
         })
@@ -241,28 +266,25 @@ export class WebUI extends BaseUI<WebContext> {
         // --- Auth: set password (first login or change) ---
         this.app.post('/api/auth/set-password', async (req, res) => {
             try {
+                const repos = this.requireRepos('setPassword')
                 const { sessionToken, password } = req.body
                 if (!password || password.length < 8) {
                     res.status(400).json({ error: 'Password must be at least 8 characters' })
                     return
                 }
 
-                // Accept both full and set-password scoped sessions
                 const session = getSession(sessionToken)
                 if (!session) {
                     res.status(401).json({ error: 'Invalid session' })
                     return
                 }
-                const manager = await Manager.findOne({ userId: Number(session.userId) })
+                const manager = await repos.manager.findByUserId(Number(session.userId))
                 if (!manager) {
                     res.status(401).json({ error: 'Invalid session' })
                     return
                 }
 
-                manager.passwordHash = hashPassword(password)
-                await manager.save()
-
-                // Upgrade to full scope after password set
+                await repos.manager.updateById(manager.id, { passwordHash: hashPassword(password) })
                 upgradeSessionScope(sessionToken)
 
                 res.json({
@@ -272,7 +294,7 @@ export class WebUI extends BaseUI<WebContext> {
                     name: manager.name,
                     isAdmin: manager.isAdmin,
                 })
-            } catch (e: any) {
+            } catch (_) {
                 res.status(500).json({ error: 'Failed to set password' })
             }
         })
@@ -287,17 +309,18 @@ export class WebUI extends BaseUI<WebContext> {
         // --- Invitation link creation (admin only, authenticated) ---
         this.app.post('/api/invite', async (req, res) => {
             try {
+                const repos = this.requireRepos('invite')
                 const manager = await this.resolveSession(req.body.sessionToken)
                 if (!manager?.isAdmin) {
                     res.status(403).json({ error: 'Admin access required' })
                     return
                 }
                 const token = crypto.randomUUID()
-                await InvitationLink.create({ token, createdBy: manager.userId })
+                await repos.invitationLink.create({ token, createdBy: manager.userId })
                 const link = `${req.protocol}://${req.get('host')}/invite/${token}`
                 res.json({ link, token })
-            } catch (e: any) {
-                log.error(`WebUI API error: ${e.message ?? e}`)
+            } catch (e: unknown) {
+                log.error(`WebUI API error: ${(e as Error)?.message ?? e}`)
                 res.status(500).json({ error: 'Internal server error' })
             }
         })
@@ -305,6 +328,7 @@ export class WebUI extends BaseUI<WebContext> {
         // --- Invitation link acceptance: register with name + password ---
         this.app.post('/api/invite/:token/accept', async (req, res) => {
             try {
+                const repos = this.requireRepos('inviteAccept')
                 const { name, password } = req.body
                 if (!name || !password) {
                     res.status(400).json({ error: 'Name and password required' })
@@ -315,7 +339,7 @@ export class WebUI extends BaseUI<WebContext> {
                     return
                 }
 
-                const invite = await InvitationLink.findOne({ token: req.params.token, used: false })
+                const invite = await repos.invitationLink.findByToken(req.params.token, { onlyUnused: true })
                 if (!invite) {
                     res.status(404).json({ error: 'Invalid or used invitation' })
                     return
@@ -325,34 +349,27 @@ export class WebUI extends BaseUI<WebContext> {
                     return
                 }
 
-                const existing = await Manager.findOne({ name })
+                const existing = await repos.manager.findByName(name)
                 if (existing) {
                     res.status(409).json({ error: 'Name already taken' })
                     return
                 }
 
-                // Cryptographically random user ID
                 const userId = crypto.randomInt(100000000, 999999999)
-                const avatar = await FilesWrapper.getDefaultAvatar()
-
-                await Manager.create({
+                await repos.manager.createWithAccount({
                     userId,
                     name,
                     isAdmin: false,
-                    online: false,
-                    avatar: avatar!.id,
                     useGreeting: true,
                     passwordHash: hashPassword(password),
                 })
 
-                invite.used = true
-                invite.usedBy = userId
-                await invite.save()
+                await repos.invitationLink.markUsed(invite.token, userId)
 
                 const sessionToken = createSession(userId)
                 res.json({ sessionToken, userId, name })
-            } catch (e: any) {
-                log.error(`WebUI API error: ${e.message ?? e}`)
+            } catch (e: unknown) {
+                log.error(`WebUI API error: ${(e as Error)?.message ?? e}`)
                 res.status(500).json({ error: 'Internal server error' })
             }
         })
@@ -442,10 +459,10 @@ export class WebUI extends BaseUI<WebContext> {
                             type: 'command-result',
                         })
                     }
-                } catch (e: any) {
+                } catch (e: unknown) {
                     socket.emit('message', {
                         id: crypto.randomUUID(),
-                        text: `Error: ${e.message ?? e}`,
+                        text: `Error: ${(e as Error)?.message ?? e}`,
                         type: 'error',
                     })
                 }
@@ -457,7 +474,7 @@ export class WebUI extends BaseUI<WebContext> {
                 for (const svc of services) {
                     const dashboard = this.dispatcher.getDashboard(userId, svc.name)
                     if (dashboard) {
-                        try { await (dashboard as any).handleCallback(data.action) } catch (_) {}
+                        try { await dashboard.handleCallback(data.action) } catch (_) {}
                     }
                 }
             })
@@ -466,13 +483,25 @@ export class WebUI extends BaseUI<WebContext> {
             socket.on('builder:open', async (data: { command: string }) => {
                 if (!data.command) return
                 try {
+                    const repos = this.requireRepos('builder:open')
                     const isService = this.dispatcher.isService(data.command)
                     const ctx = this.createContext(socket, data.command)
                     const compiler = new CBDescriptorCompiler<WebContext>()
                     const descriptor = await compiler.compile(data.command, userId, this.dispatcher, ctx)
 
+                    interface ArgWithOptions {
+                        name: string
+                        ctx: string
+                        position?: number
+                        standalone?: boolean
+                        required?: boolean
+                        description?: string
+                        defaultValue?: string
+                        pairOptions?: string[]
+                    }
+
                     // Serialize args for the client
-                    const fields = descriptor.args.map((a: any) => ({
+                    const fields = descriptor.args.map((a: ArgWithOptions) => ({
                         name: a.name,
                         ctx: a.ctx,
                         type: a.position != null ? 'positional' as const : a.standalone ? 'standalone' as const : 'pair' as const,
@@ -484,15 +513,15 @@ export class WebUI extends BaseUI<WebContext> {
                     }))
 
                     // Load saved config from AccountModule
-                    let savedConfig: Record<string, any> = {}
+                    let savedConfig: Record<string, unknown> = {}
                     if (isService) {
                         try {
-                            const owner = await Manager.findOne({ userId: manager.userId })
-                            if (owner) {
-                                const account = await Account.findById(owner.account)
+                            const owner = await repos.manager.findByUserId(manager.userId)
+                            if (owner?.accountId) {
+                                const account = await repos.account.handleById(owner.accountId)
                                 if (account) {
-                                    const { account_module } = await account.getModuleByNameOrCreate(data.command)
-                                    savedConfig = account_module.data?.config ?? {}
+                                    const { module } = await account.getModuleByNameOrCreate(data.command)
+                                    savedConfig = (module.record.data.config ?? {}) as Record<string, unknown>
                                 }
                             }
                         } catch (_) {}
@@ -504,8 +533,8 @@ export class WebUI extends BaseUI<WebContext> {
                         fields,
                         savedConfig,
                     })
-                } catch (e: any) {
-                    socket.emit('builder:data', { command: data.command, error: e.message })
+                } catch (e: unknown) {
+                    socket.emit('builder:data', { command: data.command, error: (e as Error)?.message })
                 }
             })
 
@@ -525,11 +554,11 @@ export class WebUI extends BaseUI<WebContext> {
 
     private createContext(socket: AuthenticatedSocket, text: string): WebContext {
         return {
-            type: 'web' as any,
+            type: 'web',
             manager: socket.manager!,
             text,
             socketId: socket.id,
-            reply: async (message: string, extra?: any) => {
+            reply: async (message: string, extra?: { parse_mode?: string }) => {
                 socket.emit('message', {
                     id: crypto.randomUUID(),
                     text: message,
@@ -540,7 +569,7 @@ export class WebUI extends BaseUI<WebContext> {
         }
     }
 
-    private emitToUser(userId: string, event: string, data: any): void {
+    private emitToUser(userId: string, event: string, data: unknown): void {
         const socketIds = this.userSockets.get(userId)
         if (!socketIds) return
         for (const sid of socketIds) {
@@ -549,7 +578,7 @@ export class WebUI extends BaseUI<WebContext> {
         }
     }
 
-    private async serializeCommandsForUser(manager: IManager) {
+    private async serializeCommandsForUser(manager: ManagerRecord) {
         const cmds = this.dispatcher.toUICommands()
         return Promise.all(cmds.map(async c => ({
             command: c.command,
@@ -567,11 +596,11 @@ export class WebUI extends BaseUI<WebContext> {
         })))
     }
 
-    private async resolveSession(sessionToken: string): Promise<(IManager & { userId: number | string }) | null> {
+    private async resolveSession(sessionToken: string): Promise<ManagerRecord | null> {
         if (!sessionToken) return null
         const userId = getSessionUserId(sessionToken)
         if (!userId) return null
-        return await Manager.findOne({ userId: Number(userId) })
+        return await this.requireRepos('resolveSession').manager.findByUserId(Number(userId))
     }
 
     // --- Default Admin ---
@@ -580,16 +609,14 @@ export class WebUI extends BaseUI<WebContext> {
     private static readonly DEFAULT_ADMIN_USER_ID = 1
 
     private async ensureDefaultAdmin(): Promise<void> {
-        const existing = await Manager.findOne({ userId: WebUI.DEFAULT_ADMIN_USER_ID })
+        const repos = this.requireRepos('ensureDefaultAdmin')
+        const existing = await repos.manager.findByUserId(WebUI.DEFAULT_ADMIN_USER_ID)
         if (existing) return
 
-        const avatar = await FilesWrapper.getDefaultAvatar()
-        await Manager.create({
+        await repos.manager.createWithAccount({
             userId: WebUI.DEFAULT_ADMIN_USER_ID,
             name: WebUI.DEFAULT_ADMIN_NAME,
             isAdmin: true,
-            online: false,
-            avatar: avatar!.id,
             useGreeting: true,
             // passwordHash intentionally omitted — forces password setup on first login
         })
@@ -601,7 +628,7 @@ export class WebUI extends BaseUI<WebContext> {
     async createInvitationLink(createdBy: number | string, expiresInMs?: number): Promise<string> {
         const token = crypto.randomUUID()
         const expiresAt = expiresInMs ? new Date(Date.now() + expiresInMs) : undefined
-        await InvitationLink.create({ token, createdBy, expiresAt })
+        await this.requireRepos('createInvitationLink').invitationLink.create({ token, createdBy, expiresAt })
         return token
     }
 }

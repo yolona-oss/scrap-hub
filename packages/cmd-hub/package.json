@@ -15,6 +15,7 @@
     "description": "Command-driven bot framework with pluggable UI system",
     "dependencies": {
         "@cmd-hub/common": "*",
+        "@cmd-hub/storage-mongo": "*",
         "@cmd-hub/transport": "*",
         "@grpc/grpc-js": "^1.14.3",
         "@types/async-lock": "^1.4.2",
@@ -35,7 +36,6 @@
         "glob": "^11.0.1",
         "http-status": "^2.1.0",
         "mime-types": "^2.1.35",
-        "mongoose": "^8.9.5",
         "ngrok": "^5.0.0-beta.2",
         "node-forge": "^1.4.0",
         "qs": "^6.14.0",

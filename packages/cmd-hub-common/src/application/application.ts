@@ -14,18 +14,23 @@ import {
     isConfigContributor,
 } from './middleware-types'
 import type { CapabilityKey, ICapabilityRegistry } from './capability'
+import {
+    AppManifestSnapshot,
+    CapabilityDescriptor,
+    CommandRegistration,
+    CapabilityValidationError,
+    CapabilityValidationFailure,
+} from './manifest'
 import log from './logger'
 
 export interface ApplicationOptions<Cfg> {
-    /** Path to a JSON config file. Ignored when `inlineConfig` is provided. */
+    /** JSON config file path; ignored when `inlineConfig` is set. */
     configPath: string
-    /** Base config schema. Middleware config contributors are merged into this as
-     *  top-level namespace keys. */
+    /** Middleware/subclass config contributors are merged into this as top-level keys. */
     baseSchema: z.ZodType<unknown>
-    /** Optional escape hatch — when set, file loading is bypassed and this value
-     *  is fed through schema validation directly. */
+    /** When set, bypasses file loading and is fed through schema validation directly. */
     inlineConfig?: Cfg
-    /** Optional app id; defaults to 'app'. Used for the lock file name. */
+    /** App id; used for the lock file name. */
     name?: string
 }
 
@@ -35,37 +40,38 @@ export abstract class Application<Cfg = unknown>
 {
     private _isRunning: boolean = false
     private _isInited: boolean = false
+    /** Memoizes in-flight terminate(); concurrent callers (e.g. SIGINT then
+     *  SIGTERM in the same tick) await the same promise rather than each
+     *  running their own teardown. */
+    private _terminating: Promise<void> | null = null
     public readonly id: string
     private _config!: Cfg
     public get config(): Cfg {
         return this._config
     }
 
-    /** Shared mutable bag — the underlying storage for the typed capability
-     *  registry (`provide` / `get` / `revoke` / `has`). Prefer those over
-     *  poking `context` directly; the bag is public only so legacy consumers
-     *  still work and tests can inspect state. */
+    /** Backing bag for the capability registry. Public for legacy consumers
+     *  and test inspection — prefer `provide`/`get`/`revoke`/`has`. */
     public readonly context: Record<string, unknown> = {}
 
-    /** Publish a capability under a typed key. Idempotent — later calls
-     *  overwrite. Middlewares should call this from `install()`. */
-    provide<V>(key: CapabilityKey<V>, value: V): void {
+    /** Side-band: which middleware (if any) provided each cap. Pruned on revoke. */
+    private readonly _providers: Map<string, string> = new Map()
+
+    provide<V>(key: CapabilityKey<V>, value: V, providedBy?: string): void {
         this.context[key] = value
+        this._providers.set(key, providedBy ?? '')
     }
 
-    /** Retrieve a capability. Returns `undefined` when the key was never
-     *  provided (or was revoked). */
     get<V>(key: CapabilityKey<V>): V | undefined {
         const raw = this.context[key]
         return raw === undefined ? undefined : (raw as V)
     }
 
-    /** Remove a capability. Idempotent. */
     revoke<V>(key: CapabilityKey<V>): void {
         delete this.context[key]
+        this._providers.delete(key)
     }
 
-    /** True when the capability is currently provided. */
     has<V>(key: CapabilityKey<V>): boolean {
         return key in this.context
     }
@@ -73,9 +79,8 @@ export abstract class Application<Cfg = unknown>
     protected readonly lockManager: LockManager = new LockManager(`./.lock`)
 
     private readonly _middlewares: IAppMiddleware[] = []
-    /** Middlewares that successfully installed, in install order. Rollback
-     *  and terminate iterate this list in reverse, so middlewares whose
-     *  install() never ran (or threw) are never handed an uninstall call. */
+    /** In install order; rollback/terminate iterate this list in reverse so
+     *  middlewares whose install() never ran are never handed uninstall. */
     private _installedMiddlewares: IAppMiddleware[] = []
 
     private _sigHandler: (() => Promise<void>) | null = null
@@ -89,9 +94,6 @@ export abstract class Application<Cfg = unknown>
         return this._isRunning
     }
 
-    /** Register an application middleware. Middlewares are installed sorted by
-     *  phase (ascending) during Initialize() and uninstalled in reverse order
-     *  during terminate(). */
     use(mw: AppMiddleware): this {
         if (typeof mw === 'function') {
             const fnMw: IAppMiddleware = {
@@ -118,11 +120,10 @@ export abstract class Application<Cfg = unknown>
         if (this._isInited) {
             throw new Error('Application already initialized')
         }
+        log.info(`Application "${this.id}": Initialize() begin`)
 
-        // 1. Build merged schema from baseSchema + middleware/subclass contributors.
         const mergedSchema = this._buildMergedSchema()
 
-        // 2. Load raw config (inline takes precedence; otherwise read JSON file).
         let raw: unknown
         if (this.opts.inlineConfig !== undefined) {
             raw = this.opts.inlineConfig
@@ -140,24 +141,19 @@ export abstract class Application<Cfg = unknown>
             }
         }
 
-        // 3. Validate + assign.
         const parsed = mergedSchema.parse(raw) as Cfg
         this._config = parsed
 
-        // 3a. Apply post-bootstrap logger config. If the validated config
-        //     carries a `log` namespace (subclass-contributed), those values
-        //     override the env-var bootstrap defaults. Any field is optional.
+        // Subclass-contributed `log` namespace overrides env-var bootstrap defaults.
         interface LogSlice { log?: { level?: string; toFile?: boolean } }
         const logSlice = (parsed as LogSlice | null | undefined)?.log
         if (logSlice && typeof logSlice === 'object') {
             log.configure({ level: logSlice.level, toFile: logSlice.toFile })
         }
 
-        // 4. Acquire process lock.
         await this.lockApp()
 
-        // 5. Register signal handlers. Paired with removal in terminate()
-        //    so a failed init followed by no terminate() never leaks them.
+        // Paired with removal in terminate() so a failed init never leaks listeners.
         this._sigHandler = async () => {
             log.info("Signal received. Terminating...")
             await this.terminate()
@@ -165,10 +161,6 @@ export abstract class Application<Cfg = unknown>
         process.on("SIGINT", this._sigHandler)
         process.on("SIGTERM", this._sigHandler)
 
-        // 6. Install middlewares sorted by phase (ascending). If any middleware
-        //    install throws, roll back only the middlewares that actually ran
-        //    (in reverse order) and release the process lock so a subsequent
-        //    Initialize() can retry cleanly.
         try {
             await this._installMiddlewares()
         } catch (e) {
@@ -182,8 +174,47 @@ export abstract class Application<Cfg = unknown>
             throw e
         }
 
+        try {
+            this._validateRegisteredCommands()
+        } catch (e) {
+            try { await this._uninstallInstalled() } catch { /* swallow */ }
+            try { this.lockManager.cleanupAll() } catch { /* swallow */ }
+            if (this._sigHandler) {
+                process.removeListener("SIGINT", this._sigHandler)
+                process.removeListener("SIGTERM", this._sigHandler)
+                this._sigHandler = null
+            }
+            throw e
+        }
+
         this._isInited = true
         this.setInitialized()
+        log.info(`Application "${this.id}": Initialize() done`)
+    }
+
+    private _validateRegisteredCommands(): void {
+        const registered = this._collectRegisteredCommands()
+        const failures: CapabilityValidationFailure[] = []
+        for (const cmd of registered) {
+            const missing = cmd.requires.filter(key => !(key in this.context))
+            if (missing.length > 0) {
+                failures.push({ commandName: cmd.name, missing })
+            }
+        }
+        if (failures.length > 0) {
+            throw new CapabilityValidationError(failures)
+        }
+    }
+
+    /** Read-only wiring snapshot. Doesn't hold references back into mutable state. */
+    manifestSnapshot(): AppManifestSnapshot {
+        const capabilities: CapabilityDescriptor[] = Array.from(this._providers.entries())
+            .map(([key, providedBy]) => ({ key, providedBy }))
+        const commands = this._collectRegisteredCommands().map(c => ({
+            name: c.name,
+            requires: [...c.requires],
+        }))
+        return { capabilities, commands }
     }
 
     private _prevErrorHandler?: (error: Error) => void
@@ -206,25 +237,26 @@ export abstract class Application<Cfg = unknown>
     abstract run(): Promise<void>
 
     async terminate(): Promise<void> {
-        // Uninstall only middlewares that actually installed, in reverse
-        // phase order. Errors in one middleware's uninstall must not block
-        // others.
-        await this._uninstallInstalled()
-
-        log.info("Application::terminate() cleanup lock files...")
-        this.lockManager.cleanupAll()
-
-        // Detach signal handlers so repeated new-Application/terminate cycles
-        // (common in tests) don't leak listeners.
-        if (this._sigHandler) {
-            process.removeListener("SIGINT", this._sigHandler)
-            process.removeListener("SIGTERM", this._sigHandler)
-            this._sigHandler = null
+        if (this._terminating) {
+            return this._terminating
         }
+        this._terminating = (async () => {
+            await this._uninstallInstalled()
 
-        this._isRunning = false
-        this._isInited = false
-        this.setUninitialized()
+            log.info("Application::terminate() cleanup lock files...")
+            this.lockManager.cleanupAll()
+
+            if (this._sigHandler) {
+                process.removeListener("SIGINT", this._sigHandler)
+                process.removeListener("SIGTERM", this._sigHandler)
+                this._sigHandler = null
+            }
+
+            this._isRunning = false
+            this._isInited = false
+            this.setUninitialized()
+        })()
+        return this._terminating
     }
 
     private async isPreviousRunning() {
@@ -232,8 +264,7 @@ export abstract class Application<Cfg = unknown>
         if (typeof pid !== "string") {
             return false
         }
-        // Stale self-pid (leftover from an earlier in-process Initialize that
-        // threw after acquiring the lock) is not an external instance.
+        // Stale self-pid (leftover from a thrown in-process Initialize) isn't external.
         if (pid.trim() === String(process.pid)) {
             return false
         }
@@ -258,10 +289,13 @@ export abstract class Application<Cfg = unknown>
     protected async _installMiddlewares(): Promise<void> {
         const sorted = [...this._middlewares].sort((a, b) => a.phase - b.phase)
         this._installedMiddlewares = []
+        log.info(`Application "${this.id}": installing ${sorted.length} middleware(s)`)
         for (const mw of sorted) {
+            log.debug(`Application "${this.id}": install ${mw.name ?? '(anon)'} @ phase ${mw.phase}`)
             await mw.install(this)
             this._installedMiddlewares.push(mw)
         }
+        log.info(`Application "${this.id}": all middlewares installed`)
     }
 
     private async _uninstallInstalled(): Promise<void> {
@@ -270,6 +304,7 @@ export abstract class Application<Cfg = unknown>
         for (const mw of reverse) {
             if (mw.uninstall) {
                 try {
+                    log.debug(`Application "${this.id}": uninstall ${mw.name ?? '(anon)'}`)
                     await mw.uninstall(this)
                 } catch (e) {
                     log.error("Application::uninstall middleware teardown failed:", e)
@@ -278,17 +313,20 @@ export abstract class Application<Cfg = unknown>
         }
     }
 
-    /** Subclass hook — cmd-hub / cmd-node add their own ConfigContributors here. */
+    /** Subclass hook — cmd-hub/cmd-node add their own ConfigContributors here. */
     protected _collectSubclassContributors(): ConfigContributor[] {
+        return []
+    }
+
+    /** Subclass hook — surfaces every registered command for boot-time validation
+     *  and the manifest snapshot. */
+    protected _collectRegisteredCommands(): CommandRegistration[] {
         return []
     }
 
     private _buildMergedSchema(): z.ZodType<unknown> {
         const base = this.opts.baseSchema
-        if (!(base instanceof z.ZodObject)) {
-            // If user passed a non-object schema, we can't merge into it.
-            return base
-        }
+        if (!(base instanceof z.ZodObject)) return base
 
         const contributors: ConfigContributor[] = []
         for (const mw of this._middlewares) {
@@ -296,7 +334,6 @@ export abstract class Application<Cfg = unknown>
         }
         contributors.push(...this._collectSubclassContributors())
 
-        // Group by namespace, detecting collisions on overlapping keys.
         const namespaceSchemas = new Map<string, z.AnyZodObject>()
         for (const c of contributors) {
             if (!(c.schema instanceof z.ZodObject)) {

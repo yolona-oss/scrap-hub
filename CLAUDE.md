@@ -1,59 +1,107 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with code in this repository.
 
 ## Monorepo Structure
 
-npm workspaces with 3 packages:
+npm workspaces. Framework packages under `packages/`, runnable reference apps under `examples/`.
 
-- **`packages/cmd-hub/`** (`@cmd-hub/core`) — SDK framework: UI, command processor, services, dashboard, message lifecycle
-- **`packages/org-scraper/`** (`org-scraper`) — Scraper plugin: sources (Google, Yandex, Avito, cheerio-based), exporters (CSV, Google Sheets), dedup
-- **`packages/app/`** (`scrap-hub`) — Main app: bootstrap, proxy, registers org-scraper plugin + custom cheerio sources
+### Framework packages
+
+| Package | npm name | Role |
+|---|---|---|
+| `packages/cmd-hub-common/` | `@cmd-hub/common` | Shared primitives: `Application`, `Phase`, capability registry, command decorators (`@CmdService`, `@CmdArgument`, `@CmdCommand`), logger, base service, manifest types |
+| `packages/cmd-hub/` | `@cmd-hub/core` | Hub-side: `CmdHubApp`, `CmdDispatcher`, command processor, builder/interpreter, dashboard, built-in commands, `RemoteCmdInvoker`, hub CLI |
+| `packages/cmd-hub-transport/` | `@cmd-hub/transport` | gRPC bindings, `ManifestAggregator`, `CommandPool`, `FileService`, `CmdNodeRegistry`, server impl |
+| `packages/cmd-hub-storage-mongo/` | `@cmd-hub/storage-mongo` | MongoDB middleware: connection, repos, GridFS file backend |
+| `packages/cmd-hub-node/` | `@cmd-hub/node` | Node-side: `CmdNodeApp`, `HubClientMiddleware`, `InvokeServerMiddleware`, executor |
+| `packages/cmd-hub-ui-cli/` | `@cmd-hub/ui-cli` | CLI UI plugin |
+| `packages/cmd-hub-ui-telegram/` | `@cmd-hub/ui-telegram` | Telegram UI plugin (Telegraf, proxy support) |
+| `packages/cmd-hub-ui-web/` | `@cmd-hub/ui-web` | Web UI plugin |
+
+### Reference apps
+
+| Path | Role |
+|---|---|
+| `examples/telegram-ui-app/` | Hub gateway: hosts UI plugins, talks to nodes over gRPC |
+| `examples/scraper-node/` | cmd-node: registers `OrgScraperService`, sources (Google/Yandex/Avito/cheerio), exporters (CSV, Google Sheets) |
+
+## Distributed Architecture
+
+One **cmd-hub** gateway hosts UI plugins and dispatches commands. N **cmd-nodes** execute services. They communicate over gRPC (mTLS in v1).
+
+- **Storage**: shared MongoDB + GridFS in v1. v2 pivot: hub-seeded session blob; nodes never see user records (see memory note).
+- **Manifest**: each node publishes a `NodeManifest` at register time. Hub aggregates via `ManifestAggregator` and routes by command name (round-robin per command, per UI eligibility).
+- **Capabilities**: middlewares publish/consume typed `CapabilityKey<V>` objects. UIs declare `federationRequires.{essential,supported}` for cross-tier validation.
+- **Phases**: middleware install order — `Infrastructure(10) → Storage(20) → Transport(30) → BeforeServices(39) → Services(40) → UI(50)`.
 
 ## Build & Run
 
 ```bash
-npm install            # Install all packages
-npm run build          # Build all
-npm run start          # Run the app (packages/app)
-npm run test           # Run SDK tests
+npm install                       # Install all workspaces
+npm run build                     # Build everything (tsc --build per package)
+npm run start:hub                 # Start the gateway (examples/telegram-ui-app)
+npm run start:node                # Start a node (examples/scraper-node)
+npm run start:docker              # Compose stack
 ```
 
-## Key Path Aliases (in app tsconfig)
+Tests live per-package: `cd packages/<name> && npx jest`. End-to-end: `npm run test:e2e`.
 
-| Alias | Resolves to |
-|-------|-------------|
-| `@core/*` | `../cmd-hub/src/*` |
-| `@logger` | `../cmd-hub/src/application/logger` |
-| `@utils/*` | `../cmd-hub/src/utils/*` |
-| `org-scraper/*` | `../org-scraper/src/*` |
+## Imports
 
-## Architecture
+Packages reference each other by their npm names (`@cmd-hub/core`, `@cmd-hub/common`, etc.). **No `paths` aliases** — the old `@core/*`/`@utils/*`/`@logger` shims are gone.
 
-### App Bootstrap (`packages/app/src/index.ts`)
-1. `initializePlugins()` → registers org-scraper sources/exporters/config
-2. `CmdDispatcher` + commands from org-scraper
-3. `TelegramUI` with proxy support (SOCKS/HTTPS from env vars)
-4. `AppCmdhub` — lifecycle, MongoDB, signals
+## Hub Bootstrap (`examples/telegram-ui-app/src/index.ts`)
 
-### Scraper Plugin (`packages/org-scraper/`)
-- **Sources**: Google (SerpAPI), Yandex (XML API), Yandex Business, Avito, cheerio-based custom
-- **Exporters**: CSV, Google Sheets
-- **Service**: `OrgScraperService` with dashboard, progress bars, intercom export button
-- **Config**: `scraper` module in ConfigRegistry (MongoDB system scope)
-
-### Custom Cheerio Sources
-Registered in `packages/app/src/commands.ts`:
 ```typescript
-orgScraper.registerCheerioSource({
-    name: '2gis',
-    urlTemplate: 'https://2gis.ru/search/{query}/page/{page}',
-    itemSelector: '._1hf7139',
-    selectors: { name: '...', phone: '...', address: '...' },
-})
+const app = new CmdHubApp({ configPath: './config.json', baseSchema })
+app.use(new MongoStorageMiddleware())
+app.use(new GrpcServerMiddleware({ insecure: true }))
+app.useUI(new TelegramUI())
+await app.Initialize(); await app.run()
 ```
+
+## Node Bootstrap (`examples/scraper-node/src/index.ts`)
+
+```typescript
+const app = new CmdNodeApp({ configPath: './config.json', baseSchema })
+app.useCommand(OrgScraperService)
+app.use(new MongoStorageMiddleware())
+app.use(new InvokeServerMiddleware())
+app.use(new HubClientMiddleware())
+await app.Initialize(); await app.run()
+```
+
+`CmdNodeApp.Initialize()` provides `CAP_NodeExecutor` early; `CAP_NodeManifest` is built once at `Phase.BeforeServices` (after Storage/Transport caps are published) so `publishedCapabilities` is complete before HubClient registers.
 
 ## Config
-- `packages/app/config.json` — bootstrap: bot token, MongoDB URI
-- MongoDB `SystemConfig` — scraper API keys via `/config scraper`
-- MongoDB `AccountModule` — per-service saved config via `/sconfig`
+
+Each app has a `config.json` at its root. Schemas are zod-validated and merged from middleware/UI `ConfigContributor`s. Namespaces are flat (`storage.*`, `hub.*`, `invokeServer.*`, `scraper.*`, etc.).
+
+- `examples/telegram-ui-app/config.json` — Telegram bot token, MongoDB URI, gRPC bind, hub-CA paths
+- `examples/scraper-node/config.json` — Mongo URI, hub address+token+nodeId+cert fingerprint, scraper API keys
+
+Per-user / per-service runtime config is persisted via `MongoServiceStore` (account modules collection).
+
+## CLI
+
+Hub provisioning: `npx cmd-hub <subcommand>`. See `docs/cli.md` and `docs/node-deployment.md`.
+
+```bash
+npx cmd-hub ca-init                       # generate hub CA
+npx cmd-hub node-add <name>               # provision a node (issues token + fingerprint)
+npx cmd-hub node-list / node-approve / node-remove
+```
+
+## Testing notes
+
+- Test mocks for ESM-only deps live under `packages/cmd-hub-common/src/__mocks__/` (e.g. `chalk`).
+- `jest.config.js` in each package wires `moduleNameMapper` for those mocks.
+- 172 unit tests across cmd-hub-common (37) + cmd-hub-transport (27) + cmd-hub (63) + cmd-hub-node (45).
+
+## Documentation
+
+- `docs/README.md` — index
+- `docs/cli.md` — CLI reference
+- `docs/node-deployment.md` — node deployment + security model
+- `docs/superpowers/specs/` and `docs/superpowers/plans/` — distributed-design spec + per-phase implementation plans

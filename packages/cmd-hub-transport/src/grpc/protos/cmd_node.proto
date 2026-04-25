@@ -42,6 +42,12 @@ message NodeManifest {
   repeated ConfigModule configs = 6;
   HardwareInfo hardware = 7;
   MetricsSchema metrics = 8;
+  // Snapshot of capability keys the node has published into its own
+  // registry at the moment the manifest was built. Hub-side UIs cross-
+  // check their federationRequires against this list; commands whose
+  // essential caps aren't satisfied are filtered from that UI's routing
+  // pool at Register time.
+  repeated string published_capabilities = 9;
 }
 
 message Command {
@@ -51,6 +57,12 @@ message Command {
   string description = 4;
   repeated ArgSpec args = 5;
   repeated string aliases = 6;
+  // Capability keys this command needs at run time. Populated from the
+  // @CmdService.requires / CmdCommand.requires declaration. Advisory
+  // only at the hub level today (the node's Phase B validator already
+  // checked these at boot); exposed for operator tooling and a future
+  // cross-node compatibilityId consistency check.
+  repeated string requires = 7;
 }
 message ArgSpec {
   string name = 1;

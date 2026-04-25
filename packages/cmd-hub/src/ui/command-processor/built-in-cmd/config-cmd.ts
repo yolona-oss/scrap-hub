@@ -108,7 +108,7 @@ export const ConfigCommand: BuiltInCommand = {
             title: `${UiUnicodeSymbols.gear} ${moduleName} config`,
             header: ['Key', 'Value'],
             body: fields.map(({ key: k, value: v, sensitive }) => [k, maskValue(v, sensitive)]),
-        }, (ctx.manager as any)?.messageWidth ?? 72)
+        }, ctx.manager?.messageWidth ?? 72)
 
         await ctx.reply(`<pre>${table}</pre>Use /config ${moduleName} &lt;key&gt; &lt;value&gt; to update.`, { parse_mode: 'HTML' })
     }

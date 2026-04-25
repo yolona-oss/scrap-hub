@@ -2,7 +2,7 @@ import axios from "axios"
 import * as cheerio from "cheerio"
 import { Tool } from "./types"
 import { getScraperConfig } from "../../../scraper-config"
-import log from "@logger"
+import { log } from "@cmd-hub/common"
 
 export interface WebSearchResult {
     title: string

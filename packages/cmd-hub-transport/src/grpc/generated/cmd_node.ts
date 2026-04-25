@@ -89,7 +89,17 @@ export interface NodeManifest {
   services: Service[];
   configs: ConfigModule[];
   hardware?: HardwareInfo | undefined;
-  metrics?: MetricsSchema | undefined;
+  metrics?:
+    | MetricsSchema
+    | undefined;
+  /**
+   * Snapshot of capability keys the node has published into its own
+   * registry at the moment the manifest was built. Hub-side UIs cross-
+   * check their federationRequires against this list; commands whose
+   * essential caps aren't satisfied are filtered from that UI's routing
+   * pool at Register time.
+   */
+  publishedCapabilities: string[];
 }
 
 export interface Command {
@@ -99,6 +109,14 @@ export interface Command {
   description: string;
   args: ArgSpec[];
   aliases: string[];
+  /**
+   * Capability keys this command needs at run time. Populated from the
+   * @CmdService.requires / CmdCommand.requires declaration. Advisory
+   * only at the hub level today (the node's Phase B validator already
+   * checked these at boot); exposed for operator tooling and a future
+   * cross-node compatibilityId consistency check.
+   */
+  requires: string[];
 }
 
 export interface ArgSpec {
@@ -524,6 +542,7 @@ function createBaseNodeManifest(): NodeManifest {
     configs: [],
     hardware: undefined,
     metrics: undefined,
+    publishedCapabilities: [],
   };
 }
 
@@ -552,6 +571,9 @@ export const NodeManifest: MessageFns<NodeManifest> = {
     }
     if (message.metrics !== undefined) {
       MetricsSchema.encode(message.metrics, writer.uint32(66).fork()).join();
+    }
+    for (const v of message.publishedCapabilities) {
+      writer.uint32(74).string(v!);
     }
     return writer;
   },
@@ -627,6 +649,14 @@ export const NodeManifest: MessageFns<NodeManifest> = {
           message.metrics = MetricsSchema.decode(reader, reader.uint32());
           continue;
         }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.publishedCapabilities.push(reader.string());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -656,6 +686,11 @@ export const NodeManifest: MessageFns<NodeManifest> = {
         : [],
       hardware: isSet(object.hardware) ? HardwareInfo.fromJSON(object.hardware) : undefined,
       metrics: isSet(object.metrics) ? MetricsSchema.fromJSON(object.metrics) : undefined,
+      publishedCapabilities: globalThis.Array.isArray(object?.publishedCapabilities)
+        ? object.publishedCapabilities.map((e: any) => globalThis.String(e))
+        : globalThis.Array.isArray(object?.published_capabilities)
+        ? object.published_capabilities.map((e: any) => globalThis.String(e))
+        : [],
     };
   },
 
@@ -685,6 +720,9 @@ export const NodeManifest: MessageFns<NodeManifest> = {
     if (message.metrics !== undefined) {
       obj.metrics = MetricsSchema.toJSON(message.metrics);
     }
+    if (message.publishedCapabilities?.length) {
+      obj.publishedCapabilities = message.publishedCapabilities;
+    }
     return obj;
   },
 
@@ -705,12 +743,13 @@ export const NodeManifest: MessageFns<NodeManifest> = {
     message.metrics = (object.metrics !== undefined && object.metrics !== null)
       ? MetricsSchema.fromPartial(object.metrics)
       : undefined;
+    message.publishedCapabilities = object.publishedCapabilities?.map((e) => e) || [];
     return message;
   },
 };
 
 function createBaseCommand(): Command {
-  return { name: "", compatibilityId: "", version: "", description: "", args: [], aliases: [] };
+  return { name: "", compatibilityId: "", version: "", description: "", args: [], aliases: [], requires: [] };
 }
 
 export const Command: MessageFns<Command> = {
@@ -732,6 +771,9 @@ export const Command: MessageFns<Command> = {
     }
     for (const v of message.aliases) {
       writer.uint32(50).string(v!);
+    }
+    for (const v of message.requires) {
+      writer.uint32(58).string(v!);
     }
     return writer;
   },
@@ -791,6 +833,14 @@ export const Command: MessageFns<Command> = {
           message.aliases.push(reader.string());
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.requires.push(reader.string());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -812,6 +862,7 @@ export const Command: MessageFns<Command> = {
       description: isSet(object.description) ? globalThis.String(object.description) : "",
       args: globalThis.Array.isArray(object?.args) ? object.args.map((e: any) => ArgSpec.fromJSON(e)) : [],
       aliases: globalThis.Array.isArray(object?.aliases) ? object.aliases.map((e: any) => globalThis.String(e)) : [],
+      requires: globalThis.Array.isArray(object?.requires) ? object.requires.map((e: any) => globalThis.String(e)) : [],
     };
   },
 
@@ -835,6 +886,9 @@ export const Command: MessageFns<Command> = {
     if (message.aliases?.length) {
       obj.aliases = message.aliases;
     }
+    if (message.requires?.length) {
+      obj.requires = message.requires;
+    }
     return obj;
   },
 
@@ -849,6 +903,7 @@ export const Command: MessageFns<Command> = {
     message.description = object.description ?? "";
     message.args = object.args?.map((e) => ArgSpec.fromPartial(e)) || [];
     message.aliases = object.aliases?.map((e) => e) || [];
+    message.requires = object.requires?.map((e) => e) || [];
     return message;
   },
 };

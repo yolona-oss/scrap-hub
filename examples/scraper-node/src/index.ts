@@ -1,7 +1,8 @@
 /* eslint-disable no-console */
 import 'reflect-metadata'
 import { z } from 'zod'
-import { MongoMiddleware } from '@cmd-hub/common'
+import { log } from '@cmd-hub/common'
+import { MongoStorageMiddleware } from '@cmd-hub/storage-mongo'
 import { CmdNodeApp, HubClientMiddleware, InvokeServerMiddleware } from '@cmd-hub/node'
 
 import { OrgScraperService } from './scraper-service/service'
@@ -22,12 +23,13 @@ async function bootstrap() {
         configPath: process.argv[2] ?? './config.json',
         baseSchema: z.object({}).passthrough(),
     })
-        .use(new MongoMiddleware())
+        .use(new MongoStorageMiddleware())
         .use(new InvokeServerMiddleware())
         .use(new HubClientMiddleware())
         .useCommand(OrgScraperService)
 
     await app.Initialize()
+    log.info('scraper-node ready — initialization complete, parking until SIGINT/SIGTERM')
     await app.run()
     // `run()` parks on a never-resolving promise; the framework's
     // built-in SIGINT/SIGTERM handlers call terminate() on shutdown.

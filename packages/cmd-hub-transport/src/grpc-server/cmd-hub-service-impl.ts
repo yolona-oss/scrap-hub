@@ -1,4 +1,5 @@
 import * as grpc from '@grpc/grpc-js'
+import { log } from '@cmd-hub/common'
 import type {
     CmdHubServiceServer,
     RegisterRequest,
@@ -16,13 +17,8 @@ import type { MetricStore } from '../metrics/metric-store'
 
 const HEARTBEAT_INTERVAL_MS = 15_000
 
-/**
- * The fingerprint of the mTLS client cert is computed by the TLS layer and
- * made available here through an injected resolver. In v1 integration tests
- * that don't use mTLS the resolver simply returns the value the node passed
- * in a metadata header ("x-cmdhub-node-fingerprint") — sufficient to exercise
- * the registry's token+fingerprint contract.
- */
+/** Resolves the mTLS client-cert fingerprint from a call. In v1 insecure
+ *  tests this reads `x-cmdhub-node-fingerprint` metadata. */
 export type FingerprintResolver = (
     call: grpc.ServerUnaryCall<unknown, unknown> | grpc.ServerDuplexStream<unknown, unknown>,
 ) => string | null
@@ -32,16 +28,9 @@ export interface CmdHubServiceDeps {
     aggregator: ManifestAggregator
     fileService: FileService
     metrics: MetricStore
-    /**
-     * Called when a node registers successfully. Phase 2.3 uses this to open
-     * an Invoke gRPC channel back to the node via its listen_address.
-     */
     onNodeRegistered?: (nodeId: string, listenAddress: string) => void
-    /**
-     * Called when a node's stream tears down. Phase 2.3 closes the channel.
-     */
     onNodeDisconnected?: (nodeId: string) => void
-    /** See FingerprintResolver. Defaults to reading an x-cmdhub-node-fingerprint metadata header. */
+    /** Defaults to reading an `x-cmdhub-node-fingerprint` metadata header. */
     resolveFingerprint?: FingerprintResolver
 }
 
@@ -69,6 +58,7 @@ function toAggregated(m: NodeManifest): AggregatedManifest {
         configs: m.configs.map((c) => ({ name: c.name, scope: c.scope, fields: c.fields })),
         hardware: m.hardware,
         metrics: m.metrics,
+        publishedCapabilities: m.publishedCapabilities,
     }
 }
 
@@ -99,7 +89,6 @@ export function makeCmdHubServiceImpl(deps: CmdHubServiceDeps): CmdHubServiceSer
                         return
                     }
 
-                    // Validate creds + transition registry state.
                     try {
                         await deps.registry.markRegistered(req.nodeId, {
                             presentedToken: req.token,
@@ -114,10 +103,16 @@ export function makeCmdHubServiceImpl(deps: CmdHubServiceDeps): CmdHubServiceSer
                         return
                     }
 
-                    // Attach the manifest — rejection is an application error (400-ish).
-                    const attach = deps.aggregator.attach(toAggregated(req.manifest))
+                    // `replace: true` swaps any stale prior session in-place
+                    // so reconnects emit `onChange` once, not twice.
+                    const attach = deps.aggregator.attach(
+                        toAggregated(req.manifest),
+                        undefined,
+                        { replace: true },
+                    )
                     if (!attach.ok) {
-                        // Roll the registry back so reconnects are clean.
+                        // Bad manifest (semver/compatibilityId/major-version conflict):
+                        // disable the node until it's reprovisioned.
                         await deps.registry.deregister(req.nodeId).catch(() => undefined)
                         callback({
                             code: grpc.status.FAILED_PRECONDITION,
@@ -139,6 +134,7 @@ export function makeCmdHubServiceImpl(deps: CmdHubServiceDeps): CmdHubServiceSer
                         pollIntervalMs: HEARTBEAT_INTERVAL_MS,
                         assignedState: state === 'ACTIVE' ? 1 : state === 'PENDING' ? 0 : 2,
                     }
+                    log.info(`CmdHubService: registered node "${req.nodeId}" (state=${state}, listen=${req.listenAddress || '(none)'})`)
                     callback(null, response)
                 } catch (err) {
                     callback({
@@ -167,10 +163,12 @@ export function makeCmdHubServiceImpl(deps: CmdHubServiceDeps): CmdHubServiceSer
             })
 
             call.on('end', () => {
+                log.info(`CmdHubService: heartbeat stream ended for node "${nodeId}"`)
                 deps.onNodeDisconnected?.(nodeId)
                 call.end()
             })
-            call.on('error', () => {
+            call.on('error', (e) => {
+                log.warn(`CmdHubService: heartbeat stream errored for node "${nodeId}": ${(e as Error)?.message ?? e}`)
                 deps.onNodeDisconnected?.(nodeId)
             })
         },

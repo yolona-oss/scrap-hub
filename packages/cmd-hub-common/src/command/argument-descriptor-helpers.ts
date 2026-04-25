@@ -3,6 +3,14 @@ import { ArgumentDescriptorType, IArgumentCompiled, IArgumentDescriptor, IArgume
 import { CmdArgumentMetadataRaw } from "./argument-decorator";
 import { encodePositionalName } from "./positional";
 
+/** Sentinel value `compileArgumentFromDesc` writes into `IArgumentCompiled.value`
+ *  for `@CmdArgument({ standalone: true })` flags. The arg is "set" by mere
+ *  presence — there's no value to capture — but the args list shape requires
+ *  a string. Consumers that flatten the compiled list (e.g. `RemoteCmdInvoker`
+ *  preparing the proto args map) detect the sentinel and rewrite it back to
+ *  an empty string. */
+export const STANDALONE_ARG_VALUE = '__standalone__'
+
 export function validateArgumentDescriptor(desc: CmdArgumentMetadataRaw|IArgumentDescriptor) {
     if (desc.position != undefined) {
         if (desc.position <= 0) {
@@ -73,7 +81,7 @@ export function compileArgumentFromDesc(desc: IArgumentDescriptor|IArgumentIdent
     if (isArgumentDescStandalone(desc)) {
         return {
             name: desc.name,
-            value: '__standalone__',
+            value: STANDALONE_ARG_VALUE,
             standalone: true,
             ctx: desc.ctx
         }

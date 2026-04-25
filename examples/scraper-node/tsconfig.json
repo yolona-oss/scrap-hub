@@ -3,14 +3,8 @@
 
     "compilerOptions": {
         "outDir": "./build",
-        "baseUrl": "./",
-        "declaration": false,
-        "paths": {
-            "@core/*":     ["../../packages/cmd-hub/src/*"],
-            "@logger":     ["../../packages/cmd-hub/src/application/logger"],
-            "@config":     ["../../packages/cmd-hub/src/config"],
-            "@utils/*":    ["../../packages/cmd-hub/src/utils/*"]
-        }
+        "rootDir": "./src",
+        "declaration": false
     },
     "include": [
         "./src/**/*"

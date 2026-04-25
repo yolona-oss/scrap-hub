@@ -1,12 +1,12 @@
-import { AbstractCmdHandler, ICmdHandlerRequest, ICmdHandlerResponce } from "./abstract-handler";
-import { BaseUIContext } from "../../../ui/types";
-import { BaseUI } from "../../../ui/base-ui";
-import { CommandBuilder } from "../builder";
-import { CmdDispatcher } from "../dispatcher";
-import log from '../../../application/logger';
-import { CBDescriptorCompiler } from "../builder/desc-compiler";
-import { IUICommandDescriptor } from "../../../ui/types";
-import { Account, Manager } from "../../../db";
+import { AbstractCmdHandler, ICmdHandlerRequest, ICmdHandlerResponce } from "./abstract-handler"
+import { BaseUIContext } from "../../../ui/types"
+import { BaseUI } from "../../../ui/base-ui"
+import { CommandBuilder } from "../builder"
+import { CmdDispatcher } from "../dispatcher"
+import log from '../../../application/logger'
+import { CBDescriptorCompiler } from "../builder/desc-compiler"
+import { IUICommandDescriptor, IUI } from "../../../ui/types"
+import { isFunc } from "../../types/command"
 
 // TODO add completion for builtin commands
 
@@ -15,6 +15,14 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
     private async startNewBuild(userId: string, command: string, args: string[], ctx: UICtx, builder: CommandBuilder, dispatcher: CmdDispatcher<UICtx>): Promise<ICmdHandlerResponce|void> {
         log.trace(`Checking for availability to start build: ${command}`)
         log.trace(`Command: ${command}\nArgs: ${args}`)
+        // Skip the builder when the command is neither local (cmd_registry)
+        // nor remote (manifest-aggregated). The chain falls through to the
+        // invocation handler which surfaces a "no nodes eligible" / "command
+        // not found" error rather than a stack trace from descCompiler.
+        const known = dispatcher.tryGetInvokable(command) || dispatcher.tryGetRemoteCommand(command)
+        if (!known) {
+            return
+        }
         if (!dispatcher.isAllArgsPassed(command, args)) {
             const avalibleCtxs = CommandBuilder.selectReadingContexts(command, userId, dispatcher)
 
@@ -27,15 +35,18 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
             )
 
             // Fetch saved data for services to show in builder
-            let savedData: Record<string, any> | undefined
+            let savedData: Record<string, unknown> | undefined
             if (dispatcher.isService(command)) {
                 try {
-                    const owner = await Manager.findOne({ userId: ctx.manager?.userId })
-                    if (owner) {
-                        const account = await Account.findById(owner.account)
-                        if (account) {
-                            const { account_module } = await account.getModuleByNameOrCreate(command)
-                            savedData = account_module.data?.config
+                    const repos = dispatcher.repos
+                    if (repos && ctx.manager?.userId !== undefined) {
+                        const owner = await repos.manager.findByUserId(ctx.manager.userId)
+                        if (owner?.accountId) {
+                            const account = await repos.account.handleById(owner.accountId)
+                            if (account) {
+                                const { module } = await account.getModuleByNameOrCreate(command)
+                                savedData = (module.record.data.config ?? undefined) as Record<string, unknown> | undefined
+                            }
                         }
                     }
                 } catch (_) {}
@@ -52,7 +63,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
         return
     }
 
-    private async handleBuildProcess(userId: string, text: string, ctx: UICtx, builder: CommandBuilder, dispatcher: CmdDispatcher<UICtx>, uiImpl: any): Promise<ICmdHandlerResponce|void> {
+    private async handleBuildProcess(userId: string, text: string, ctx: UICtx, builder: CommandBuilder, dispatcher: CmdDispatcher<UICtx>, uiImpl: IUI<UICtx>): Promise<ICmdHandlerResponce|void> {
         if (builder.isUserOnBuild(userId)) {
             const stepRes = builder.handle(userId, text)
 
@@ -62,6 +73,22 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
                 if (uiImpl instanceof BaseUI) {
                     uiImpl.lifecycle.scheduleCleanupByType(userId, 'builder', 5_000)
                 }
+
+                // Local-first dispatch: built-ins live in the dispatcher's
+                // own registry and don't exist on any cmd-node. Routing them
+                // through RemoteCmdInvoker would always fail with "no nodes
+                // eligible". Only fall through to the remote invoker for
+                // commands NOT found locally.
+                const localEntry = dispatcher.tryGetInvokable(stepRes.Result.command)
+                if (localEntry && isFunc(localEntry.invokable)) {
+                    await localEntry.invokable.call(dispatcher, stepRes.Result.proxy, ctx, uiImpl)
+                    return {
+                        success: true,
+                        markup: { text: '' },
+                        messageType: 'system' as const,
+                    }
+                }
+
                 const invoker = dispatcher.RemoteInvoker
                 if (!invoker) {
                     return {
@@ -70,7 +97,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
                         messageType: 'system' as const,
                     }
                 }
-                return await invoker.invokeLegacy(userId, stepRes.Result, ctx, uiImpl as any)
+                return await invoker.invokeLegacy(userId, stepRes.Result, ctx, uiImpl)
             }
 
             if (stepRes.Done) {
@@ -103,8 +130,8 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
             if (buildSetupRes) {
                 return buildSetupRes
             }
-        } catch(e: any) {
-            log.error(`Cannot start build command: "${command}": ${e?.message ?? e}`, e)
+        } catch(e: unknown) {
+            log.error(`Cannot start build command: "${command}": ${(e as Error)?.message ?? e}`, e)
         }
 
         return await super.handle(request)

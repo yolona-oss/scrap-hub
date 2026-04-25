@@ -3,23 +3,11 @@ import { validateArgumentDescriptor } from "./argument-descriptor-helpers"
 import { CmdArgumentOptionSetter, CmdArgumentPairOptionsType } from "./argument-option-types"
 import "reflect-metadata"
 
-// TODO may be create mutations for CmdArgumentMeta that describes one of three types of arguments(standalone, positional, pair)
-
 export const COMMAND_ARG_DESC_KEY = Symbol('descriptor:command-argument')
 
-/**
- * @param required - is argument required
- * @param description - argument description
- * @param validator - argument validator
- * @param pairOptions - autocompete helper options
- * @param defaultValue - argument default value
- *
- * @description only one of position or standalone can be used in a single argument.
- *              if both undefined - argument is pair
- * @param position - is argument position
- * @param standalone - is argument standalone
- * @param isPair - is argument pair
- */
+/** An argument is one of three kinds — standalone, positional, or pair.
+ *  Position and standalone are mutually exclusive; if both are absent the
+ *  argument is a pair. */
 export interface CmdArgumentMetadataRaw {
     readonly required: boolean
     readonly description: string
@@ -33,10 +21,6 @@ export interface CmdArgumentMetadataRaw {
     readonly defaultValue?: string
 }
 
-/**
- * @description
- * Command argument metadata definition must have one of position or standalone, or field isPair will be set to true
- */
 export type CmdArgumentMetadataDef = AllowNoneOrOne<Partial<CmdArgumentMetadataRaw>, 'standalone' | 'position'>
 
 const CmdArgumentDefaults: CmdArgumentMetadataRaw = {
@@ -52,14 +36,7 @@ const CmdArgumentDefaults: CmdArgumentMetadataRaw = {
     defaultValue: undefined
 }
 
-/**
- * @description
- * Creates description-like definition for argument
- * Applies metadata to object property
- *
- * @default by default argument is pair and not required with empty description
- *          and without autocompete and default value
- */
+/** Default: pair, not required, empty description, no autocomplete or defaultValue. */
 export function CmdArgument(metadata: CmdArgumentMetadataDef) {
     return (target: any, propertyKey: string) => {
         let defaulted = {
@@ -82,10 +59,7 @@ export function CmdArgument(metadata: CmdArgumentMetadataDef) {
 export type CommandMetadata<T extends string|number|symbol = string> = Record<T, CmdArgumentMetadataRaw>
 export type CommandArgumentKeyHolder = Record<string, any>
 
-/**
- * @description @CmdArgument decorator metadata getter. Handles inheritance.
- * @returns Command argument metadata
- */
+/** Walks the prototype chain so child-class metadata wins over parent. */
 export function getCmdArgMetadata<T>(
     target: any
 ): CommandMetadata<keyof T> {
@@ -97,11 +71,9 @@ export function getCmdArgMetadata<T>(
         if (metadata) {
             for (const key in metadata) {
                 const value = metadata[key]
-                // Skip entries that aren't argument metadata objects
                 if (typeof value !== 'object' || value === null || !('required' in value)) {
                     continue
                 }
-                // Child class metadata takes priority over parent
                 metadataMap[key as keyof T] = {
                     ...value,
                     ...metadataMap[key as keyof T],
@@ -114,26 +86,7 @@ export function getCmdArgMetadata<T>(
     return metadataMap as CommandMetadata<keyof T>
 }
 
-/**
- * @description Command argument definition
- *
- * use this notation:
- * class CommandEchoArgs {
- *     @CmdArgument({
- *         required: true,
- *         description: "Message to echo",
- *     })
- *     echo?: string
- * }
- *
- * const EchoCommand = {
- *      command: 'echo',
- *      args: new CommandEchoArgs
- *      exec: async function(args: ..., ctx: UIContext) {
- *          ctx.reply(args.echo)
- *      }
- * }
- */
+
 export type ICmdArgumentDefinition = CommandArgumentKeyHolder
 /** @deprecated Use ICmdArgumentDefinition */
 export type ICmdArgumentDefenition = ICmdArgumentDefinition

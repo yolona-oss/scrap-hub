@@ -8,8 +8,11 @@ export class HandleSequenceCommand<Ctx extends BaseUIContext> extends AbstractCm
     public async handle(request: ICmdHandlerRequest<Ctx>): Promise<ICmdHandlerResponce> {
         const { command, userId, dispatcher } = request
 
-        const cb = dispatcher.getInvokable(command)
-        if (!cb.seqBounded) {
+        // Sequence handling only applies to LOCAL invokables (built-ins
+        // chained via /next, /back, /cancel). Remote commands aren't part
+        // of any sequence — pass them through to the invocation handler.
+        const cb = dispatcher.tryGetInvokable(command)
+        if (!cb || !cb.seqBounded) {
             return await super.handle(request)
         }
 

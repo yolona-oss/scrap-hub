@@ -1,10 +1,10 @@
 import { CmdArgument } from "../../../ui/types/command"
 import { BuiltInAliasCommandsEnum } from "../constants"
-import {CmdDispatcher } from "../dispatcher"
+import { CmdDispatcher } from "../dispatcher"
 import { BuiltInCommand } from "../types/built-in-cmd"
-import { CmdAlias } from "../../../db"
 import { UiUnicodeSymbols } from "../../../ui"
 import { CmdArgumentProxy } from "../arg-proxy"
+import { CAP_CmdAliasRepo } from "@cmd-hub/common"
 
 export const MAX_ALIAS_NAME_LEN = 32
 
@@ -32,11 +32,13 @@ const AliasCommand: BuiltInCommand = {
     command: BuiltInAliasCommandsEnum.ALIAS_COMMAND,
     description: "Print help for concreet command",
     args: AliasArgs,
+    requires: [CAP_CmdAliasRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
         const aliasName = args.getOrThrow('alias')
         const commandStr = args.getOrThrow('command')
 
-        const owner_id = ctx.manager!._id
+        const ownerId = ctx.manager!.id
+        const repo = this.requireRepos('alias').cmdAlias
 
         if (!isValidAliasName(aliasName)) {
             throw new Error(`Alias name "${aliasName}" is not valid. It must be alphanumeric, numeric and underscore only`)
@@ -45,12 +47,11 @@ const AliasCommand: BuiltInCommand = {
             throw new Error(`Alias name "${aliasName}" is too long. Max length is ${MAX_ALIAS_NAME_LEN}`)
         }
 
-        const aliases = await CmdAlias.find({owner_id})
-        if (aliases.find(a => a.alias === aliasName)) {
+        const existing = await repo.findByOwnerAndAlias(ownerId, aliasName)
+        if (existing) {
             throw new Error(`Alias "${aliasName}" already exists`)
         }
-        console.log(aliasName, "|", commandStr)
-        await CmdAlias.create({alias: aliasName, command: commandStr, owner_id})
+        await repo.create({ alias: aliasName, command: commandStr, ownerId })
     }
 }
 
@@ -67,16 +68,17 @@ const UnaliasCommand: BuiltInCommand = {
     command: BuiltInAliasCommandsEnum.UNALIAS_COMMAND,
     description: "Unalias command",
     args: UnAliasArgs,
+    requires: [CAP_CmdAliasRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
         const aliasName = args.getOrThrow('alias')
-        const owner_id = ctx.manager!._id
+        const ownerId = ctx.manager!.id
+        const repo = this.requireRepos('unalias').cmdAlias
 
-        const res = await CmdAlias.deleteOne({alias: aliasName, owner_id})
-        if (res.deletedCount === 0) {
+        const deletedCount = await repo.deleteByOwnerAndAlias(ownerId, aliasName)
+        if (deletedCount === 0) {
             throw new Error(`Alias "${aliasName}" not found`)
-        } else {
-            await ctx.reply(`Alias "${aliasName}" removed`)
         }
+        await ctx.reply(`Alias "${aliasName}" removed`)
     }
 }
 
@@ -84,11 +86,13 @@ const ListAliases: BuiltInCommand = {
     command: BuiltInAliasCommandsEnum.LIST_ALIASES_COMMAND,
     description: "Show all user aliases",
     args: [],
+    requires: [CAP_CmdAliasRepo],
     invokable: async function(this: CmdDispatcher<any>, _, ctx) {
-        const owner_id = ctx.manager!._id
+        const ownerId = ctx.manager!.id
+        const repo = this.requireRepos('listAliases').cmdAlias
 
-        const aliases = await CmdAlias.find({owner_id})
-        const aliasesStr = `Aliases for user "${owner_id}":\n` +
+        const aliases = await repo.listByOwner(ownerId)
+        const aliasesStr = `Aliases for user "${ownerId}":\n` +
             aliases.map(a => ` -- <${a.alias}>: ${UiUnicodeSymbols.gear} "${a.command}"`).join("\n")
         await ctx.reply(aliasesStr)
     }

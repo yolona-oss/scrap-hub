@@ -4,7 +4,6 @@ import 'reflect-metadata'
 import { Command } from 'commander'
 import * as fs from 'fs'
 import * as path from 'path'
-import mongoose from 'mongoose'
 import {
     createCA,
     loadCA,
@@ -12,9 +11,12 @@ import {
     signNodeCert,
     CmdNodeRegistry,
     InternalTokenVerifier,
-    NodeRecordModel,
 } from '@cmd-hub/transport'
-import { MongoConnect } from '../db/mongoose'
+import {
+    MongooseStorageConnection,
+    MongoNodeRecordRepo,
+    NodeRecordModel,
+} from '@cmd-hub/storage-mongo'
 
 /**
  * cmd-hub CLI. Offers operator-level subcommands for CA setup and node
@@ -51,13 +53,18 @@ program
 
 /* ---- node-add ---- */
 
-async function withMongo<T>(mongoUrl: string, fn: () => Promise<T>): Promise<T> {
-    await MongoConnect(mongoUrl, {})
+async function withMongo<T>(mongoUrl: string, fn: (registry: CmdNodeRegistry) => Promise<T>): Promise<T> {
+    const conn = new MongooseStorageConnection(mongoUrl)
+    await conn.connect()
     await NodeRecordModel.init()
     try {
-        return await fn()
+        const registry = new CmdNodeRegistry({
+            tokens: new InternalTokenVerifier(),
+            repo: new MongoNodeRecordRepo(),
+        })
+        return await fn(registry)
     } finally {
-        await mongoose.disconnect()
+        await conn.disconnect()
     }
 }
 
@@ -72,8 +79,7 @@ program
     .action(async (name: string, opts) => {
         const ca = loadCA(opts.caKey as string, opts.caCert as string)
         const material = signNodeCert(ca, name)
-        await withMongo(opts.mongo as string, async () => {
-            const registry = new CmdNodeRegistry({ tokens: new InternalTokenVerifier() })
+        await withMongo(opts.mongo as string, async (registry) => {
             const { nodeId, token } = await registry.provision({
                 nodeName: name,
                 certFingerprint: material.fingerprint,
@@ -97,8 +103,7 @@ program
     .description('List all provisioned nodes.')
     .requiredOption('--mongo <url>', 'MongoDB connection string')
     .action(async (opts) => {
-        await withMongo(opts.mongo as string, async () => {
-            const registry = new CmdNodeRegistry({ tokens: new InternalTokenVerifier() })
+        await withMongo(opts.mongo as string, async (registry) => {
             const nodes = await registry.list()
             if (nodes.length === 0) {
                 console.log('(no nodes)')
@@ -117,8 +122,7 @@ program
     .description('Approve a PENDING node (moves it to ACTIVE).')
     .requiredOption('--mongo <url>', 'MongoDB connection string')
     .action(async (nodeId: string, opts) => {
-        await withMongo(opts.mongo as string, async () => {
-            const registry = new CmdNodeRegistry({ tokens: new InternalTokenVerifier() })
+        await withMongo(opts.mongo as string, async (registry) => {
             await registry.approve(nodeId)
             console.log(`approved ${nodeId}`)
         })
@@ -131,8 +135,7 @@ program
     .description('Forget a node (hard delete from the registry).')
     .requiredOption('--mongo <url>', 'MongoDB connection string')
     .action(async (nodeId: string, opts) => {
-        await withMongo(opts.mongo as string, async () => {
-            const registry = new CmdNodeRegistry({ tokens: new InternalTokenVerifier() })
+        await withMongo(opts.mongo as string, async (registry) => {
             await registry.forget(nodeId)
             console.log(`removed ${nodeId}`)
         })

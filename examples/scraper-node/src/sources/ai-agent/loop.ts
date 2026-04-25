@@ -4,7 +4,7 @@ import { Tool, toOpenAISchema } from "./tools"
 import { ResolvedAIAgentConfig } from "./config"
 import { buildSystemPrompt, buildUserPrompt } from "./prompts"
 import { SearchQuery } from "../../types"
-import log from "@logger"
+import { log } from "@cmd-hub/common"
 
 export async function runAgentLoop(
     client: OpenAI,

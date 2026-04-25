@@ -1,7 +1,7 @@
 import axios from "axios"
 import * as cheerio from "cheerio"
 import { Tool } from "./types"
-import log from "@logger"
+import { log } from "@cmd-hub/common"
 
 const MAX_CONTENT_CHARS = 15_000
 

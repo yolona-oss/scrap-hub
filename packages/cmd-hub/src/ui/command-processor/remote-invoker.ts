@@ -5,18 +5,33 @@ import type {
     CmdHubProto,
 } from '@cmd-hub/transport'
 import type { IUI, BaseUIContext } from '@cmd-hub/common'
+import {
+    decodePositionalName,
+    isEncodedPositionalName,
+    STANDALONE_ARG_VALUE,
+    log,
+} from '@cmd-hub/common'
 import type { ICommandCompiled } from '../../ui/types/command'
 import type { ServiceDashboard, DashboardEvent } from './dashboard/service-dashboard'
 
 type InvokeServer = CmdHubProto.InvokeServer
 type InvokeClient = CmdHubProto.InvokeClient
 
+/** Per-invocation handle threaded UI → invoker → dashboard factory.
+ *  `ctx` rides along opaquely for UI-specific dashboard narrowing. */
+export interface UIHandle {
+    ctx: unknown
+    uiImpl: IUI<BaseUIContext, unknown>
+}
+
 export interface RemoteInvokeInput {
     command: string
     args: Record<string, string>
     userId: string
-    uiHandle: unknown
+    uiHandle: UIHandle
     nodeOverride?: string
+    /** When set, restricts node picks to those eligible for this UI. */
+    uiName?: string
 }
 
 export interface RemoteInvokeResult {
@@ -28,7 +43,7 @@ export interface RemoteInvokeResult {
 export interface DashboardSession {
     sessionId: string
     userId: string
-    uiHandle: unknown
+    uiHandle: UIHandle
 }
 
 export type DashboardFactory = (session: DashboardSession) => ServiceDashboard<any>
@@ -39,40 +54,32 @@ export interface RemoteCmdInvokerDeps {
     createDashboard: DashboardFactory
 }
 
-/**
- * Hub-side invoker that fans an incoming /command out to a remote cmd-node
- * via gRPC. Replaces the legacy in-process CommandInvoker. Each invocation:
- *
- *   1. Picks a node from ManifestAggregator's CommandPool (round-robin or
- *      a caller-supplied nodeOverride).
- *   2. Creates a ServiceDashboard via the injected factory.
- *   3. Opens a gRPC Invoke stream via ICmdNodeClient.
- *   4. Pipes the node's InvokeServer events through protoToDashboardEvent()
- *      into dashboard.onEvent().
- *   5. Wires dashboard.sendIntercom -> handle.send({ intercom }) so button
- *      clicks reach the node.
- */
+/** Fans /command out to a remote cmd-node over gRPC. Picks via the pool,
+ *  spins up a ServiceDashboard, pipes InvokeServer events through it, and
+ *  wires intercom clicks back. */
 export class RemoteCmdInvoker {
     constructor(private readonly deps: RemoteCmdInvokerDeps) {}
 
-    /**
-     * New-shape invocation. The `args` map is passed straight through as the
-     * gRPC InvokeStart.args field.
-     */
     async invoke(input: RemoteInvokeInput): Promise<RemoteInvokeResult> {
         const pool = this.deps.aggregator.getPool()
-        const pick = pool.pick(
-            input.command,
-            input.nodeOverride ? { nodeId: input.nodeOverride } : undefined,
-        )
+        const pickOpts = input.nodeOverride
+            ? { nodeId: input.nodeOverride }
+            : input.uiName
+                ? { uiName: input.uiName }
+                : undefined
+        const pick = pool.pick(input.command, pickOpts)
         if (!pick) {
             const reason = input.nodeOverride
                 ? `node "${input.nodeOverride}" is not a peer for /${input.command}`
-                : `no nodes available for /${input.command}`
+                : input.uiName
+                    ? `no nodes eligible for /${input.command} from UI "${input.uiName}" — check federationRequires`
+                    : `no nodes available for /${input.command}`
+            log.warn(`RemoteCmdInvoker: ${reason}`)
             return { success: false, markup: { text: reason }, messageType: 'system' }
         }
 
         const sessionId = randomUUID()
+        log.info(`RemoteCmdInvoker: /${input.command} → node "${pick.nodeId}" (session=${sessionId})`)
         const dashboard = this.deps.createDashboard({
             sessionId,
             userId: input.userId,
@@ -90,6 +97,7 @@ export class RemoteCmdInvoker {
                 serviceDataBlob: new Uint8Array(),
             })
         } catch (e) {
+            log.error(`RemoteCmdInvoker: /${input.command} on "${pick.nodeId}" failed to open: ${(e as Error)?.message ?? e}`)
             try { await dashboard.detach() } catch { /* ignore */ }
             return {
                 success: false,
@@ -98,7 +106,6 @@ export class RemoteCmdInvoker {
             }
         }
 
-        // Wire dashboard intercom clicks back to the node.
         dashboard.sendIntercom = async (actionId, args) => {
             const msg: InvokeClient = { intercom: { actionId, args } }
             await handle.send(msg)
@@ -119,9 +126,7 @@ export class RemoteCmdInvoker {
                 finalText = e.done.finalMessage ?? ''
             }
         }
-        // Stream closed without a done event (node crash, disconnect).
-        // Detach the dashboard explicitly so its message reaches a terminal
-        // state — onEvent doesn't fire because there's no `done` proto.
+        // Stream closed without `done` (node crash/disconnect): force terminal state.
         if (!sawDone) {
             try { await dashboard.detach() } catch { /* ignore */ }
         }
@@ -136,12 +141,9 @@ export class RemoteCmdInvoker {
         return { success: true, markup: { text: finalText }, messageType: 'dashboard' }
     }
 
-    /**
-     * Legacy-signature shim. Callers in cmd-hub still pass
-     *   (userId, ICommandCompiled, ctx, uiImpl)
-     * — flatten the compiled argument list into a plain Record<string,string>
-     * and delegate to invoke().
-     */
+    /** Legacy-signature shim that flattens `ICommandCompiled` into the
+     *  bare-name args map the node expects (positional prefix stripped,
+     *  standalone sentinel collapsed to ''). */
     async invokeLegacy<Ctx extends BaseUIContext>(
         userId: string,
         compiled: ICommandCompiled,
@@ -150,13 +152,17 @@ export class RemoteCmdInvoker {
     ): Promise<RemoteInvokeResult> {
         const args: Record<string, string> = {}
         for (const a of compiled.raw) {
-            args[a.name] = a.value
+            const name = isEncodedPositionalName(a.name)
+                ? decodePositionalName(a.name).name
+                : a.name
+            args[name] = a.value === STANDALONE_ARG_VALUE ? '' : a.value
         }
         return this.invoke({
             command: compiled.command,
             args,
             userId,
             uiHandle: { ctx, uiImpl },
+            uiName: uiImpl.ContextType(),
         })
     }
 }

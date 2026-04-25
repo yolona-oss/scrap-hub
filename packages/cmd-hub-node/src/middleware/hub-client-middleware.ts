@@ -6,6 +6,7 @@ import {
     Phase,
     AppLike,
     readConfigSlice,
+    log,
 } from '@cmd-hub/common'
 import { HubClient, IHubServiceClient } from '../runtime/hub-client'
 import { MetricsCollector } from '../manifest/metrics-collector'
@@ -98,7 +99,15 @@ export class HubClientMiddleware implements IAppMiddleware, ConfigContributor {
 
         if (this.opts.skipNetwork) return
 
+        log.info(
+            `HubClient: registering ${cfg.nodeId} (${cfg.nodeName} v${cfg.version}) ` +
+            `with hub at ${cfg.address}; ` +
+            `published caps: ${manifest.publishedCapabilities.length} ` +
+            `(${manifest.publishedCapabilities.join(', ') || 'none'}); ` +
+            `commands: ${manifest.commands.length}`,
+        )
         await this.client.register(manifest)
+        log.info(`HubClient: registered; starting heartbeat (interval ${cfg.heartbeatIntervalMs ?? 'default'} ms)`)
         this.client.startHeartbeat(this.metrics)
     }
 

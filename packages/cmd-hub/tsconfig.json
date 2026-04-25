@@ -17,6 +17,7 @@
     ],
     "references": [
         { "path": "../cmd-hub-common" },
+        { "path": "../cmd-hub-storage-mongo" },
         { "path": "../cmd-hub-transport" }
     ]
 }

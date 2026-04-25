@@ -84,6 +84,7 @@ const manifest: CmdHubProto.NodeManifest = {
     commands: [], services: [], configs: [],
     hardware: { cpuCores: 1, totalMemoryBytes: 1, os: 'x', arch: 'x', hostname: 'h' },
     metrics: { gauges: [], counters: [], histograms: [] },
+    publishedCapabilities: [],
 }
 
 describe('HubClientMiddleware', () => {

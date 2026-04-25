@@ -2,21 +2,24 @@
 import 'reflect-metadata'
 import { z } from 'zod'
 import {
-    MongoMiddleware,
     ProxyMiddleware,
     AppLockMiddleware,
 } from '@cmd-hub/common'
 import {
+    MongoStorageMiddleware,
+    GridFsStorageMiddleware,
+} from '@cmd-hub/storage-mongo'
+import {
     CmdHubApp,
     GrpcServerMiddleware,
-    UploadEndpointMiddleware,
     CmdNodeClientMiddleware,
+    ConfigBootMiddleware,
 } from '@cmd-hub/core'
 import { TelegramUI } from '@cmd-hub/ui-telegram'
 
 /**
  * App-specific config slice. Each middleware + UI contributes its own
- * slice automatically (mongo, proxy, appLock, grpc, upload, telegram).
+ * slice automatically (storage, gridfs, proxy, appLock, grpc, telegram).
  * `deployment` lets operators tag config.json with a human-readable name.
  */
 const AppSchema = z.object({
@@ -30,9 +33,10 @@ async function bootstrap() {
     })
         .use(new AppLockMiddleware())
         .use(new ProxyMiddleware())
-        .use(new MongoMiddleware())
-        .use(new GrpcServerMiddleware())
-        .use(new UploadEndpointMiddleware())
+        .use(new MongoStorageMiddleware())
+        .use(new GridFsStorageMiddleware())
+        .use(new ConfigBootMiddleware())
+        .use(new GrpcServerMiddleware({ insecure: true }))
         .use(new CmdNodeClientMiddleware())
         .useUI(new TelegramUI())
 

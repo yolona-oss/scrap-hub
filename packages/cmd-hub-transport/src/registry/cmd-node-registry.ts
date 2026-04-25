@@ -1,6 +1,5 @@
 import { randomBytes, randomUUID } from 'crypto'
-import { NodeRecordModel } from '../db/node-record.model'
-import type { NodeRecord, NodeState } from '../types'
+import type { INodeRecordRepo, NodeRecord, NodeState } from '@cmd-hub/common'
 import type { ITokenVerifier } from '../auth/types'
 
 export interface ProvisionInput {
@@ -9,25 +8,31 @@ export interface ProvisionInput {
     createdVia: 'cli' | 'manual'
     autoActivate: boolean
 }
+
 export interface ProvisionOutput {
     nodeId: string
     token: string
 }
+
 export interface MarkRegisteredInput {
     presentedToken: string
     presentedFingerprint: string
     manifestSnapshotId: string
 }
 
+/**
+ * Provisioning + lifecycle for cmd-nodes. Persists records via the abstract
+ * `INodeRecordRepo` so the registry has no direct dependency on mongoose.
+ */
 export class CmdNodeRegistry {
-    constructor(private readonly deps: { tokens: ITokenVerifier }) {}
+    constructor(private readonly deps: { tokens: ITokenVerifier; repo: INodeRecordRepo }) {}
 
     async provision(input: ProvisionInput): Promise<ProvisionOutput> {
         const nodeId = randomUUID()
         const token = randomBytes(32).toString('hex')
         const tokenHash = await this.deps.tokens.hash(token)
         const state: NodeState = input.autoActivate ? 'ACTIVE' : 'PENDING'
-        await NodeRecordModel.create({
+        await this.deps.repo.create({
             nodeId,
             nodeName: input.nodeName,
             state,
@@ -42,33 +47,30 @@ export class CmdNodeRegistry {
     }
 
     async get(nodeId: string): Promise<NodeRecord | null> {
-        return NodeRecordModel.findOne({ nodeId }).lean<NodeRecord | null>()
+        return this.deps.repo.findById(nodeId)
     }
 
     async list(): Promise<NodeRecord[]> {
-        return NodeRecordModel.find({}).lean<NodeRecord[]>()
+        return this.deps.repo.list()
     }
 
     async approve(nodeId: string): Promise<void> {
-        const res = await NodeRecordModel.updateOne(
-            { nodeId, state: 'PENDING' },
-            { $set: { state: 'ACTIVE' } },
-        )
-        if (res.modifiedCount === 0) {
+        const changed = await this.deps.repo.setState(nodeId, 'ACTIVE', { onlyIfState: 'PENDING' })
+        if (changed === 0) {
             throw new Error(`cannot approve node ${nodeId} (not PENDING)`)
         }
     }
 
     async deregister(nodeId: string): Promise<void> {
-        await NodeRecordModel.updateOne({ nodeId }, { $set: { state: 'DISABLED' } })
+        await this.deps.repo.setState(nodeId, 'DISABLED')
     }
 
     async forget(nodeId: string): Promise<void> {
-        await NodeRecordModel.deleteOne({ nodeId })
+        await this.deps.repo.deleteById(nodeId)
     }
 
     async markRegistered(nodeId: string, input: MarkRegisteredInput): Promise<NodeRecord> {
-        const rec = await NodeRecordModel.findOne({ nodeId })
+        const rec = await this.deps.repo.findById(nodeId)
         if (!rec) throw new Error(`unknown node: ${nodeId}`)
         if (rec.state === 'DISABLED') throw new Error(`node ${nodeId} is DISABLED`)
         if (rec.certFingerprint !== input.presentedFingerprint) {
@@ -76,14 +78,17 @@ export class CmdNodeRegistry {
         }
         const ok = await this.deps.tokens.verify(input.presentedToken, rec.tokenHash)
         if (!ok) throw new Error(`invalid token for node ${nodeId}`)
-        rec.registeredAt = Date.now()
-        rec.lastSeen = Date.now()
-        rec.manifestSnapshotId = input.manifestSnapshotId
-        await rec.save()
-        return rec.toObject() as unknown as NodeRecord
+        const now = Date.now()
+        const updated = await this.deps.repo.markRegistered(nodeId, {
+            registeredAt: now,
+            lastSeen: now,
+            manifestSnapshotId: input.manifestSnapshotId,
+        })
+        if (!updated) throw new Error(`failed to update node record: ${nodeId}`)
+        return updated
     }
 
     async touchLastSeen(nodeId: string): Promise<void> {
-        await NodeRecordModel.updateOne({ nodeId }, { $set: { lastSeen: Date.now() } })
+        await this.deps.repo.touchLastSeen(nodeId, Date.now())
     }
 }

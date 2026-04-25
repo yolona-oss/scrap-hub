@@ -32,6 +32,7 @@ export function toRegister(cmd: BuiltInCommand<any>, dispatcher: CmdDispatcher<a
             next: cmd.next,
             prev: cmd.prev
         },
-        invokable: cmd.invokable.bind(dispatcher)
+        invokable: cmd.invokable.bind(dispatcher),
+        requires: cmd.requires,
     }
 }

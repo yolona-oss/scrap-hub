@@ -2,9 +2,14 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import mongoose from 'mongoose'
 import * as grpc from '@grpc/grpc-js'
 import { z } from 'zod'
+import { Application } from '@cmd-hub/common'
+import { CmdHubProto, CAP_GrpcBoundAddress } from '@cmd-hub/transport'
+import {
+    MongoStorageMiddleware,
+    GridFsStorageMiddleware,
+    NodeRecordModel,
+} from '@cmd-hub/storage-mongo'
 import { GrpcServerMiddleware } from '../grpc-server-middleware'
-import { MongoMiddleware, Application } from '@cmd-hub/common'
-import { CmdHubProto, NodeRecordModel, CAP_GrpcBoundAddress } from '@cmd-hub/transport'
 
 class TestApp extends Application<any> {
     async run(): Promise<void> {}
@@ -27,12 +32,14 @@ describe('GrpcServerMiddleware', () => {
             configPath: '',
             baseSchema: z.object({}),
             inlineConfig: {
-                mongo: { url: rs.getUri('grpc-mw-test'), migrateConfigRegistry: false },
-                grpc: { bindAddress: '127.0.0.1:0', publicBaseUrl: 'http://127.0.0.1:0' },
-            } as any,
+                storage: { url: rs.getUri('grpc-mw-test') },
+                gridfs: { publicBaseUrl: 'http://127.0.0.1:0', bindAddress: '127.0.0.1:0' },
+                grpc: { bindAddress: '127.0.0.1:0' },
+            },
             name: 'grpc-mw-test-app',
         })
-            .use(new MongoMiddleware())
+            .use(new MongoStorageMiddleware())
+            .use(new GridFsStorageMiddleware())
             .use(new GrpcServerMiddleware({ insecure: true }))
 
         await app.Initialize()

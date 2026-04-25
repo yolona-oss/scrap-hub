@@ -1,7 +1,8 @@
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import { z } from 'zod'
 import { CmdHubApp } from '../cmd-hub-app'
-import { MongoMiddleware, type ConfigContributor, type IUI } from '@cmd-hub/common'
+import { type ConfigContributor, type IUI } from '@cmd-hub/common'
+import { MongoStorageMiddleware } from '@cmd-hub/storage-mongo'
 
 class FakeUI implements IUI<any>, ConfigContributor {
     readonly dispatcher: unknown = null
@@ -39,11 +40,11 @@ describe('CmdHubApp', () => {
             configPath: '',
             baseSchema: z.object({}),
             inlineConfig: {
-                mongo: { url: rs.getUri('cmdhub-app-test'), migrateConfigRegistry: false },
+                storage: { url: rs.getUri('cmdhub-app-test') },
                 fakeui: { enabled: true },
-            } as any,
+            },
             name: 'cmdhub-app-test',
-        }).use(new MongoMiddleware()).useUI(ui)
+        }).use(new MongoStorageMiddleware()).useUI(ui)
 
         await app.Initialize()
         await app.run()

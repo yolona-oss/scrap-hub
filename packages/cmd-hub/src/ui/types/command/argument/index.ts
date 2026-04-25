@@ -8,6 +8,7 @@
 export {
     encodePositionalName,
     decodePositionalName,
+    isEncodedPositionalName,
     validateArgumentDescriptor,
     getArgumentDescType,
     isArgumentDescStandalone,

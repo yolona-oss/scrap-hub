@@ -2,15 +2,17 @@ import { AbstractCmdHandler, ICmdHandlerRequest, ICmdHandlerResponce } from "./a
 import { BaseUIContext } from "../../../ui"
 import { anyToString } from "../../../utils/misc"
 import { UiUnicodeSymbols } from "../../../ui"
-import log from '../../../application/logger';
-import { CmdAlias } from "../../../db"
+import log from '../../../application/logger'
 
 export class HandleCommandAlias<Ctx extends BaseUIContext> extends AbstractCmdHandler<Ctx> {
 
     public async handle(request: ICmdHandlerRequest<Ctx>): Promise<ICmdHandlerResponce> {
         const { command, dispatcher, uiCtx, uiImpl, ownerId } = request
 
-        const aliasDoc = await CmdAlias.findOne({owner_id: ownerId, alias: command})
+        const repos = dispatcher.repos
+        if (!repos) return super.handle(request)
+
+        const aliasDoc = await repos.cmdAlias.findByOwnerAndAlias(ownerId, command)
         if (!aliasDoc) {
             return super.handle(request)
         }
@@ -38,8 +40,8 @@ export class HandleCommandAlias<Ctx extends BaseUIContext> extends AbstractCmdHa
                     },
                 }
             }
-            return await invoker.invokeLegacy(request.userId, compiled.Result, uiCtx, uiImpl as any)
-        } catch (e: any) {
+            return await invoker.invokeLegacy(request.userId, compiled.Result, uiCtx, uiImpl)
+        } catch (e: unknown) {
             log.error("Command execution error: " + anyToString(e))
             return {
                 success: false,

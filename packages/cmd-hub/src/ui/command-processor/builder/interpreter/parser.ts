@@ -1,7 +1,7 @@
 import { deepClone } from "../../../../utils/object"
 import { IArgumentCompiled, IUICommandDescriptor } from '../../../../ui/types'
 import { CmdArgumentContextType, IArgumentDescriptor } from "../../../../ui/types/command";
-import { decodePositionalName } from "../../../../ui/types/command";
+import { decodePositionalName, isEncodedPositionalName } from "../../../../ui/types/command";
 import { StateSnaper } from "./state-span";
 import { CBLexerToken } from "./lexer";
 
@@ -300,7 +300,7 @@ export class CBParser<PChainResGType extends ParserPerformedAction|string = Pars
 
             if (this.state === 'POSITIONAL') {
                 // Use descriptor position, not token value (token may be plain text, not encoded)
-                const pos = desc?.position ?? (tkn.value.startsWith('positional-') ? decodePositionalName(tkn.value).position : undefined)
+                const pos = desc?.position ?? (isEncodedPositionalName(tkn.value) ? decodePositionalName(tkn.value).position : undefined)
                 if (pos !== undefined) {
                     removeObjectByFieldsMutate(this.arguments, { position: pos, ctx: this.currentArgCtx })
                 }
@@ -604,7 +604,7 @@ export class CBParser<PChainResGType extends ParserPerformedAction|string = Pars
         for (const read of searchArray) {
             if (read.name === input && read.value != '') {
                 return true
-            } else if (read.name.startsWith('positional-') && read.value != '') {
+            } else if (isEncodedPositionalName(read.name) && read.value != '') {
                 const { name } = decodePositionalName(read.name)
                 if (name === input) {
                     return true
@@ -620,7 +620,7 @@ export class CBParser<PChainResGType extends ParserPerformedAction|string = Pars
         for (const read of searchArray) {
             if (read.name === input) {
                 return true
-            } else if (read.name.startsWith('positional-') && read.value != '') {
+            } else if (isEncodedPositionalName(read.name) && read.value != '') {
                 const { name } = decodePositionalName(read.name)
                 if (name === input) {
                     return true

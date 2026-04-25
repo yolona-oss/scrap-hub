@@ -1,9 +1,21 @@
-import type { FileServiceBackend, IFileService, WriteGrantInput } from './types'
-import type { FileHandle, WriteGrant } from '../types'
+import type {
+    FileHandle,
+    IFileBackend,
+    WriteGrant,
+    WriteGrantInput,
+} from '@cmd-hub/common'
 
-/** Thin facade over a pluggable storage backend. */
+/** Driver-agnostic surface the transport tier exposes through gRPC.
+ *  Mirrors `IFileBackend` minus the discriminator. */
+export type IFileService = Omit<IFileBackend, 'name'>
+
+/**
+ * Thin façade over a pluggable `IFileBackend`. The hub gRPC layer holds a
+ * `FileService` and delegates everything to whichever backend the storage
+ * middleware published (GridFS today, S3 tomorrow).
+ */
 export class FileService implements IFileService {
-    constructor(private readonly backend: FileServiceBackend) {}
+    constructor(private readonly backend: IFileBackend) {}
 
     issueWriteGrant(req: WriteGrantInput): Promise<WriteGrant> {
         return this.backend.issueWriteGrant(req)
