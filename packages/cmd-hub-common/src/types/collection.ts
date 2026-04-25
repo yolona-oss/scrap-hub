@@ -14,17 +14,17 @@ export interface IQueue<T> {
     size(): number
 }
 
-export class Node<T> {
-    public next: Node<T> | null = null
-    public prev: Node<T> | null = null
+export class LinkedListNode<T> {
+    public next: LinkedListNode<T> | null = null
+    public prev: LinkedListNode<T> | null = null
     constructor(public data: T) {}
 }
 
 export interface ILinkedList<T> {
-    insertInBegin(data: T): Node<T>
-    insertAtEnd(data: T): Node<T>
-    deleteNode(node: Node<T>): void
+    insertInBegin(data: T): LinkedListNode<T>
+    insertAtEnd(data: T): LinkedListNode<T>
+    deleteNode(node: LinkedListNode<T>): void
     traverse(): T[]
     size(): number
-    search(comparator: (data: T) => boolean): Node<T> | null
+    search(comparator: (data: T) => boolean): LinkedListNode<T> | null
 }

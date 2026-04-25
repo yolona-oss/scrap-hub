@@ -1,5 +1,5 @@
 // TODO: rename file
-import { genRandId } from "../../../types/identificable";
+import { genRandId } from "@cmd-hub/common";
 
 export const BuilderActionSigns = {
     execute:     genRandId(),

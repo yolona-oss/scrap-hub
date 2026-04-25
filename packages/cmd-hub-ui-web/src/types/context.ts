@@ -1,5 +1,5 @@
 import type { ManagerRecord } from '@cmd-hub/common'
-import { BaseUIContext } from '@cmd-hub/core'
+import { BaseUIContext } from '@cmd-hub/common'
 
 export interface WebContext extends BaseUIContext<ManagerRecord> {
     type: "web"

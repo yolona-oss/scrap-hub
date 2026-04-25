@@ -8,12 +8,12 @@ import { IWebUIPlugin } from './types/plugin'
 import { BaseUI } from '@cmd-hub/core'
 import { CmdDispatcher } from '@cmd-hub/core'
 import { IMarkupOption } from '@cmd-hub/core'
-import { MessageOptions } from '@cmd-hub/core'
 import { exposeCmdArgumentOptions } from '@cmd-hub/core'
 import { CBDescriptorCompiler } from '@cmd-hub/core'
-import { LockManager } from '@cmd-hub/core'
 import {
+    LockManager,
     log,
+    type MessageOptions,
     type ManagerRecord,
     type AppLike,
 } from '@cmd-hub/common'

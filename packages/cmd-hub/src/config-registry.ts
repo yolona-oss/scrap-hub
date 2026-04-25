@@ -1,7 +1,6 @@
 import * as fs from 'fs'
 import type { ISystemConfigRepo, IUserConfigRepo } from '@cmd-hub/common'
-import { main_config_path } from './constants/path'
-import { isValidConfigPath } from './utils/validation'
+import { main_config_path, isValidConfigPath } from '@cmd-hub/common'
 import log from './application/logger'
 
 export type ConfigScope = 'bootstrap' | 'system' | 'user'

@@ -1,7 +1,7 @@
 import log from '../../../application/logger';
 import { AbstractCmdHandler, ICmdHandlerRequest, ICmdHandlerResponce } from "./abstract-handler"
 import { BaseUIContext } from "../../../ui"
-import { anyToString } from "../../../utils/misc"
+import { anyToString } from "@cmd-hub/common"
 import { UiUnicodeSymbols } from "../../../ui"
 import { isFunc } from "../../types/command"
 

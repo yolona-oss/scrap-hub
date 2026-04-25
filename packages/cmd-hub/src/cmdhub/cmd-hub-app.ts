@@ -25,7 +25,7 @@ import { CAP_RemoteCmdInvoker, CAP_FederationRequires } from '../capabilities'
 import type { DispatcherRepos } from '../ui/command-processor/dispatcher'
 import { RemoteCmdInvoker, type DashboardSession } from '../ui/command-processor/remote-invoker'
 import { ServiceDashboard } from '../ui/command-processor/dashboard/service-dashboard'
-import { unique } from '../utils/array'
+import { unique } from "@cmd-hub/common"
 
 /** Federation requirements: cmd-node caps a UI plugin expects.
  *  `essential` — missing → command dropped from this UI's pool with a warning.

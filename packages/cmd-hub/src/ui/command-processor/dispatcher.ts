@@ -1,5 +1,5 @@
-import { WithInit } from "../../types/with-init";
-import { validateWithNeighborsMap } from "../../types/with-neighbors";
+import { WithInit } from "@cmd-hub/common";
+import { validateWithNeighborsMap } from "@cmd-hub/common";
 import { BaseUIContext } from "../../ui/types";
 
 /** Local mirror of the proto ArgSpec the dispatcher's builder consumes. */
@@ -24,7 +24,7 @@ import log from '../../application/logger';
 import { CommandSequenceHandler } from "./sequence-handler";
 import { BaseCommandService } from "../../ui/types/command/service";
 
-import { Chain } from "../../utils/chain";
+import { Chain } from "@cmd-hub/common";
 import {
     IUICommandEntry,
     IHandleResult,
@@ -37,8 +37,8 @@ import {
     HandleCmdBuilder,
     HandleSequenceCommand
 } from "./handlers";
-import { isContainsAll } from "../../utils/array";
-import { anyToString } from "../../utils/misc";
+import { isContainsAll } from "@cmd-hub/common";
+import { anyToString } from "@cmd-hub/common";
 import type {
     IManagerRepo,
     IAccountRepo,

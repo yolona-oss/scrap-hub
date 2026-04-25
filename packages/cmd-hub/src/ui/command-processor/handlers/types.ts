@@ -1,5 +1,5 @@
 import { CmdDispatcher } from "../dispatcher"
-import { Chain, IChainHandler } from "../../../utils/chain"
+import { Chain, IChainHandler } from "@cmd-hub/common"
 import { IHandleResult } from "../types"
 import { BaseUIContext, IUI } from "../../../ui"
 

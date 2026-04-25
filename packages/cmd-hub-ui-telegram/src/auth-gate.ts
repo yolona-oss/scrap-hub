@@ -1,6 +1,6 @@
 import * as telegraf from 'telegraf'
 import { log, type IAuthGate, type IUI } from '@cmd-hub/common'
-import { anyToString } from '@cmd-hub/core'
+import { anyToString } from '@cmd-hub/common'
 
 import type { TgContext, CqContext } from './types'
 import { auth_cb_prefix, decodeCbData } from './constants/callback'

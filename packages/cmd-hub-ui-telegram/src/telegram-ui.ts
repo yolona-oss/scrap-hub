@@ -12,7 +12,7 @@ import { ITelegramPlugin } from './types/plugin'
 import { TelegramAuthGate } from './auth-gate'
 import type { IAuthGate } from '@cmd-hub/common'
 
-import { LockManager } from '@cmd-hub/core'
+import { LockManager } from '@cmd-hub/common'
 import type { UIFederationRequires } from '@cmd-hub/core'
 import {
     log,
@@ -31,12 +31,12 @@ import crypto from 'crypto'
 import type { Agent } from 'http'
 import * as telegraf from 'telegraf'
 import chalk from 'chalk'
-import { anyToString } from '@cmd-hub/core'
+import { anyToString } from '@cmd-hub/common'
 import { IUICommandProcessed } from '@cmd-hub/core'
 import { InlineKeyboardButton } from 'telegraf/typings/core/types/typegram'
 import type { ExtraReplyMessage, ExtraEditMessageText } from 'telegraf/typings/telegram-types'
 import { UiUnicodeSymbols, handleCalibrationCallback } from '@cmd-hub/core'
-import type { MessageOptions } from '@cmd-hub/core'
+import type { MessageOptions } from '@cmd-hub/common'
 import { z } from 'zod'
 
 function fromTgContext(ctx: TgContext): MessageHistoryInput {

@@ -1,4 +1,4 @@
-import { WithNeighbors } from "../../../types/with-neighbors"
+import { WithNeighbors } from "@cmd-hub/common"
 import { ICmdArgumentDefinition, IArgumentDescriptor, IArgumentCompiled, CmdArgumentMetadataRaw } from "./argument"
 import { BaseCommandService } from './service'
 import { BaseUIContext, IUI } from "../../../ui"

@@ -1,5 +1,5 @@
-import { TableDesigner, escapeHtml } from '../utils/table-designer'
-import type { TableField, TextField } from '../utils/table-designer'
+import { TableDesigner, escapeHtml } from "@cmd-hub/common"
+import type { TableField, TextField } from "@cmd-hub/common"
 
 describe('TableDesigner', () => {
     let designer: TableDesigner

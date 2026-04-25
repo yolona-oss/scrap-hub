@@ -1,5 +1,5 @@
 import type { ManagerRecord } from '@cmd-hub/common'
-import { BaseUIContext } from '@cmd-hub/core'
+import { BaseUIContext } from '@cmd-hub/common'
 
 import { NarrowedContext, Context, Types } from "telegraf"
 import { CallbackQuery, Update } from "telegraf/typings/core/types/typegram"

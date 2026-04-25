@@ -4,7 +4,7 @@ import type { IUI } from "@cmd-hub/common"
 import { IMarkupButton } from "../types/markup"
 import { UiUnicodeSymbols } from "../../../ui/ui-unicode-symbols"
 import { ProgressTracker } from "./progress"
-import { escapeHtml } from "../../../utils/table-designer"
+import { escapeHtml } from "@cmd-hub/common"
 import log from "../../../application/logger"
 
 export type ChannelName = 'message' | 'error' | 'log' | 'progress' | 'ctrl'

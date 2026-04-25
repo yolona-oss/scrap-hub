@@ -1,7 +1,3 @@
-export { WithInit } from './with-init'
-export type { IRunnable } from './runnable'
-export { Subject, Observer } from './observer'
-export type { Identificable } from './identificable'
-export type { WithNeighbors } from './with-neighbors'
-export type { DeepPartial } from './deep-partial'
-export type { Range } from './range'
+// All type primitives now live in @cmd-hub/common. Cmd-hub-private types
+// (builder, command, deep-partial, etc.) that don't have re-exports in this
+// barrel are imported from their specific files where needed.

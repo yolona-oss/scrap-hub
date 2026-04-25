@@ -1,5 +1,5 @@
-import { Stack } from '../../utils/struct/stack'
-import { WithNeighbors } from '../../types/with-neighbors'
+import { Stack } from "@cmd-hub/common"
+import { WithNeighbors } from "@cmd-hub/common"
 import { BuiltInSeqCommandsEnum } from './constants/built-in-cmd-enum'
 import { IHandleResult } from './types'
 

@@ -1,5 +1,5 @@
 import type { ManagerRecord } from '@cmd-hub/common'
-import { BaseUIContext } from '@cmd-hub/core'
+import { BaseUIContext } from '@cmd-hub/common'
 
 export interface CLIContext extends BaseUIContext<ManagerRecord> {
     type: 'cli';

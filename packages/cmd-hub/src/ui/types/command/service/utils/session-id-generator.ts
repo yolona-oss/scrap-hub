@@ -5,7 +5,7 @@
 // keeps session names alphanumeric-only.
 import type { ManagerRecord } from "@cmd-hub/common"
 import { ArgOptionValidator, CmdDispatcher } from "../../../../../ui/command-processor"
-import { genRandomString } from "../../../../../utils/random"
+import { genRandomString } from "@cmd-hub/common"
 import { CmdArgumentOptionSetter } from "../../../../../ui/types/command"
 
 export const sessionOpts: CmdArgumentOptionSetter = async (servName: string, o: CmdDispatcher<any>, manager: ManagerRecord) => {

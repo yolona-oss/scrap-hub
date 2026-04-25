@@ -1,4 +1,4 @@
-import { asId } from "../../../types/identificable"
+import { asId } from "@cmd-hub/common"
 import {
     BuiltInAccountCommandsEnum,
     BuiltInHelpCommandsEnum,

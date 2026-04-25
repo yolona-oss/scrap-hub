@@ -1,4 +1,4 @@
-import { IUIPlugin } from '@cmd-hub/core'
+import { IUIPlugin } from '@cmd-hub/common'
 import { CLIContext } from "./context"
 
 export interface ICLIPlugin extends IUIPlugin<CLIContext> {

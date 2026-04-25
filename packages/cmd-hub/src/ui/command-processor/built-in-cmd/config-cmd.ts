@@ -5,7 +5,7 @@ import { CmdDispatcher } from "../dispatcher"
 import { CmdArgument } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
 import { ConfigRegistry } from "../../../config-registry"
-import { TableDesigner } from "../../../utils/table-designer"
+import { TableDesigner } from "@cmd-hub/common"
 
 class ConfigArgs {
     @CmdArgument({

@@ -2,12 +2,12 @@ import { CBLexerToken, Lexer } from "./../lexer";
 import { UiUnicodeSymbols } from "../../../../../ui";
 import { BuilderActionSigns } from "./../../default-callbacks";
 import { ICommandCompiled } from '../../../../../ui/types/command';
-import { AbstractState } from "../../../../../types/state";
+import { AbstractState } from "@cmd-hub/common";
 import { CBInterpreter } from "../interpreter";
 import { CBParser, ParserPerformedAction, PChainReq } from "../parser";
 import { EvaluationResult } from "../../ev-result";
 import log from "../../../../../application/logger";
-import { chainHandlerFactory } from "../../../../../utils/chain";
+import { chainHandlerFactory } from "@cmd-hub/common";
 import { CmdArgumentProxy } from "../../../../../ui/command-processor/arg-proxy";
 
 type ExtendedCBChainRes = ParserPerformedAction | 'cancel' | 'cancel-op' | 'execute'

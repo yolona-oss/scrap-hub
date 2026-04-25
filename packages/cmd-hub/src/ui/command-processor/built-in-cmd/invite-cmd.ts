@@ -4,7 +4,7 @@ import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
 import { CmdArgument } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
-import { TableDesigner } from "../../../utils/table-designer"
+import { TableDesigner } from "@cmd-hub/common"
 import { CAP_InvitationLinkRepo } from '@cmd-hub/common'
 import crypto from 'crypto'
 

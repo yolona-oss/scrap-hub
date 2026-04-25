@@ -3,10 +3,10 @@ import { BuiltInHelpCommandsEnum } from "../constants"
 import { CmdDispatcher } from "../dispatcher"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { IUICommandEntry } from "../types"
-import { anyToString } from "../../../utils/misc"
+import { anyToString } from "@cmd-hub/common"
 import { BaseUIContext, UiUnicodeSymbols } from "../../../ui"
 import { CmdArgumentProxy } from "../arg-proxy"
-import { TableDesigner } from "../../../utils/table-designer"
+import { TableDesigner } from "@cmd-hub/common"
 
 const designer = new TableDesigner()
 const DEFAULT_WIDTH = 72

@@ -1,7 +1,3 @@
-/** Sentinel brands for ID-validation results. */
-export const VALID_ID_BRAND = "__valid_id__"
-export const INVALID_ID_BRAND = "__invalid_id__"
-
 /** Objects that carry a user-meaningful identifier. */
 export interface Identificable<T extends string | number = string> {
     id: T
@@ -11,23 +7,15 @@ function validateId(id: string): boolean {
     return /^[a-z0-9_-]+$/.test(id)
 }
 
-function transformToValidId(id: string): string {
-    if (validateId(id)) {
-        return id
-    }
-
-    const copy = id
-    copy.replace(/[^a-z0-9_-]+/gi, '').toLowerCase()
-    if (copy.length === 0) {
-        throw new Error(`Cannot transform ${id} to a valid ID`)
-    }
-
-    return copy
-}
-
-/** Validate `id` matches `/^[a-z0-9_-]+$/` and return it; throws otherwise. */
+/** Coerce `id` to the `/^[a-z0-9_-]+$/` shape: strip disallowed chars, lower-case
+ *  the result. Throws when nothing valid remains. */
 export function asId(id: string): string {
-    return transformToValidId(id)
+    if (validateId(id)) return id
+    const cleaned = id.replace(/[^a-z0-9_-]+/gi, '').toLowerCase()
+    if (cleaned.length === 0) {
+        throw new Error(`Cannot transform "${id}" to a valid ID`)
+    }
+    return cleaned
 }
 
 export function genRandId(): string {

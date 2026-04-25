@@ -4,8 +4,8 @@ import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
 import { CmdArgument } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
-import { TableDesigner } from "../../../utils/table-designer"
-import { isValidConfigPath } from "../../../utils/validation"
+import { TableDesigner } from "@cmd-hub/common"
+import { isValidConfigPath } from "@cmd-hub/common"
 import { CAP_ManagerRepo, CAP_AccountRepo } from '@cmd-hub/common'
 
 class SConfigArgs {

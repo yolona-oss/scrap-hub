@@ -1,4 +1,4 @@
-import { deepClone } from "../../../../utils/object"
+import { deepClone } from "@cmd-hub/common"
 import { IArgumentCompiled, IUICommandDescriptor } from '../../../../ui/types'
 import { CmdArgumentContextType, IArgumentDescriptor } from "../../../../ui/types/command";
 import { decodePositionalName, isEncodedPositionalName } from "../../../../ui/types/command";
@@ -6,8 +6,8 @@ import { StateSnaper } from "./state-span";
 import { CBLexerToken } from "./lexer";
 
 import log from "../../../../application/logger";
-import { Chain, createChainFallbackHandler, chainHandlerFactory, IChainHandler } from "../../../../utils/chain";
-import { removeObjectByFieldsMutate } from "../../../../utils/array";
+import { Chain, createChainFallbackHandler, chainHandlerFactory, IChainHandler } from "@cmd-hub/common";
+import { removeObjectByFieldsMutate } from "@cmd-hub/common";
 import { getArgumentDescType, isArgumentDescPair, isArgumentDescPositional, isArgumentDescStandalone, compileArgumentFromDesc } from "../../../../ui/types/command/argument/descriptor-helpers";
 
 /**

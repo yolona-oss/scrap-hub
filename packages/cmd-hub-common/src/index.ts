@@ -4,7 +4,8 @@ export * from './command'
 export * from './types'
 export * from './service'
 export * from './ui'
-export * from './utils/table-designer'
+export * from './utils'
+export * from './constants'
 
 // Application / lock / logger
 export * from './application/application'

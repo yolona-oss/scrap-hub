@@ -5,10 +5,10 @@ import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdDispatcher } from "../dispatcher"
 
 import "reflect-metadata"
-import { extractValueFromObject } from "../../../utils/object"
+import { extractValueFromObject } from "@cmd-hub/common"
 import { UiUnicodeSymbols } from "../../../ui"
 import { CmdArgumentProxy } from "../arg-proxy"
-import { isValidConfigPath } from "../../../utils/validation"
+import { isValidConfigPath } from "@cmd-hub/common"
 import { CAP_ManagerRepo, CAP_AccountRepo, type IAccountRepo } from "@cmd-hub/common"
 
 async function listModuleNames(repo: IAccountRepo, accountId: string): Promise<string[]> {

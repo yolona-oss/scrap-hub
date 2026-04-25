@@ -1,5 +1,5 @@
 import { CmdArgumentContextType, IArgumentCompiled } from "../../../../ui/types"
-import { Stack } from "../../../../utils/struct/stack"
+import { Stack } from "@cmd-hub/common"
 import { ParserStateType } from "./parser"
 
 export class StateSnap {

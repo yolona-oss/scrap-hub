@@ -1,4 +1,4 @@
-import { AbstractCtx } from "../../../../types/state";
+import { AbstractCtx } from "@cmd-hub/common";
 import log from '../../../../application/logger';
 import { CBParser } from "./parser";
 import { EvaluationResult } from "./../ev-result";

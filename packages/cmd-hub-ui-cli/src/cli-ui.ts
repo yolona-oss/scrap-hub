@@ -5,9 +5,9 @@ import {
     CLI_USER_ID,
     CLI_USER_NAME,
     BaseUI,
-    LockManager,
 } from '@cmd-hub/core';
 import {
+    LockManager,
     type ManagerRecord,
     type AppLike,
     log,

@@ -2,7 +2,7 @@ import { appendFileSync } from 'fs'
 import chalk from 'chalk'
 import { ColorName } from 'chalk'
 import path from 'path'
-import { createDirIfNotExist } from '../utils/fs-tools'
+import { createDirIfNotExist } from '../utils/system/fs'
 
 // Bootstrap-time defaults read from env. The framework's `Application` calls
 // `log.configure({ level, toFile })` after validating its merged zod config,
