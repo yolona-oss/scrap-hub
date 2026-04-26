@@ -1,4 +1,4 @@
-import { BaseCommandService, CmdService } from "@cmd-hub/common"
+import { BaseCommandService, CmdService, PAIR_PATH_DELIMITER, assignToCustomPath } from "@cmd-hub/common"
 import { BLANK_USER_ID } from "@cmd-hub/core"
 import { z } from "zod"
 import {
@@ -13,6 +13,11 @@ import { SearchQuery } from "../types"
 import { SourceRegistry } from "../sources/registry"
 import { log } from "@cmd-hub/common"
 
+/** Keys whose values arrive as path-joined strings from the hierarchical
+ *  builder. Base `replaceConfig` is a shallow set, which would erase
+ *  siblings; we instead path-target each leaf via `setConfigValue`. */
+const BRANCHED_CONFIG_KEYS = ['aiAgent', 'googleSheets'] as const
+
 export const SCRAPER_NAME = 'scraper'
 export const SCRAPER_DESCRIPTION = 'Search and collect organization data from open sources'
 
@@ -26,7 +31,10 @@ export const SCRAPER_DESCRIPTION = 'Search and collect organization data from op
     messages: ScraperMessagesData,
 })
 export class OrgScraperService extends BaseCommandService<ScraperServiceDataType> {
-    /** CmdNodeApp reads these statics to build the merged app config schema. */
+    /** CmdNodeApp reads these statics to build the merged app config schema.
+     *  `aiAgent` and `googleSheets` are NOT here — they live exclusively in
+     *  per-user account/session storage with `scraper-defaults.ts` as
+     *  fallback. */
     static readonly configNamespace = 'scraper'
     static readonly configSchema = z.object({
         serpApiKey: z.string().default(''),
@@ -38,20 +46,6 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
             '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         ),
-        googleSheets: z.object({
-            credentials: z.string().default(''),
-            spreadsheetId: z.string().default(''),
-        }).default({}),
-        aiAgent: z.object({
-            baseUrl: z.string().default('http://127.0.0.1:11434/v1'),
-            apiKey: z.string().default(''),
-            model: z.string().default('qwen2.5:7b'),
-            temperature: z.number().default(0.2),
-            webSearchProvider: z.enum(['serpapi', 'yandex', 'duckduckgo']).default('duckduckgo'),
-            maxToolCalls: z.number().int().positive().default(25),
-            toolTimeoutMs: z.number().int().positive().default(60_000),
-            totalTimeoutMs: z.number().int().positive().default(300_000),
-        }).default({}),
     })
 
     private scraper: OrgScraper | null = null
@@ -67,6 +61,33 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
 
     clone(userId: string, inputData: Partial<ScraperServiceDataType> = {}, newName: string = SCRAPER_NAME) {
         return new OrgScraperService(userId, inputData, newName)
+    }
+
+    async Initialize(): Promise<void> {
+        const cfg = this.inputServiceData.config as Record<string, unknown> | undefined
+        const deferredWrites: Array<{ path: string; value: unknown }> = []
+        if (cfg) {
+            for (const key of BRANCHED_CONFIG_KEYS) {
+                const raw = cfg[key]
+                if (typeof raw === 'string' && raw.includes(PAIR_PATH_DELIMITER)) {
+                    const segments = raw.split(PAIR_PATH_DELIMITER)
+                    const leaf = segments.pop()!
+                    const path = `${key}.${segments.join('.')}`
+                    deferredWrites.push({ path, value: leaf })
+                    delete cfg[key]
+                    log.debug(`scraper.Initialize: deferred ${path} = ${leaf}`)
+                }
+            }
+        }
+
+        await super.Initialize()
+
+        // setConfigValue persists; assignToCustomPath patches this.data.config
+        // so the current invocation sees the new values without a refresh.
+        await Promise.all(deferredWrites.map(w => this.setConfigValue(w.path, w.value)))
+        for (const w of deferredWrites) {
+            assignToCustomPath(this.data.config as object, w.path, w.value)
+        }
     }
 
     async receiveMsg(msg: string, _args: string[]): Promise<void> {
@@ -114,8 +135,8 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
             maxResults: limit,
         }
 
-        const existingResults = this.data.sessionData?.results ?? []
-        const processedUrls = this.data.sessionData?.processedUrls ?? []
+        const existingResults = this.data.runtimeState?.results ?? []
+        const processedUrls = this.data.runtimeState?.processedUrls ?? []
 
         this.scraper = new OrgScraper(query, existingResults, processedUrls)
 
@@ -157,9 +178,9 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
     private async saveProgress(): Promise<void> {
         if (!this.scraper) return
         try {
-            await this.setSessionDataValue('results', this.scraper.collected)
-            await this.setSessionDataValue('processedUrls', this.scraper.urls)
-            await this.setSessionDataValue('lastQuery', this.data.config.query)
+            await this.setRuntimeStateValue('results', this.scraper.collected)
+            await this.setRuntimeStateValue('processedUrls', this.scraper.urls)
+            await this.setRuntimeStateValue('lastQuery', this.data.config.query)
         } catch (e: any) {
             log.debug(`Failed to save scraper progress: ${e.message ?? e}`)
         }

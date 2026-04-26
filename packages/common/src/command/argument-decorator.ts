@@ -19,6 +19,15 @@ export interface CmdArgumentMetadataRaw {
 
     readonly pairOptions?: CmdArgumentPairOptionsType<CmdArgumentOptionSetter>
     readonly defaultValue?: string
+
+    /** Marks `pairOptions` as a path-aware resolver returning
+     *  `BranchedPairOptions`. The desc-compiler binds the resolver and
+     *  exposes it on the compiled descriptor as `pairOptionsResolver`
+     *  instead of pre-flattening to a single level. */
+    readonly branched?: boolean
+    /** Override default `'/'` delimiter when joining a hierarchical
+     *  commit's path + leaf into the compiled string value. */
+    readonly pairOptionsSeparator?: string
 }
 
 export type CmdArgumentMetadataDef = AllowNoneOrOne<Partial<CmdArgumentMetadataRaw>, 'standalone' | 'position'>
@@ -33,7 +42,10 @@ const CmdArgumentDefaults: CmdArgumentMetadataRaw = {
     isPair: false,
 
     pairOptions: undefined,
-    defaultValue: undefined
+    defaultValue: undefined,
+
+    branched: false,
+    pairOptionsSeparator: undefined,
 }
 
 /** Default: pair, not required, empty description, no autocomplete or defaultValue. */

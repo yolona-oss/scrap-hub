@@ -4,8 +4,26 @@ import { IUICommandEntry } from "./../types"
 import { ICmdService } from "../../../ui/types/command"
 import { CmdArgumentContextType } from "../../../ui/types/command"
 import { CmdDispatcher, type RemoteCommandSpec } from "./../dispatcher"
-import { CmdArgumentMetadataRaw, exposeCmdArgumentOptions } from "../../../ui/types/command"
+import { CmdArgumentMetadataRaw, exposeCmdArgumentOptions, bindBranchedResolver } from "../../../ui/types/command"
 import type { ManagerRecord } from "@cmd-hub/common"
+
+/** Resolve `pairOptions` for one descriptor entry: a flat list at root
+ *  level plus, when `branched: true`, a bound resolver the parser can
+ *  re-invoke at deeper paths. */
+async function resolvePairOptions<UICtx extends BaseUIContext>(
+    cmdName: string,
+    meta: Pick<CmdArgumentMetadataRaw, 'pairOptions' | 'branched'>,
+    dispatcher: CmdDispatcher<UICtx>,
+    manager: ManagerRecord,
+) {
+    const options = meta.pairOptions
+        ? await exposeCmdArgumentOptions(cmdName, meta.pairOptions, dispatcher, manager)
+        : undefined
+    const resolver = meta.branched === true
+        ? bindBranchedResolver(cmdName, meta.pairOptions, dispatcher, manager)
+        : undefined
+    return { options, resolver }
+}
 
 export class CBDescriptorCompiler<UICtx extends BaseUIContext> {
     constructor() { }
@@ -46,14 +64,14 @@ export class CBDescriptorCompiler<UICtx extends BaseUIContext> {
             const descriptor: Record<string, CmdArgumentMetadataRaw> = service[ctxName === 'message' ? 'receiveMsgDescriptor' : ctxName === 'config' ? 'configDescriptor' : 'paramsDescriptor']()
 
             for (const key in descriptor) {
-                const options = descriptor[key].pairOptions ?
-                    await exposeCmdArgumentOptions(service.name, descriptor[key].pairOptions, dispatcher, manager)
-                    :
-                    undefined
+                const meta = descriptor[key]
+                const { options, resolver } = await resolvePairOptions(service.name, meta, dispatcher, manager)
                 builderArgs.push({
-                    ...descriptor[key],
+                    ...meta,
                     ctx: ctxName,
                     pairOptions: options,
+                    pairOptionsResolver: resolver,
+                    pairOptionsSeparator: meta.pairOptionsSeparator,
                     name: key
                 })
             }
@@ -65,16 +83,22 @@ export class CBDescriptorCompiler<UICtx extends BaseUIContext> {
     }
 
     private async configureFunctionDesc(command: string, cb: IUICommandEntry<UICtx>, dispatcher: CmdDispatcher<UICtx>, ctx: UICtx): Promise<IUICommandDescriptor> {
-        const promise = cb.args?.map(async (a) => ({
-            ctx: 'args' as CmdArgumentContextType,
-            name: a.name,
-            required: a.required,
-            standalone: a.standalone,
-            description: a.description,
-            pairOptions: await exposeCmdArgumentOptions(command, a.pairOptions, dispatcher, ctx.manager as ManagerRecord),
-            position: a.position,
-            validator: a.validator
-        })) ?? []
+        const manager = ctx.manager as ManagerRecord
+        const promise = cb.args?.map(async (a) => {
+            const { options, resolver } = await resolvePairOptions(command, a, dispatcher, manager)
+            return {
+                ctx: 'args' as CmdArgumentContextType,
+                name: a.name,
+                required: a.required,
+                standalone: a.standalone,
+                description: a.description,
+                pairOptions: options,
+                pairOptionsResolver: resolver,
+                pairOptionsSeparator: a.pairOptionsSeparator,
+                position: a.position,
+                validator: a.validator,
+            }
+        }) ?? []
 
         const args = await Promise.all(promise)
         return {

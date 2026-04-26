@@ -7,8 +7,8 @@ import { BLANK_SERVICE_NAME } from "./service-constants"
 import { ServiceContext } from "./service-context"
 import {
     IServiceStore,
-    IServiceModuleHandle,
-    IServiceSessionHandle,
+    IServiceAccountLayer,
+    IServiceSessionLayer,
     DEFAULT_ACCOUNT_SESSION_NAME,
     DEFAULT_SESSION_EXPIRITY_MS
 } from "./service-store"
@@ -24,6 +24,26 @@ import {
 import { COMMAND_ARG_DESC_KEY, CommandMetadata, decodePositionalName, isEncodedPositionalName } from "../command"
 
 import 'reflect-metadata'
+
+/** Keys under `sessionLayer.data` for the two parallel slices the
+ *  layered model writes to: per-session config overlay and resumable
+ *  runtime state. Centralized so callers don't sprinkle string literals. */
+const SESSION_CONFIG_KEY = 'config'
+const SESSION_RUNTIME_STATE_KEY = 'runtimeState'
+
+/** Build a dot-separated subfield path (e.g. `config.foo.bar`) from a
+ *  top-level slice + optional sub-path. Empty sub-path returns just
+ *  the slice key — used by `replaceConfig`-style whole-object writes. */
+function joinFieldPath(slice: string, sub: string): string {
+    return sub.length > 0 ? `${slice}.${sub}` : slice
+}
+
+/** Standalone-arg flags arrive as either `true` (when the arg parser
+ *  emits a real boolean) or `''` (when the dispatcher records a flag's
+ *  presence as an empty value). Treat both as set. */
+function isFlagSet(v: unknown): boolean {
+    return v === true || v === ''
+}
 
 export interface IntercomAction {
     id: string
@@ -94,22 +114,22 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
 
     private _isInited = false
     private _isRunning: boolean = false
-    private _cachedModule: IServiceModuleHandle | null = null
-    private _cachedSession: IServiceSessionHandle | null = null
+    private _cachedAccountLayer: IServiceAccountLayer | null = null
+    private _cachedSessionLayer: IServiceSessionLayer | null = null
     private _intercomActions: IntercomAction[] = []
 
     protected data: ServiceDataType
 
-    /** Read-only view of the service's runtime data. The dispatcher's `/sinfo`
-     *  built-in reads this to render runtime config/params/sessionData panels.
-     *  External callers must not mutate; subclasses still have direct
-     *  protected access via `this.data`. */
-    get runtimeData(): Readonly<ServiceDataType> { return this.data }
+    /** Read-only snapshot of the service's runtime data. The dispatcher's
+     *  `/sinfo` built-in reads this to render runtime config / params /
+     *  runtime-state panels. External callers must not mutate; subclasses
+     *  still have direct protected access via `this.data`. */
+    get snapshot(): Readonly<ServiceDataType> { return this.data }
 
     constructor(
         protected userId: string,
         private defaultData: ServiceDataType,
-        private inputServiceData: Partial<ServiceDataType>,
+        protected inputServiceData: Partial<ServiceDataType>,
         public readonly name: string = BLANK_SERVICE_NAME,
     ) {
         super()
@@ -131,13 +151,6 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
     protected sendToWorld(msg: string) {
         this.emit("message", msg)
     }
-
-    //protected initLiveLog() {
-    //
-    //}
-
-    // protected sendToLiveLog(objId: string, msg: string) {
-    // }
 
     protected sendToError(msg: string) {
         this.emit("error", msg)
@@ -233,18 +246,18 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
     }
 
     private async retrieveAccountData(forceRefresh = false) {
-        if (!forceRefresh && this._cachedModule && this._cachedSession) {
+        if (!forceRefresh && this._cachedAccountLayer && this._cachedSessionLayer) {
             return {
-                module: this._cachedModule,
-                session: this._cachedSession,
-                session_data: this._cachedSession.data,
-                module_data: this._cachedModule.data,
+                accountLayer: this._cachedAccountLayer,
+                sessionLayer: this._cachedSessionLayer,
+                accountLayerData: this._cachedAccountLayer.data,
+                sessionLayerData: this._cachedSessionLayer.data,
             }
         }
 
         const store = BaseCommandService.requireStore()
         const desiredSessionId = this.data.sessionId
-        const { module, session } = await store.load({
+        const { accountLayer, sessionLayer } = await store.load({
             userId: this.userId,
             serviceName: this.name,
             desiredSessionId,
@@ -252,14 +265,14 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
             incrementalExpirity: true,
         })
 
-        this._cachedModule = module
-        this._cachedSession = session
+        this._cachedAccountLayer = accountLayer
+        this._cachedSessionLayer = sessionLayer
 
         return {
-            module,
-            session,
-            session_data: session.data,
-            module_data: module.data,
+            accountLayer,
+            sessionLayer,
+            accountLayerData: accountLayer.data,
+            sessionLayerData: sessionLayer.data,
         }
     }
 
@@ -271,7 +284,7 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
         this.data.sessionId = _session_id
         this.data.params = { ...this.data.params, ...inputData.params }
 
-        const { session_data, module_data, session, module } = await this.retrieveAccountData(true)
+        const { sessionLayerData, accountLayerData, sessionLayer } = await this.retrieveAccountData(true)
 
         // Decode positional args (positional-1-query → query)
         const decodedInputConfig: Record<string, unknown> = {}
@@ -287,40 +300,62 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
             }
         }
 
-        let aConfig = {
+        // `noCache` is the per-run escape hatch: skip overlay reads AND
+        // skip the session-layer write so saved values survive untouched.
+        const noCache = isFlagSet(decodedInputConfig['noCache'])
+        const accountConfig = noCache ? {} : (accountLayerData.config ?? {}) as Record<string, unknown>
+        const sessionConfig = noCache ? {} : ((sessionLayerData.config ?? {}) as Record<string, unknown>)
+
+        const aConfig = {
             ...defaultData.config,
-            ...(module_data.config ?? {}),
+            ...accountConfig,
+            ...sessionConfig,
             ...decodedInputConfig,
         }
-        await module.replaceConfig(aConfig as Record<string, unknown>)
 
-        let aSessionData = session_data
-        if (!aSessionData || Object.keys(aSessionData).length === 0) {
-            aSessionData = {
-                ...defaultData.sessionData,
-                ...(inputData.sessionData ?? {}),
+        const existingRuntimeState = (sessionLayerData.runtimeState ?? {}) as Record<string, unknown>
+        let aRuntimeState: Record<string, unknown> = existingRuntimeState
+        const initRuntimeState = !aRuntimeState || Object.keys(aRuntimeState).length === 0
+        if (initRuntimeState) {
+            aRuntimeState = {
+                ...defaultData.runtimeState,
+                ...((inputData as any).runtimeState ?? {}),
             } as Record<string, unknown>
-            await session.replaceData(aSessionData)
+        }
+
+        // Writes go to the session layer (the writable overlay); account
+        // stays as the long-lived baseline that only `/sconfig` touches.
+        if (!noCache) {
+            const writes: Promise<void>[] = [
+                sessionLayer.setField(SESSION_CONFIG_KEY, aConfig as Record<string, unknown>),
+            ]
+            if (initRuntimeState) {
+                writes.push(sessionLayer.setField(SESSION_RUNTIME_STATE_KEY, aRuntimeState))
+            }
+            await Promise.all(writes)
         }
 
         this.data = {
             config: aConfig,
-            sessionData: aSessionData,
-            sessionId: session.name,
+            runtimeState: aRuntimeState,
+            sessionId: sessionLayer.name,
             messages: defaultData.messages,
             params: defaultData.params,
         } as ServiceDataType
     }
 
+    /** Persist a config field. Writes go to the **session layer** so the
+     *  account baseline (set via `/sconfig`) stays untouched. */
     protected async setConfigValue(path: string, value: any) {
-        const { module } = await this.retrieveAccountData()
-        const prefix = `config${path.length > 0 ? "." : ""}`
-        await module.setField(`${prefix}${path}`, value)
+        const { sessionLayer } = await this.retrieveAccountData()
+        await sessionLayer.setField(joinFieldPath(SESSION_CONFIG_KEY, path), value)
     }
 
-    protected async setSessionDataValue(path: string, value: any) {
-        const { session } = await this.retrieveAccountData()
-        await session.setField(path, value)
+    /** Persist a runtime-state field (resumable per-session state, e.g.
+     *  scraper progress). Distinct from config. */
+    protected async setRuntimeStateValue(path: string, value: any) {
+        const { sessionLayer } = await this.retrieveAccountData()
+        await sessionLayer.setField(joinFieldPath(SESSION_RUNTIME_STATE_KEY, path), value)
     }
 
     async run(): Promise<void> {

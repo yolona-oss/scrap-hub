@@ -10,7 +10,7 @@ import log from "../../../../../application/logger";
 import { chainHandlerFactory } from "@cmd-hub/common";
 import { CmdArgumentProxy } from "../../../../../ui/command-processor/arg-proxy";
 
-type ExtendedCBChainRes = ParserPerformedAction | 'cancel' | 'cancel-op' | 'execute'
+type ExtendedCBChainRes = ParserPerformedAction | 'cancel' | 'cancel-op' | 'execute' | 'pair-pop'
 
 /**
  * Base component that contain main interpritation logic for command builder
@@ -46,6 +46,15 @@ export class BaseInterpreterComponent extends AbstractState<CBInterpreter> {
         this.parser.applyHandler(chainHandlerFactory<PChainReq, ExtendedCBChainRes>(function(this: BaseInterpreterComponent, req) {
             const { tkn } = req
             if (tkn.type == 'TEXT' && tkn.value && tkn.value === BuilderActionSigns.cancelOp) {
+                // When the user is mid-tree in a hierarchical pair-options
+                // selector, the visible aux button reads "Back" and steps
+                // up one branch. The parser stays in PAIR_VALUE so the
+                // markuper re-renders the parent level. When at the root
+                // (or in any other state), fall through to the original
+                // cancel-op behavior.
+                if (this.parser.popPairPath()) {
+                    return 'pair-pop'
+                }
                 return 'cancel-op'
             }
             return
@@ -90,6 +99,20 @@ export class BaseInterpreterComponent extends AbstractState<CBInterpreter> {
                     this.parser,
                     `${UiUnicodeSymbols.cross} Operation canceled by user`,
                     { done: false, addTo: 'end' }
+                )
+
+            case 'pair-pop':
+                return new EvaluationResult(
+                    this.parser,
+                    `${UiUnicodeSymbols.arrowLeft} Back`,
+                    { done: false, addTo: 'end' }
+                )
+
+            case 'pair-descend':
+                return new EvaluationResult(
+                    this.parser,
+                    ``,
+                    { done: false }
                 )
 
             case 'execute':

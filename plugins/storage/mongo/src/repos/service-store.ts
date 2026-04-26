@@ -1,8 +1,8 @@
 import type {
     IServiceStore,
     IServiceStoreLoadResult,
-    IServiceModuleHandle,
-    IServiceSessionHandle,
+    IServiceAccountLayer,
+    IServiceSessionLayer,
     IAccountModuleHandle,
     IAccountSessionHandle,
 } from '@cmd-hub/common'
@@ -10,9 +10,9 @@ import { ManagerModel } from '../models/manager.model'
 import { AccountModel } from '../models/account/account.model'
 import { MongoAccountHandle } from './account-handle'
 
-/** Adapt the abstract `IAccountModuleHandle` to the narrower
- *  `IServiceModuleHandle` shape `BaseCommandService` expects. */
-class ServiceModuleAdapter implements IServiceModuleHandle {
+/** Adapt the broad storage `IAccountModuleHandle` to the narrow service
+ *  account-layer interface `BaseCommandService` expects. */
+class ServiceAccountLayerAdapter implements IServiceAccountLayer {
     constructor(private readonly inner: IAccountModuleHandle) {}
 
     get data(): Record<string, unknown> {
@@ -28,7 +28,7 @@ class ServiceModuleAdapter implements IServiceModuleHandle {
     }
 }
 
-class ServiceSessionAdapter implements IServiceSessionHandle {
+class ServiceSessionLayerAdapter implements IServiceSessionLayer {
     constructor(private readonly inner: IAccountSessionHandle) {}
 
     get name(): string { return this.inner.record.name }
@@ -84,8 +84,8 @@ export class MongoServiceStore implements IServiceStore {
         }
 
         return {
-            module:  new ServiceModuleAdapter(module),
-            session: new ServiceSessionAdapter(sessionHandle),
+            accountLayer: new ServiceAccountLayerAdapter(module),
+            sessionLayer: new ServiceSessionLayerAdapter(sessionHandle),
         }
     }
 }

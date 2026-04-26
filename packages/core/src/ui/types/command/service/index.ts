@@ -13,8 +13,8 @@ export type { ServiceContext } from '@cmd-hub/common'
 export { BLANK_SERVICE_NAME } from '@cmd-hub/common'
 export type {
     IServiceStore,
-    IServiceModuleHandle,
-    IServiceSessionHandle,
+    IServiceAccountLayer,
+    IServiceSessionLayer,
     IServiceStoreLoadResult,
 } from '@cmd-hub/common'
 export { DEFAULT_ACCOUNT_SESSION_NAME, DEFAULT_SESSION_EXPIRITY_MS } from '@cmd-hub/common'

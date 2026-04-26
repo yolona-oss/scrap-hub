@@ -4,6 +4,7 @@ import { CBParser, ICBParserStateRaw } from './interpreter/parser'
 import { BuilderMarkups } from './default-markup'
 import { BuilderActionSigns } from './default-callbacks'
 import { IMarkupButton, IBaseMarkup } from "../types/markup"
+import { isBranched, PAIR_BRANCH_PREFIX } from "@cmd-hub/common"
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>;
 
@@ -92,7 +93,7 @@ export class BuilderMarkuper {
 
     // TODO create new name or rebase it
     // mb pass BuildingString function as param to create text
-    static __tmpMarkup(parser: CBParser, savedData?: Record<string, any>) {
+    static async __tmpMarkup(parser: CBParser, savedData?: Record<string, any>): Promise<IBaseMarkup> {
         const desc = parser.toRawState().descriptor
         const args = desc.args.filter(v => v.ctx === 'args')
         const msgs = desc.args.filter(v => v.ctx === 'message')
@@ -140,7 +141,7 @@ Building command: - ${UiUnicodeSymbols.arrowRight} "${parser.Command}".\n
     }
 
     // TODO rename to AutoInterpreterMarkup or something...
-    static markup(parser: CBParser, {text, options}: IBuilderMarkupOpts): IBaseMarkup {
+    static async markup(parser: CBParser, {text, options}: IBuilderMarkupOpts): Promise<IBaseMarkup> {
         text = {...d_text, ...text}
         options = {...d_options, ...options}
 
@@ -148,18 +149,52 @@ Building command: - ${UiUnicodeSymbols.arrowRight} "${parser.Command}".\n
 
         let auxButtons = BuilderMarkups.default
         let byStateButtons: IMarkupButton[] = []
-        
+
         // BIG BUTTY CONDITION HERE
         if (parser.State === 'PAIR_VALUE') {// show pair options
             const desc = parser.findDescriptorByName(parser.LastReadArg.name)!
-            byStateButtons = desc.pairOptions?.map(opt =>
-                this.toMarkup({
-                    text: `${opt}`,
-                    data: opt,
-                    type: 'value'
-                })
-            ) ?? []
-            auxButtons = BuilderMarkups.selection
+            const path = parser.PairPath
+            // Resolver-driven hierarchical menu: query the current level.
+            if (desc.pairOptionsResolver) {
+                const level = await desc.pairOptionsResolver(path)
+                const branches = isBranched(level) ? level.branches : []
+                const leaves = isBranched(level) ? level.leaves : level
+                byStateButtons = [
+                    ...branches.map(b => this.toMarkup({
+                        text: `${b} ${UiUnicodeSymbols.arrowRight}`,
+                        data: `${PAIR_BRANCH_PREFIX}${b}`,
+                        type: 'name'
+                    })),
+                    ...leaves.map(opt => this.toMarkup({
+                        text: opt,
+                        data: opt,
+                        type: 'value'
+                    })),
+                ]
+                // At depth >= 1, the cancel-op button doubles as "← Back"
+                // (the interpreter pops one path level before falling through
+                // to a real cancel). Override the label to make that clear.
+                if (path.length > 0) {
+                    auxButtons = [
+                        this.toMarkup({
+                            text: `${UiUnicodeSymbols.arrowLeft} Back`,
+                            type: 'aux',
+                            data: BuilderActionSigns.cancelOp,
+                        }),
+                    ]
+                } else {
+                    auxButtons = BuilderMarkups.selection
+                }
+            } else {
+                byStateButtons = desc.pairOptions?.map(opt =>
+                    this.toMarkup({
+                        text: `${opt}`,
+                        data: opt,
+                        type: 'value'
+                    })
+                ) ?? []
+                auxButtons = BuilderMarkups.selection
+            }
         } else if (parser.State === 'ARG_CTX_SEL') { // show context options
             byStateButtons = parser.AvaliableContexts.map(ctx => BuilderMarkuper.toMarkup({
                 text: `${ctx}${parser.CurrentContext === ctx ? " " + UiUnicodeSymbols.check : ""}`,

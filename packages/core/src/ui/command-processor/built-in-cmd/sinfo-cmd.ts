@@ -44,7 +44,7 @@ function flattenObject(obj: unknown, prefix = '', maxDepth = 3, depth = 0): { ke
 interface ServiceData {
     config?: Record<string, unknown>
     params?: Record<string, unknown>
-    sessionData?: Record<string, unknown>
+    runtimeState?: Record<string, unknown>
 }
 
 export const SInfoCommand: BuiltInCommand = {
@@ -78,7 +78,7 @@ export const SInfoCommand: BuiltInCommand = {
         if (activeService) {
             text += `${UiUnicodeSymbols.success} Status: RUNNING | Session: ${activeService.SessionId}\n\n`
 
-            const liveData = activeService.runtimeData as ServiceData
+            const liveData = activeService.snapshot as ServiceData
             const cfgFields = flattenObject(liveData.config ?? {})
             if (cfgFields.length > 0) {
                 text += designer.make({
@@ -97,12 +97,12 @@ export const SInfoCommand: BuiltInCommand = {
                 }, w)
             }
 
-            const sessFields = flattenObject(liveData.sessionData ?? {})
-            if (sessFields.length > 0) {
+            const stateFields = flattenObject(liveData.runtimeState ?? {})
+            if (stateFields.length > 0) {
                 text += designer.make({
-                    title: `${UiUnicodeSymbols.clock} Session data`,
+                    title: `${UiUnicodeSymbols.clock} Runtime state`,
                     header: ['Key', 'Value'],
-                    body: sessFields.map(f => [f.key, f.value]),
+                    body: stateFields.map(f => [f.key, f.value]),
                 }, w)
             }
         } else {
@@ -117,22 +117,23 @@ export const SInfoCommand: BuiltInCommand = {
             const dbCfg = flattenObject(moduleData.config ?? {})
             if (dbCfg.length > 0) {
                 text += designer.make({
-                    title: `${UiUnicodeSymbols.lock} DB module config`,
+                    title: `${UiUnicodeSymbols.lock} Account-layer config (baseline)`,
                     header: ['Key', 'Value'],
                     body: dbCfg.map(f => [f.key, f.value]),
                 }, w)
             } else {
-                text += `${UiUnicodeSymbols.lock} DB module config: (empty)\n`
+                text += `${UiUnicodeSymbols.lock} Account-layer config: (empty)\n`
             }
 
             const sessions = await module.getSessions()
             if (sessions.length > 0) {
                 text += designer.make({
-                    title: `${UiUnicodeSymbols.clock} DB sessions`,
-                    header: ['Session', 'Fields'],
+                    title: `${UiUnicodeSymbols.clock} Session-layer overlays`,
+                    header: ['Session', 'Config keys', 'State fields'],
                     body: sessions.map(sess => {
-                        const sessData = flattenObject(sess.record.data ?? {})
-                        return [sess.record.name, String(sessData.length)]
+                        const sessConfig = flattenObject((sess.record.data?.config ?? {}) as Record<string, unknown>)
+                        const sessState = flattenObject((sess.record.data?.runtimeState ?? {}) as Record<string, unknown>)
+                        return [sess.record.name, String(sessConfig.length), String(sessState.length)]
                     }),
                 }, w)
             }

@@ -9,15 +9,13 @@ import { genRandomString } from "@cmd-hub/common"
 import { CmdArgumentOptionSetter } from "../../../../../ui/types/command"
 
 export const sessionOpts: CmdArgumentOptionSetter = async (servName: string, o: CmdDispatcher<any>, manager: ManagerRecord) => {
-    const avliableSessions = await o.UserServiceSessions(String(manager.userId), servName)
-    return avliableSessions
+    return await o.UserServiceSessions(String(manager.userId), servName)
 }
 
 export const sessionOptsWithRand: CmdArgumentOptionSetter = async (servName: string, o: CmdDispatcher<any>, manager: ManagerRecord) => {
-    const avliableSessions = await sessionOpts(servName, o, manager)
+    const avliableSessions = await o.UserServiceSessions(String(manager.userId), servName)
     const randIds = new Array<string>(4).fill('').map(() => genRandomString(8))
-    avliableSessions.push(...randIds)
-    return avliableSessions
+    return [...avliableSessions, ...randIds]
 }
 
 export const sessionIdValidator: ArgOptionValidator = (v: string) => Boolean(v.match(/^[0-9a-zA-Z]+$/))

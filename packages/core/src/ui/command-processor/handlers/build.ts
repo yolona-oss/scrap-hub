@@ -52,7 +52,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
                 } catch (_) {}
             }
 
-            const res = builder.startBuild(userId, command, desc, avalibleCtxs, undefined, savedData)
+            const res = await builder.startBuild(userId, command, desc, avalibleCtxs, undefined, savedData)
 
             return {
                 success: true,
@@ -109,7 +109,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
 
             return {
                 success: !Boolean(stepRes),
-                markup: stepRes.Markup,
+                markup: await stepRes.Markup,
                 messageType: 'builder' as const
             }
         }

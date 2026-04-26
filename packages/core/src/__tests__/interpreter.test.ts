@@ -341,3 +341,146 @@ describe('Interpreter — Incremental Mode (Interactive)', () => {
         expect(parser.ReadArgs[0].value).toBe('Moscow')
     })
 })
+
+// --- Hierarchical (branched) pair-options tests ---
+
+import { PAIR_BRANCH_PREFIX, PAIR_PATH_DELIMITER } from '@cmd-hub/common'
+import { BuilderActionSigns } from '../ui/command-processor/builder/default-callbacks'
+
+describe('Parser — Hierarchical Pair Options', () => {
+    function createTreeParser() {
+        const desc = makeDescriptor([
+            {
+                name: 'aiAgent',
+                isPair: true,
+                pairOptionsResolver: async (path: string[]) => {
+                    if (path.length === 0) {
+                        return { branches: ['model', 'temperature'], leaves: [] }
+                    }
+                    if (path[0] === 'model') return ['qwen2.5:7b', 'gpt-4o']
+                    if (path[0] === 'temperature') return ['0.0', '0.5']
+                    return []
+                },
+            },
+        ])
+        return new CBParser({
+            command: 'test',
+            avaliableArgCtxs: ['args'],
+            descriptor: desc,
+            switchArgCtxKeyword: '__switch__',
+            initialArgCtx: 'args',
+        })
+    }
+
+    test('drilling a branch pushes the path; leaf commit joins with delimiter', () => {
+        const parser = createTreeParser()
+        // Click the --aiAgent button
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'aiAgent' })
+        expect(parser.State).toBe('PAIR_VALUE')
+        expect(parser.PairPath).toEqual([])
+
+        // Click the "model →" branch button
+        const r1 = parser.parseNextToken({ type: 'TEXT', value: `${PAIR_BRANCH_PREFIX}model` })
+        expect(r1).toBe('pair-descend')
+        expect(parser.State).toBe('PAIR_VALUE')
+        expect(parser.PairPath).toEqual(['model'])
+
+        // Click a leaf — committed value is path-joined
+        const r2 = parser.parseNextToken({ type: 'TEXT', value: 'qwen2.5:7b' })
+        expect(r2).toBe('set-pair-value')
+        expect(parser.State).toBe('IDLE')
+        expect(parser.ReadArgs).toHaveLength(1)
+        expect(parser.ReadArgs[0].value).toBe(`model${PAIR_PATH_DELIMITER}qwen2.5:7b`)
+        expect(parser.PairPath).toEqual([])
+    })
+
+    test('popPairPath steps back one level; clearPairPath resets', () => {
+        const parser = createTreeParser()
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'aiAgent' })
+        parser.parseNextToken({ type: 'TEXT', value: `${PAIR_BRANCH_PREFIX}model` })
+        expect(parser.PairPath).toEqual(['model'])
+
+        expect(parser.popPairPath()).toBe(true)
+        expect(parser.PairPath).toEqual([])
+        // popping from root returns false
+        expect(parser.popPairPath()).toBe(false)
+    })
+
+    test('flat pairOptions descriptors are unaffected (non-branched)', () => {
+        const parser = createParser([
+            { name: 'mode', isPair: true, pairOptions: ['fast', 'slow'] }
+        ])
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'mode' })
+        // With no resolver, the BRANCH_PREFIX gets stripped and the value
+        // commits as a leaf — keeps backwards compat for any caller that
+        // accidentally sends a prefixed value.
+        const r = parser.parseNextToken({ type: 'TEXT', value: `${PAIR_BRANCH_PREFIX}fast` })
+        expect(r).toBe('set-pair-value')
+        expect(parser.ReadArgs[0].value).toBe('fast')
+    })
+
+    test('cancel-op via interpreter pops one path level instead of full back', () => {
+        const desc = makeDescriptor([
+            {
+                name: 'aiAgent',
+                isPair: true,
+                pairOptionsResolver: async (path: string[]) => {
+                    if (path.length === 0) return { branches: ['model'], leaves: [] }
+                    return ['qwen2.5:7b']
+                },
+            },
+        ])
+        const parser = new CBParser({
+            command: 'test',
+            avaliableArgCtxs: ['args'],
+            descriptor: desc,
+            switchArgCtxKeyword: '__switch__',
+            initialArgCtx: 'args',
+        })
+        const interpreter = new CBInterpreter(parser, 'incremental')
+
+        interpreter.step('--aiAgent')
+        interpreter.step(`${PAIR_BRANCH_PREFIX}model`)
+        expect(parser.PairPath).toEqual(['model'])
+
+        // The cancelOp action sign is what aux "Back" button sends
+        const r = interpreter.step(BuilderActionSigns.cancelOp)
+        expect(r.Done).toBe(false)
+        expect(parser.PairPath).toEqual([])
+        expect(parser.State).toBe('PAIR_VALUE')
+    })
+
+    test('transit out of PAIR_VALUE clears the pair path', () => {
+        const parser = createParser([
+            {
+                name: 'aiAgent',
+                isPair: true,
+                pairOptionsResolver: async () => ({ branches: ['model'], leaves: [] }),
+            },
+            { name: 'other', isPair: true, pairOptions: ['x'] },
+        ])
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'aiAgent' })
+        parser.parseNextToken({ type: 'TEXT', value: `${PAIR_BRANCH_PREFIX}model` })
+        expect(parser.PairPath).toEqual(['model'])
+
+        // Switching to a different pair arg mid-tree wipes the path
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'other' })
+        expect(parser.PairPath).toEqual([])
+    })
+
+    test('custom separator is honored on commit', () => {
+        const parser = createParser([
+            {
+                name: 'aiAgent',
+                isPair: true,
+                pairOptionsSeparator: '::',
+                pairOptionsResolver: async (path: string[]) =>
+                    path.length === 0 ? { branches: ['a'], leaves: [] } : ['leaf'],
+            },
+        ])
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'aiAgent' })
+        parser.parseNextToken({ type: 'TEXT', value: `${PAIR_BRANCH_PREFIX}a` })
+        parser.parseNextToken({ type: 'TEXT', value: 'leaf' })
+        expect(parser.ReadArgs[0].value).toBe('a::leaf')
+    })
+})

@@ -65,7 +65,7 @@ function maskSensitive(key: string, value: unknown): string {
 
 export const SConfigCommand: BuiltInCommand = {
     command: BuiltInUiCommandsEnum.SCONFIG,
-    description: "View or edit saved service configs",
+    description: "View or edit the account-layer baseline config (session overlays still take precedence at runtime)",
     args: new SConfigArgs,
     requires: [CAP_ManagerRepo, CAP_AccountRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
@@ -150,7 +150,7 @@ export const SConfigCommand: BuiltInCommand = {
             }
             await module.setDataPath(`config.${key}`, parsedValue)
             const display = typeof parsedValue === 'object' ? JSON.stringify(parsedValue).slice(0, 100) : String(parsedValue)
-            await ctx.reply(`${UiUnicodeSymbols.success} Set ${serviceName}.${key} = ${maskSensitive(key, display)}`)
+            await ctx.reply(`${UiUnicodeSymbols.success} Set account-layer ${serviceName}.${key} = ${maskSensitive(key, display)}\n${UiUnicodeSymbols.info} Active session overlays (if any) still take precedence.`)
             return
         }
 

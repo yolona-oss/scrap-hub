@@ -1,4 +1,4 @@
-import { getScraperConfig, IAIAgentConfig, IScraperConfig } from "../../scraper-config"
+import { getScraperConfig, resolveScraperUserConfig } from "../../scraper-config"
 import type { ServiceContext } from "../../exporters/types"
 
 export interface ResolvedAIAgentConfig {
@@ -12,34 +12,39 @@ export interface ResolvedAIAgentConfig {
     totalTimeoutMs: number
 }
 
-function pickProvider(system: IScraperConfig, chosen?: string): 'serpapi' | 'yandex' | 'duckduckgo' {
-    if (chosen === 'serpapi' || chosen === 'yandex' || chosen === 'duckduckgo') return chosen
-    if (system.serpApiKey) return 'serpapi'
-    if (system.yandexXmlUser && system.yandexXmlKey) return 'yandex'
-    return 'duckduckgo'
-}
-
 /**
- * Returns resolved config if baseUrl and model are present, else null.
- * Caller logs a warning and short-circuits when null.
+ * Returns resolved AI-agent config. Defaults from `scraper-defaults.ts`
+ * apply when the user hasn't set anything; `null` only when the user
+ * explicitly wiped baseUrl or model to empty strings (per-user disable).
+ *
+ * Provider auto-selection: if the user/system explicitly set a provider,
+ * honor it. Otherwise pick `serpapi` if a key is configured, then
+ * `yandex` if XML creds are configured, else fall back to `duckduckgo`.
  */
 export async function resolveAIAgentConfig(context?: ServiceContext): Promise<ResolvedAIAgentConfig | null> {
-    const system = await getScraperConfig()
-    const sys: IAIAgentConfig = system.aiAgent ?? {}
-    const user: IAIAgentConfig = ((context?.config as any)?.aiAgent) ?? {}
+    const sys = await getScraperConfig()
+    const userMerged = await resolveScraperUserConfig(context, sys)
+    const ai = userMerged.aiAgent
 
-    const baseUrl = user.baseUrl ?? sys.baseUrl
-    const model = user.model ?? sys.model
-    if (!baseUrl || !model) return null
+    if (!ai.baseUrl || !ai.model) return null
+
+    // Re-pick provider when the merged value is the system default and
+    // sys has credentials for a different (better) provider.
+    let provider = ai.webSearchProvider
+    const userExplicitProvider = (context?.config as any)?.aiAgent?.webSearchProvider
+    if (!userExplicitProvider) {
+        if (sys.serpApiKey) provider = 'serpapi'
+        else if (sys.yandexXmlUser && sys.yandexXmlKey) provider = 'yandex'
+    }
 
     return {
-        baseUrl,
-        apiKey: user.apiKey ?? sys.apiKey,
-        model,
-        temperature: user.temperature ?? sys.temperature ?? 0.2,
-        webSearchProvider: pickProvider(system, user.webSearchProvider ?? sys.webSearchProvider),
-        maxToolCalls: user.maxToolCalls ?? sys.maxToolCalls ?? 25,
-        toolTimeoutMs: user.toolTimeoutMs ?? sys.toolTimeoutMs ?? 60_000,
-        totalTimeoutMs: user.totalTimeoutMs ?? sys.totalTimeoutMs ?? 300_000,
+        baseUrl: ai.baseUrl,
+        apiKey: ai.apiKey || undefined,
+        model: ai.model,
+        temperature: ai.temperature,
+        webSearchProvider: provider,
+        maxToolCalls: ai.maxToolCalls,
+        toolTimeoutMs: ai.toolTimeoutMs,
+        totalTimeoutMs: ai.totalTimeoutMs,
     }
 }

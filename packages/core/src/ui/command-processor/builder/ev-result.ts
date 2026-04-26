@@ -5,7 +5,10 @@ import { ICommandCompiled } from "../../../ui/types/command"
 
 export class EvaluationResult {
     private done: boolean
-    private markup: IBaseMarkup
+    /** Lazy: the markup is rendered asynchronously when the parser is in
+     *  PAIR_VALUE on a hierarchical descriptor. Storing it as a promise
+     *  lets EvaluationResult stay constructible from sync code. */
+    private markup: Promise<IBaseMarkup>
     private compiled?: ICommandCompiled
     private error?: string
 
@@ -34,7 +37,7 @@ export class EvaluationResult {
         return this.done
     }
 
-    get Markup() {
+    get Markup(): Promise<IBaseMarkup> {
         return this.markup
     }
 

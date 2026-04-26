@@ -58,14 +58,14 @@ export class CommandBuilder {
         return res
     }
 
-    startBuild(
+    async startBuild(
         userId: string,
         command: string,
         desc: IUICommandDescriptor,
         contexts: CmdArgumentContextType[],
         mode?: InterpreterMode,
         savedData?: Record<string, any>
-    ): IBaseMarkup {
+    ): Promise<IBaseMarkup> {
         if (this.usersBuild.has(userId)) {
             throw new Error("User already has active build.")
         }
@@ -94,7 +94,7 @@ export class CommandBuilder {
         const interpreter = new CBInterpreter(state, mode)
         this.usersBuild.set(userId, interpreter)
 
-        return BuilderMarkuper.__tmpMarkup(state, savedData)
+        return await BuilderMarkuper.__tmpMarkup(state, savedData)
     }
 
     /**

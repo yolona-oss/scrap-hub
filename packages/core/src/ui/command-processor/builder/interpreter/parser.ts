@@ -1,7 +1,7 @@
 import { deepClone } from "@cmd-hub/common"
 import { IArgumentCompiled, IUICommandDescriptor } from '../../../../ui/types'
 import { CmdArgumentContextType, IArgumentDescriptor } from "../../../../ui/types/command";
-import { decodePositionalName, isEncodedPositionalName } from "../../../../ui/types/command";
+import { decodePositionalName, isEncodedPositionalName, PAIR_PATH_DELIMITER, PAIR_BRANCH_PREFIX } from "../../../../ui/types/command";
 import { StateSnaper } from "./state-span";
 import { CBLexerToken } from "./lexer";
 
@@ -54,6 +54,8 @@ export type ParserPerformedAction =
 
 | 'wait-next-inited'   // waiting for next value setted
 
+| 'pair-descend'       // user drilled into a hierarchical pair-options branch
+
 | 'value-validation-failed' // value validation failed
 
 export interface ICBParserStateRaw {
@@ -93,6 +95,10 @@ export class CBParser<PChainResGType extends ParserPerformedAction|string = Pars
     private _prevState!: ParserStateType
     private arguments!: IArgumentCompiled[]
     private _savedData?: Record<string, any>
+    /** Path of branch labels the user has drilled into while in
+     *  `PAIR_VALUE`. Empty at the root level; one entry per descent.
+     *  Reset on transit-out of `PAIR_VALUE`. */
+    private pairPath: string[] = []
 
     private snaper = new StateSnaper()
 
@@ -337,6 +343,30 @@ export class CBParser<PChainResGType extends ParserPerformedAction|string = Pars
             return
         })
 
+        const descendPairBranch = chainHandlerFactory<PChainReqValidated, PChainResGType>((req) => {
+            const { tkn } = req
+            if (
+                tkn.type === 'TEXT' &&
+                    this.state === 'PAIR_VALUE' &&
+                    this.arguments.length !== 0 &&
+                    typeof tkn.value === 'string' &&
+                    tkn.value.startsWith(PAIR_BRANCH_PREFIX)
+            ) {
+                const desc = this.findDescriptorByName(this.LastReadArg.name)
+                if (!desc?.pairOptionsResolver) {
+                    // No tree resolver — strip the prefix and fall through;
+                    // the literal label was emitted by the markuper for a
+                    // flat-options descriptor and must commit as a leaf.
+                    req.tkn = { ...tkn, value: tkn.value.slice(PAIR_BRANCH_PREFIX.length) }
+                    return
+                }
+                const label = tkn.value.slice(PAIR_BRANCH_PREFIX.length)
+                this.pairPath.push(label)
+                return 'pair-descend' as PChainResGType
+            }
+            return
+        })
+
         const setPairValue = chainHandlerFactory<PChainReqValidated, PChainResGType>((req) => {
             const { tkn } = req
             if (
@@ -347,7 +377,12 @@ export class CBParser<PChainResGType extends ParserPerformedAction|string = Pars
                 if (this.LastReadArg.value != '') {
                     throw new Error(`Pair value already set`)
                 }
-                this.LastReadArg.value = tkn.value
+                const desc = this.findDescriptorByName(this.LastReadArg.name)
+                const sep = desc?.pairOptionsSeparator ?? PAIR_PATH_DELIMITER
+                this.LastReadArg.value = this.pairPath.length > 0
+                    ? [...this.pairPath, tkn.value].join(sep)
+                    : tkn.value
+                this.pairPath = []
 
                 this.transitState('IDLE')
 
@@ -426,6 +461,7 @@ export class CBParser<PChainResGType extends ParserPerformedAction|string = Pars
         this.tknParseChain.use(expectUniqExistance)
         this.tknParseChain.use(setPairName)
         this.tknParseChain.use(validateArgumentValue)
+        this.tknParseChain.use(descendPairBranch)
         this.tknParseChain.use(setPairValue)
         this.tknParseChain.use(setPositional)
         this.tknParseChain.use(setStandalone)
@@ -464,6 +500,7 @@ export class CBParser<PChainResGType extends ParserPerformedAction|string = Pars
             _prevState: this._prevState,
             args: deepClone(this.arguments),
             waitNextBuf: deepClone(this.waitNextBuf),
+            pairPath: [...this.pairPath],
         })
     }
 
@@ -475,6 +512,7 @@ export class CBParser<PChainResGType extends ParserPerformedAction|string = Pars
             this.arguments = snap.args
             this._prevState = snap._prevState
             this.waitNextBuf = snap.waitNextBuf
+            this.pairPath = snap.pairPath ? [...snap.pairPath] : []
         } else {
             throw new Error('Can\'t back parser state')
         }
@@ -504,6 +542,27 @@ export class CBParser<PChainResGType extends ParserPerformedAction|string = Pars
 
     get LastReadArg() {
         return this.arguments[this.arguments.length - 1]
+    }
+
+    /** Snapshot of the current branch path. Empty when not drilled into a
+     *  hierarchical pair-options tree. The markuper consults this to know
+     *  which level to render. */
+    get PairPath(): string[] {
+        return [...this.pairPath]
+    }
+
+    /** Pop one branch from the current pair-path. Used by the interpreter
+     *  on `cancel-op` so the user can step back one level instead of
+     *  exiting the build entirely. Returns true if a level was popped. */
+    popPairPath(): boolean {
+        if (this.pairPath.length === 0) return false
+        this.pairPath.pop()
+        return true
+    }
+
+    /** Wipe the pair-path. Used on `cancel-build` and other hard exits. */
+    clearPairPath(): void {
+        this.pairPath = []
     }
 
     get Descriptor() {
@@ -678,6 +737,11 @@ export class CBParser<PChainResGType extends ParserPerformedAction|string = Pars
             this.state = to
             // waitNextBuf is cleared explicitly by handlers that consume it
             // (setPositional, setStandalone, validateRequest state resets)
+            // Pair-path is only meaningful while in PAIR_VALUE; clear on
+            // every transit out (commit, cancel, or arg switch).
+            if (to !== 'PAIR_VALUE') {
+                this.pairPath = []
+            }
             return
         }
 

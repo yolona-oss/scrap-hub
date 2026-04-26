@@ -11,7 +11,7 @@ import { log } from "@cmd-hub/common"
 export class AIAgentSource implements IScraperSource {
     async availability(context?: ServiceContext): Promise<SourceAvailability> {
         const cfg = await resolveAIAgentConfig(context)
-        if (!cfg) return { ok: false, reason: 'scraper.aiAgent.baseUrl / model not configured' }
+        if (!cfg) return { ok: false, reason: 'aiAgent.baseUrl / model is empty (use /sconfig scraper aiAgent.baseUrl <url> or set via the builder)' }
         return { ok: true }
     }
 
@@ -21,7 +21,7 @@ export class AIAgentSource implements IScraperSource {
         context?: ServiceContext,
     ): AsyncGenerator<OrgData> {
         const cfg = await resolveAIAgentConfig(context)
-        if (!cfg) throw new Error('scraper.aiAgent.baseUrl / model not configured')
+        if (!cfg) throw new Error('aiAgent.baseUrl / model is empty')
 
         log.info(`ai-agent.search: query="${query.query}" city="${query.city ?? ''}" maxResults=${query.maxResults}`)
         log.debug(`ai-agent.search: model=${cfg.model} baseUrl=${cfg.baseUrl} provider=${cfg.webSearchProvider} maxToolCalls=${cfg.maxToolCalls} totalTimeoutMs=${cfg.totalTimeoutMs}`)

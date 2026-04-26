@@ -18,6 +18,8 @@ export {
     CmdArgument,
     getCmdArgMetadata,
     COMMAND_ARG_DESC_KEY,
+    PAIR_PATH_DELIMITER,
+    PAIR_BRANCH_PREFIX,
 } from '@cmd-hub/common'
 
 // Types. `isolatedModules` requires `export type` for type-only re-exports.
@@ -33,6 +35,8 @@ export type {
     CommandArgumentKeyHolder,
     ICmdArgumentDefinition,
     ICmdArgumentDefenition,
+    BranchedPairOptions,
+    CompiledPairOptionsResolver,
 } from '@cmd-hub/common'
 
 // `./option` re-exports the option TYPES (`CmdArgumentOptionSetter`,

@@ -9,6 +9,7 @@ export class StateSnap {
         public readonly _prevState: ParserStateType,
         public readonly waitNextBuf: { type: 'standalone'|'positional'|'pair', value: string }|undefined,
         public readonly args: IArgumentCompiled[],
+        public readonly pairPath: string[] = [],
     ) {}
 }
 

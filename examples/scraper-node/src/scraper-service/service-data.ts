@@ -2,6 +2,7 @@ import { GlobalServiceConfig, GlobalServiceMessages, CmdServiceData, HubGlobalSe
 import { CmdArgument } from "@cmd-hub/core"
 import { SourceRegistry } from "../sources/registry"
 import { ExporterRegistry } from "../exporters/registry"
+import { aiAgentTreeResolver, googleSheetsTreeResolver } from "../sources/ai-agent/config-tree"
 import { OrgData } from "../types"
 
 export class ScraperConfigData extends GlobalServiceConfig {
@@ -54,6 +55,30 @@ export class ScraperConfigData extends GlobalServiceConfig {
         defaultValue: "all"
     })
     sources?: string
+
+    @CmdArgument({
+        required: false,
+        description: "AI agent settings (drill into key, then pick a value)",
+        pairOptions: aiAgentTreeResolver,
+        branched: true,
+    })
+    aiAgent?: string
+
+    @CmdArgument({
+        required: false,
+        description: "Google Sheets export config (credentials, spreadsheetId)",
+        pairOptions: googleSheetsTreeResolver,
+        branched: true,
+    })
+    googleSheets?: string
+
+    @CmdArgument({
+        required: false,
+        description: "Per-request delay in milliseconds",
+        pairOptions: ['250', '500', '1000', '2000', '5000'],
+        defaultValue: "1000",
+    })
+    requestDelayMs?: string
 }
 
 export class ScraperParamsData extends HubGlobalServiceParam {
@@ -89,7 +114,7 @@ export class ScraperMessagesData extends GlobalServiceMessages {
     export?: void
 }
 
-export interface IScraperSessionData {
+export interface IScraperRuntimeState {
     results: OrgData[]
     processedUrls: string[]
     lastQuery?: string
@@ -99,7 +124,7 @@ export type ScraperServiceDataType = CmdServiceData<
     ScraperConfigData,
     ScraperParamsData,
     ScraperMessagesData,
-    IScraperSessionData
+    IScraperRuntimeState
 >
 
 export const scraperDefaultData: ScraperServiceDataType = new CmdServiceData(
