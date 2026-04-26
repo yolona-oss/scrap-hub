@@ -3,11 +3,11 @@ import { ICmdArgumentDefinition, IArgumentDescriptor, IArgumentCompiled, CmdArgu
 import { BaseCommandService } from './service'
 import { BaseUIContext, IUI } from "../../../ui"
 
-/**
- * @description Describes the UI command base definition mapping
- * command - collable command name
- * args - class with fields described with metadata
- */
+/** Hub UI routing metadata. Intentionally NOT extending
+ *  `BaseCommandIdentity` from `@cmd-hub/common` — built-ins don't carry
+ *  `compatibilityId`/`version` (no remote pool to route through). For the
+ *  kinship between this and `CmdServiceMeta`/`CmdOneShotMeta` see
+ *  `BaseCommandIdentity`. */
 interface CommandSklet extends Partial<WithNeighbors> {
     readonly command: string
     readonly description: string
@@ -21,9 +21,6 @@ export type IUICommand = CommandSklet
 export interface IUICommandProcessed extends IUICommand {
     readonly args: (CmdArgumentMetadataRaw & {name: string})[]
 }
-
-/** RENAME IT! */
-export type IUICommandWithOutArgs = Omit<CommandSklet, "args">
 
 import { CmdArgumentProxy } from "../../../ui/command-processor/arg-proxy"
 
@@ -47,20 +44,23 @@ export function formatEffectiveArgs(compiled: ICommandCompiled): string {
     return `/${compiled.command} ${parts.join(' ')}`
 }
 
-export function isFunc(mixin: IvokeableType<any>): mixin is ICmdFunction<any> {
+export function isOneShot(mixin: IvokeableType<any>): mixin is ICmdOneShot<any> {
     return typeof mixin === "function"
 }
 
 export function isService(mixin: IvokeableType<any>): mixin is ICmdService {
-    return !isFunc(mixin)
+    return !isOneShot(mixin)
 }
 
 // invokable types
-type FuncResultType = ({error?: string})|void
-export type ICmdFunction<Ctx extends BaseUIContext> = (args: CmdArgumentProxy, ctx: Ctx, uiImpl: IUI<Ctx>) => Promise<FuncResultType>
-//export type ICmdObscuredFunction<Ctx> = (ctx: Ctx, ...args: any[]) => Promise<FuncResultType>
+type OneShotResultType = ({error?: string})|void
+/** Hub-side one-shot callback. Distinct from the node-side
+ *  `CmdOneShotInvokable` in `@cmd-hub/common`: that one runs on the node
+ *  with a thin emit-based context; this one runs in the hub UI dispatcher
+ *  with the populated arg proxy + UI context + IUI handle. */
+export type ICmdOneShot<Ctx extends BaseUIContext> = (args: CmdArgumentProxy, ctx: Ctx, uiImpl: IUI<Ctx>) => Promise<OneShotResultType>
 export type ICmdService = BaseCommandService<any>
-export type IvokeableType<UICtxType extends BaseUIContext> = ICmdFunction<UICtxType> | ICmdService
+export type IvokeableType<UICtxType extends BaseUIContext> = ICmdOneShot<UICtxType> | ICmdService
 
 /**
  * IUICommand with invokable object to ui command.

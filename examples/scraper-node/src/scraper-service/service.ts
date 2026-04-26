@@ -84,8 +84,10 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
 
         // setConfigValue persists; assignToCustomPath patches this.data.config
         // so the current invocation sees the new values without a refresh.
-        await Promise.all(deferredWrites.map(w => this.setConfigValue(w.path, w.value)))
+        // Sequential, not Promise.all — both writes target the same Mongoose
+        // session doc and concurrent save() would race.
         for (const w of deferredWrites) {
+            await this.setConfigValue(w.path, w.value)
             assignToCustomPath(this.data.config as object, w.path, w.value)
         }
     }

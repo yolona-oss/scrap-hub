@@ -47,7 +47,7 @@ import type {
     IPendingDeleteRepo,
     CapabilityKey,
 } from "@cmd-hub/common";
-import { CmdArgumentMetadataRaw, getCmdArgMetadata, isFunc, isService, IUICommandProcessed } from "../../ui/types/command";
+import { CmdArgumentMetadataRaw, getCmdArgMetadata, isOneShot, isService, IUICommandProcessed } from "../../ui/types/command";
 
 export interface DispatcherRepos {
     readonly manager: IManagerRepo
@@ -402,7 +402,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
     isAllArgsPassed(command: string, passedArgs: string[]): boolean {
         const cmd = this.cmd_registry.get(command)
         if (cmd) {
-            if (isFunc(cmd.invokable)) {
+            if (isOneShot(cmd.invokable)) {
                 if (!cmd.args || cmd.args.length === 0) {
                     return true
                 }
@@ -514,7 +514,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
 
     async UserServiceSessions(userId: string, serviceName: string): Promise<string[]> {
         const cmd = this.getInvokable(serviceName)
-        if (isFunc(cmd.invokable)) {
+        if (isOneShot(cmd.invokable)) {
             return []
         }
         const repos = this._repos
@@ -584,7 +584,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
     public getRegistredCommandNames(): string[] {
         let ret: string[] = []
         for (const [key, value] of this.cmd_registry) {
-            if (isFunc(value.invokable)) {
+            if (isOneShot(value.invokable)) {
                 ret.push(key)
             }
         }

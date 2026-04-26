@@ -1,5 +1,6 @@
 import { CmdArgumentMetadataRaw, getCmdArgMetadata } from './argument-decorator'
 import { getCmdServiceMeta } from './service-decorator'
+import { BaseCommandIdentity } from './identity'
 import log from '../application/logger'
 
 export interface ProtoArgSpec {
@@ -13,11 +14,7 @@ export interface ProtoArgSpec {
     standalone: boolean
 }
 
-export interface ProtoCommand {
-    name: string
-    compatibilityId: string
-    version: string
-    description: string
+export interface ProtoCommand extends BaseCommandIdentity {
     args: ProtoArgSpec[]
     aliases: string[]
 }

@@ -1,9 +1,11 @@
 import { AllowNoneOrOne } from "../types/type-checks"
 import { validateArgumentDescriptor } from "./argument-descriptor-helpers"
 import { CmdArgumentOptionSetter, CmdArgumentPairOptionsType } from "./argument-option-types"
-import "reflect-metadata"
+import { defineDecoratorMeta, readDecoratorMeta, makeMetaKey } from "./metadata"
 
-export const COMMAND_ARG_DESC_KEY = Symbol('descriptor:command-argument')
+/** Per-property metadata bag (one entry per `@CmdArgument`-decorated field).
+ *  Stored as a `Record<propertyKey, CmdArgumentMetadataRaw>` on the prototype. */
+export const COMMAND_ARG_DESC_KEY = makeMetaKey('CmdArgument')
 
 /** An argument is one of three kinds — standalone, positional, or pair.
  *  Position and standalone are mutually exclusive; if both are absent the
@@ -62,9 +64,9 @@ export function CmdArgument(metadata: CmdArgumentMetadataDef) {
         ) {
             defaulted.isPair = true
         }
-        const existingMetadata = Reflect.getMetadata(COMMAND_ARG_DESC_KEY, target) || {}
-        existingMetadata[propertyKey] = defaulted
-        Reflect.defineMetadata(COMMAND_ARG_DESC_KEY, existingMetadata, target)
+        const bag = readDecoratorMeta<CommandMetadata>(COMMAND_ARG_DESC_KEY, target) ?? {}
+        bag[propertyKey] = defaulted
+        defineDecoratorMeta(COMMAND_ARG_DESC_KEY, target, bag)
     }
 }
 
@@ -79,7 +81,7 @@ export function getCmdArgMetadata<T>(
     let proto = target.prototype || Object.getPrototypeOf(target)
 
     while (proto && proto !== Object.prototype) {
-        const metadata = Reflect.getMetadata(COMMAND_ARG_DESC_KEY, proto)
+        const metadata = readDecoratorMeta<CommandMetadata>(COMMAND_ARG_DESC_KEY, proto)
         if (metadata) {
             for (const key in metadata) {
                 const value = metadata[key]

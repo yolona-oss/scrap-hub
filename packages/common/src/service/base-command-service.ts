@@ -21,9 +21,14 @@ import {
     toDescriptor
 } from "./service-data"
 
-import { COMMAND_ARG_DESC_KEY, CommandMetadata, decodePositionalName, isEncodedPositionalName } from "../command"
-
-import 'reflect-metadata'
+import {
+    COMMAND_ARG_DESC_KEY,
+    CommandMetadata,
+    decodePositionalName,
+    isEncodedPositionalName,
+    defineDecoratorMeta,
+    readDecoratorMeta,
+} from "../command"
 
 /** Keys under `sessionLayer.data` for the two parallel slices the
  *  layered model writes to: per-session config overlay and resumable
@@ -74,15 +79,15 @@ function merge<T extends Object>(dst: T, src: T): T {
 
     Object.assign(merged, dst, src);
 
-    const dst_meta = Reflect.getMetadata(COMMAND_ARG_DESC_KEY, dst);
+    const dst_meta = readDecoratorMeta<CommandMetadata>(COMMAND_ARG_DESC_KEY, dst);
     if (dst_meta) {
-        Reflect.defineMetadata(COMMAND_ARG_DESC_KEY, dst_meta, merged);
+        defineDecoratorMeta(COMMAND_ARG_DESC_KEY, merged, dst_meta);
     }
 
-    const src_meta = Reflect.getMetadata(COMMAND_ARG_DESC_KEY, src);
+    const src_meta = readDecoratorMeta<CommandMetadata>(COMMAND_ARG_DESC_KEY, src);
     if (src_meta) {
-        const existingMetadata = Reflect.getMetadata(COMMAND_ARG_DESC_KEY, merged) || {};
-        Reflect.defineMetadata(COMMAND_ARG_DESC_KEY, { ...existingMetadata, ...src_meta }, merged);
+        const existingMetadata = readDecoratorMeta<CommandMetadata>(COMMAND_ARG_DESC_KEY, merged) ?? {};
+        defineDecoratorMeta(COMMAND_ARG_DESC_KEY, merged, { ...existingMetadata, ...src_meta });
     }
 
     return merged;
@@ -286,6 +291,12 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
 
         const { sessionLayerData, accountLayerData, sessionLayer } = await this.retrieveAccountData(true)
 
+        // `noCache` is the per-run escape hatch: skip overlay reads AND
+        // skip the session-layer write so saved values survive untouched.
+        // Lives on `params` (per-invocation runtime knob), not `config` (user
+        // values), so the flag never lands in the merged effective config.
+        const noCache = isFlagSet((inputData.params as Record<string, unknown> | undefined)?.['noCache'])
+
         // Decode positional args (positional-1-query → query)
         const decodedInputConfig: Record<string, unknown> = {}
         if (inputData.config) {
@@ -300,9 +311,6 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
             }
         }
 
-        // `noCache` is the per-run escape hatch: skip overlay reads AND
-        // skip the session-layer write so saved values survive untouched.
-        const noCache = isFlagSet(decodedInputConfig['noCache'])
         const accountConfig = noCache ? {} : (accountLayerData.config ?? {}) as Record<string, unknown>
         const sessionConfig = noCache ? {} : ((sessionLayerData.config ?? {}) as Record<string, unknown>)
 
@@ -325,14 +333,15 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
 
         // Writes go to the session layer (the writable overlay); account
         // stays as the long-lived baseline that only `/sconfig` touches.
+        // Sequential, not parallel — the Mongo adapter saves the same
+        // Mongoose document each call, and Mongoose rejects concurrent
+        // `save()` on a single doc with "Can't save() the same doc multiple
+        // times in parallel".
         if (!noCache) {
-            const writes: Promise<void>[] = [
-                sessionLayer.setField(SESSION_CONFIG_KEY, aConfig as Record<string, unknown>),
-            ]
+            await sessionLayer.setField(SESSION_CONFIG_KEY, aConfig as Record<string, unknown>)
             if (initRuntimeState) {
-                writes.push(sessionLayer.setField(SESSION_RUNTIME_STATE_KEY, aRuntimeState))
+                await sessionLayer.setField(SESSION_RUNTIME_STATE_KEY, aRuntimeState)
             }
-            await Promise.all(writes)
         }
 
         this.data = {

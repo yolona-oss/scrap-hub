@@ -1,4 +1,4 @@
-import { CmdArgument, isFunc } from "../../../ui/types/command"
+import { CmdArgument, isOneShot } from "../../../ui/types/command"
 import { BuiltInServiceCommandsEnum } from "../constants"
 import { ICmdService } from "../../../ui/types/command"
 import { BuiltInCommand } from "../types/built-in-cmd"
@@ -95,7 +95,7 @@ class ServiceSendMsgArgs {
         pairOptions: async (serviceName, handler, __) => {
             try {
                 const cb = handler.getInvokable(serviceName)
-                if (isFunc(cb.invokable)) {
+                if (isOneShot(cb.invokable)) {
                     throw new Error(`Command "${serviceName}" is not a service.`)
                 }
                 const instance = cb.invokable as ICmdService

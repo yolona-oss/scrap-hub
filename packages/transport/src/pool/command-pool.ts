@@ -1,8 +1,6 @@
-export interface PoolCommand {
-    name: string
-    compatibilityId: string
-    version: string
-    description: string
+import type { BaseCommandIdentity } from '@cmd-hub/common'
+
+export interface PoolCommand extends BaseCommandIdentity {
     args: unknown[]
     aliases: string[]
     /** Capability keys this command needs at run time. Carried through from

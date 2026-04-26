@@ -5,14 +5,7 @@ export function toDescriptor<T extends CommandArgumentKeyHolder>(instance: T): C
     return getCmdArgMetadata(instance)
 }
 
-export class GlobalServiceConfig {
-    @CmdArgument({
-        required: false,
-        standalone: true,
-        description: "Skip per-account/session config overlays for this run; use built-in defaults + explicit args only. Saved values are NOT modified.",
-    })
-    noCache?: void
-}
+export class GlobalServiceConfig {}
 
 export class GlobalServiceParam {
     @CmdArgument({
@@ -23,16 +16,17 @@ export class GlobalServiceParam {
 
     @CmdArgument({
         required: false,
-        description: "Session id to restore state from."
-    })
-    s?: string
-
-    @CmdArgument({
-        required: false,
         standalone: true,
         description: "Disable auto-dashboard for this service"
     })
     noDashboard?: string
+
+    @CmdArgument({
+        required: false,
+        standalone: true,
+        description: "Skip per-account/session config overlays for this run; use built-in defaults + explicit args only. Saved values are NOT modified.",
+    })
+    noCache?: void
 }
 
 export class GlobalServiceMessages {

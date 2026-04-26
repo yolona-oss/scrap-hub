@@ -30,7 +30,7 @@ export class CBDescriptorCompiler<UICtx extends BaseUIContext> {
 
     async compile(command: string, userId: string, mother: CmdDispatcher<UICtx>, ctx: UICtx): Promise<IUICommandDescriptor> {
         // Local-first: descriptors compiled from the in-process registry's
-        // ICmdService / ICmdFunction metadata. These already carry rich
+        // ICmdService / ICmdOneShot metadata. These already carry rich
         // builder hints (pairOptions, validators, ctx tagging).
         const localEntry = mother.tryGetInvokable(command)
         if (localEntry) {

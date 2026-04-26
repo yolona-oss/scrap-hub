@@ -6,7 +6,7 @@ import { CmdDispatcher } from "../dispatcher"
 import log from '../../../application/logger'
 import { CBDescriptorCompiler } from "../builder/desc-compiler"
 import { IUICommandDescriptor, IUI } from "../../../ui/types"
-import { isFunc, formatEffectiveArgs } from "../../types/command"
+import { isOneShot, formatEffectiveArgs } from "../../types/command"
 
 // TODO add completion for builtin commands
 
@@ -80,7 +80,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
                 // eligible". Only fall through to the remote invoker for
                 // commands NOT found locally.
                 const localEntry = dispatcher.tryGetInvokable(stepRes.Result.command)
-                if (localEntry && isFunc(localEntry.invokable)) {
+                if (localEntry && isOneShot(localEntry.invokable)) {
                     await localEntry.invokable.call(dispatcher, stepRes.Result.proxy, ctx, uiImpl)
                     return {
                         success: true,

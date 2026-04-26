@@ -3,7 +3,7 @@ import { AbstractCmdHandler, ICmdHandlerRequest, ICmdHandlerResponce } from "./a
 import { BaseUIContext } from "../../../ui"
 import { anyToString } from "@cmd-hub/common"
 import { UiUnicodeSymbols } from "../../../ui"
-import { isFunc, formatEffectiveArgs } from "../../types/command"
+import { isOneShot, formatEffectiveArgs } from "../../types/command"
 
 export class HandleInvokation<Ctx extends BaseUIContext> extends AbstractCmdHandler<Ctx> {
 
@@ -29,7 +29,7 @@ export class HandleInvokation<Ctx extends BaseUIContext> extends AbstractCmdHand
             log.info(`exec: ${formatEffectiveArgs(compiled.Result)}`)
 
             if (localEntry) {
-                if (isFunc(localEntry.invokable)) {
+                if (isOneShot(localEntry.invokable)) {
                     await localEntry.invokable.call(dispatcher, compiled.Result.proxy, uiCtx, uiImpl)
                     return {
                         success: true,

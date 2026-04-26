@@ -155,7 +155,10 @@ describe('BaseCommandService — noCache bypass', () => {
             accountConfig: { a: 1 },
             sessionConfig: { a: 2, b: 2 },
         })
-        const svc = new TestService('u1', { config: { noCache: true, c: 3 } as any })
+        const svc = new TestService('u1', {
+            config: { c: 3 } as any,
+            params: { noCache: true } as any,
+        })
         await svc.Initialize()
         const cfg = (svc.snapshot as any).config
         // Saved values were skipped; only defaults + input apply.

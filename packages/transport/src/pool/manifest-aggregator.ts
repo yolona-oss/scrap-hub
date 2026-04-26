@@ -1,11 +1,7 @@
-import { log } from '@cmd-hub/common'
+import { log, BaseCommandIdentity } from '@cmd-hub/common'
 import { CommandPool } from './command-pool'
 
-export interface AggregatedCommand {
-    name: string
-    compatibilityId: string
-    version: string
-    description: string
+export interface AggregatedCommand extends BaseCommandIdentity {
     args: unknown[]
     aliases: string[]
     requires?: readonly string[]

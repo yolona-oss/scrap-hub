@@ -1,16 +1,16 @@
 import 'reflect-metadata'
 import {
-    CmdCommand,
-    type CmdCommandContext,
-    type CmdCommandInvokable,
-    getCmdCommandMeta,
+    CmdOneShot,
+    type CmdOneShotContext,
+    type CmdOneShotInvokable,
+    getCmdOneShotMeta,
     bindArgsForSpec,
     decodeArgsMap,
-} from '../cmd-command'
+} from '../cmd-one-shot'
 import { CmdArgument } from '../argument-decorator'
 import { defineCapability } from '../../application/capability'
 
-const CAP_TEST = defineCapability<string>('test.cmdCommand')
+const CAP_TEST = defineCapability<string>('test.cmdOneShot')
 
 class HealthArgs {
     @CmdArgument({ required: false, position: 1, description: 'verbose flag', defaultValue: 'no' })
@@ -20,10 +20,10 @@ class HealthArgs {
     target?: string
 }
 
-describe('CmdCommand', () => {
+describe('CmdOneShot', () => {
     describe('inline factory', () => {
         it('builds a spec with required fields and exposes meta', () => {
-            const spec = CmdCommand({
+            const spec = CmdOneShot({
                 name: 'health',
                 description: 'health probe',
                 compatibilityId: 'com.example.health',
@@ -40,24 +40,24 @@ describe('CmdCommand', () => {
             expect(spec.requires).toEqual([CAP_TEST])
             expect(typeof spec.invokable).toBe('function')
 
-            const recovered = getCmdCommandMeta(spec)
+            const recovered = getCmdOneShotMeta(spec)
             expect(recovered).toBe(spec)
         })
 
         it('rejects bad meta (missing required fields)', () => {
-            expect(() => CmdCommand({
+            expect(() => CmdOneShot({
                 name: '', description: 'd', compatibilityId: 'c', version: '1.0.0',
                 invokable: async () => {},
             })).toThrow(/name is required/)
-            expect(() => CmdCommand({
+            expect(() => CmdOneShot({
                 name: 'n', description: '', compatibilityId: 'c', version: '1.0.0',
                 invokable: async () => {},
             })).toThrow(/description is required/)
-            expect(() => CmdCommand({
+            expect(() => CmdOneShot({
                 name: 'n', description: 'd', compatibilityId: '', version: '1.0.0',
                 invokable: async () => {},
             })).toThrow(/compatibilityId is required/)
-            expect(() => CmdCommand({
+            expect(() => CmdOneShot({
                 name: 'n', description: 'd', compatibilityId: 'c', version: 'not-semver',
                 invokable: async () => {},
             })).toThrow(/version must be semver/)
@@ -65,8 +65,8 @@ describe('CmdCommand', () => {
     })
 
     describe('class decorator', () => {
-        it('stamps meta on the class and pulls it back via getCmdCommandMeta', () => {
-            const decorate = CmdCommand({
+        it('stamps meta on the class and pulls it back via getCmdOneShotMeta', () => {
+            const decorate = CmdOneShot({
                 name: 'classy',
                 description: 'class form',
                 compatibilityId: 'com.example.classy',
@@ -75,11 +75,11 @@ describe('CmdCommand', () => {
             })
 
             class ClassyCommand {
-                static invokable: CmdCommandInvokable = async (_ctx) => { /* no-op */ }
+                static invokable: CmdOneShotInvokable = async (_ctx) => { /* no-op */ }
             }
             decorate(ClassyCommand)
 
-            const meta = getCmdCommandMeta(ClassyCommand)
+            const meta = getCmdOneShotMeta(ClassyCommand)
             expect(meta).not.toBeNull()
             expect(meta!.name).toBe('classy')
             expect(meta!.compatibilityId).toBe('com.example.classy')
@@ -89,7 +89,7 @@ describe('CmdCommand', () => {
         })
 
         it('throws when the decorated class lacks a static invokable', () => {
-            const decorate = CmdCommand({
+            const decorate = CmdOneShot({
                 name: 'broken',
                 description: 'no invokable',
                 compatibilityId: 'com.example.broken',
@@ -115,7 +115,7 @@ describe('CmdCommand', () => {
         })
 
         it('bindArgsForSpec returns a populated argsClass instance with positional decoding', () => {
-            const spec = CmdCommand({
+            const spec = CmdOneShot({
                 name: 'health',
                 description: 'health probe',
                 compatibilityId: 'com.example.health',
@@ -131,7 +131,7 @@ describe('CmdCommand', () => {
         })
 
         it('bindArgsForSpec returns the raw decoded map when argsClass is omitted', () => {
-            const spec = CmdCommand({
+            const spec = CmdOneShot({
                 name: 'noargs',
                 description: 'no args class',
                 compatibilityId: 'com.example.noargs',
@@ -146,13 +146,13 @@ describe('CmdCommand', () => {
     describe('typed ctx.args', () => {
         it('user-annotated TArgs flows from argsClass through ctx.args', async () => {
             const seen: { verbose?: string; target?: string } = {}
-            const spec = CmdCommand({
+            const spec = CmdOneShot({
                 name: 'health',
                 description: 'health probe',
                 compatibilityId: 'com.example.health',
                 version: '1.0.0',
                 argsClass: HealthArgs,
-                invokable: async (ctx: CmdCommandContext<HealthArgs>) => {
+                invokable: async (ctx: CmdOneShotContext<HealthArgs>) => {
                     seen.verbose = ctx.args.verbose
                     seen.target = ctx.args.target
                 },

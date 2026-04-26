@@ -3,9 +3,9 @@ import { z } from 'zod'
 import { EventEmitter } from 'events'
 import {
     CmdArgument,
-    CmdCommand,
+    CmdOneShot,
     CmdService,
-    type CmdCommandContext,
+    type CmdOneShotContext,
     defineCapability,
 } from '@cmd-hub/common'
 import { CmdNodeApp } from '../cmd-node-app'
@@ -34,13 +34,13 @@ class ServicefulService extends EventEmitter {
     async run(): Promise<void> { this.emit('done') }
 }
 
-const Greet = CmdCommand({
+const Greet = CmdOneShot({
     name: 'greet',
     description: 'one-shot',
     compatibilityId: 'com.example.greet',
     version: '1.2.0',
     requires: [CAP_GREETER],
-    invokable: async (ctx: CmdCommandContext) => {
+    invokable: async (ctx: CmdOneShotContext) => {
         ctx.emit({ kind: 'message', text: 'hi' })
     },
 })

@@ -2,8 +2,8 @@ import 'reflect-metadata'
 import { z } from 'zod'
 import {
     CmdArgument,
-    CmdCommand,
-    type CmdCommandContext,
+    CmdOneShot,
+    type CmdOneShotContext,
     defineCapability,
 } from '@cmd-hub/common'
 import { CmdNodeApp } from '../cmd-node-app'
@@ -15,20 +15,20 @@ class GreetArgs {
     name?: string
 }
 
-const GreetCommand = CmdCommand({
+const GreetCommand = CmdOneShot({
     name: 'greet',
     description: 'emit a greeting',
     compatibilityId: 'com.example.greet',
     version: '1.0.0',
     argsClass: GreetArgs,
     requires: [CAP_GREETER],
-    invokable: async (ctx: CmdCommandContext<GreetArgs>) => {
+    invokable: async (ctx: CmdOneShotContext<GreetArgs>) => {
         const greeting = ctx.require(CAP_GREETER)
         ctx.emit({ kind: 'message', text: `${greeting}, ${ctx.args.name ?? 'world'}` })
     },
 })
 
-const ThrowyCommand = CmdCommand({
+const ThrowyCommand = CmdOneShot({
     name: 'throwy',
     description: 'always errors',
     compatibilityId: 'com.example.throwy',
@@ -50,8 +50,8 @@ function mkApp(name: string) {
     })
 }
 
-describe('CmdNodeApp + CmdCommand function commands', () => {
-    it('useCommand accepts a CmdCommandSpec and registers it under functionCommands', async () => {
+describe('CmdNodeApp + CmdOneShot function commands', () => {
+    it('useCommand accepts a CmdOneShotSpec and registers it under functionCommands', async () => {
         const app = mkApp(`fn-register-${Math.random().toString(36).slice(2)}`)
         app.useCommand(GreetCommand)
         expect(app.functionCommands.has('greet')).toBe(true)

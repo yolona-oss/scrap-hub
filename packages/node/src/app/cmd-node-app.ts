@@ -13,11 +13,11 @@ import {
     buildCommandFromDecorator,
     buildProtoArgsFromDataClass,
     getCmdServiceMeta,
-    getCmdCommandMeta,
+    getCmdOneShotMeta,
     bindArgsForSpec,
-    makeCmdCommandContext,
+    makeCmdOneShotContext,
     CommandArgumentHolder,
-    CmdCommandSpec,
+    CmdOneShotSpec,
 } from '@cmd-hub/common'
 import { CmdHubProto } from '@cmd-hub/transport'
 import { hardwareInfo } from '../manifest/hardware-info'
@@ -49,7 +49,7 @@ export interface ServiceClassWithOptionalConfig extends ServiceClass {
     configSchema?: z.ZodType<unknown>
 }
 
-export type CmdRegistrable = ServiceClassWithOptionalConfig | CmdCommandSpec
+export type CmdRegistrable = ServiceClassWithOptionalConfig | CmdOneShotSpec
 
 export interface CmdNodeAppOptions<Cfg>
     extends Omit<ApplicationOptions<Cfg>, 'baseSchema'> {
@@ -72,15 +72,15 @@ function toProtoArgs(args: { name: string; position: number; required: boolean; 
     }))
 }
 
-/** Wraps a one-shot `CmdCommandSpec` as a `RunnableService` so the
+/** Wraps a `CmdOneShotSpec` as a `RunnableService` so the
  *  executor/event-adapter pipeline works unchanged. */
-function makeFunctionCommandService(
-    spec: CmdCommandSpec,
+function makeOneShotService(
+    spec: CmdOneShotSpec,
     start: InvokeStart,
     app: Application<unknown>,
 ): RunnableService {
     const ee = new EventEmitter()
-    const ctx = makeCmdCommandContext({
+    const ctx = makeCmdOneShotContext({
         args: bindArgsForSpec(spec, start.args),
         userId: start.userId,
         sessionId: start.sessionId,
@@ -112,8 +112,8 @@ function makeFunctionCommandService(
     }
 }
 
-/** Node-side Application: register `@CmdService`/`@CmdCommand` classes or
- *  `CmdCommand({...})` specs via `.useCommand(...)`, wire HubClient +
+/** Node-side Application: register `@CmdService`/`@CmdOneShot` classes or
+ *  `CmdOneShot({...})` specs via `.useCommand(...)`, wire HubClient +
  *  InvokeServer middlewares, then `Initialize()`/`run()`. */
 export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
     private readonly _nodeIdOverride?: string
@@ -121,7 +121,7 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
     private readonly _versionOverride?: string
 
     private readonly _serviceClasses: Map<string, ServiceClassWithOptionalConfig> = new Map()
-    private readonly _functionCommands: Map<string, CmdCommandSpec> = new Map()
+    private readonly _functionCommands: Map<string, CmdOneShotSpec> = new Map()
     private _cachedManifest: NodeManifest | null = null
 
     constructor(opts: CmdNodeAppOptions<Cfg>) {
@@ -162,14 +162,14 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
     }
 
     useCommand(reg: CmdRegistrable): this {
-        if (typeof reg === 'object' && typeof (reg as CmdCommandSpec).invokable === 'function') {
-            this._registerFunctionCommand(reg as CmdCommandSpec)
+        if (typeof reg === 'object' && typeof (reg as CmdOneShotSpec).invokable === 'function') {
+            this._registerOneShot(reg as CmdOneShotSpec)
             return this
         }
 
-        const cmdMeta = getCmdCommandMeta(reg)
+        const cmdMeta = getCmdOneShotMeta(reg)
         if (cmdMeta) {
-            this._registerFunctionCommand(cmdMeta)
+            this._registerOneShot(cmdMeta)
             return this
         }
 
@@ -177,7 +177,7 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
         const meta = getCmdServiceMeta(cls)
         if (!meta) {
             throw new Error(
-                `CmdNodeApp.useCommand: ${cls.name ?? '(anon)'} is not decorated with @CmdService or @CmdCommand`,
+                `CmdNodeApp.useCommand: ${cls.name ?? '(anon)'} is not decorated with @CmdService or @CmdOneShot`,
             )
         }
         if (this._serviceClasses.has(meta.name) || this._functionCommands.has(meta.name)) {
@@ -193,7 +193,7 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
         return this
     }
 
-    private _registerFunctionCommand(spec: CmdCommandSpec): void {
+    private _registerOneShot(spec: CmdOneShotSpec): void {
         if (this._functionCommands.has(spec.name) || this._serviceClasses.has(spec.name)) {
             throw new Error(`CmdNodeApp.useCommand: duplicate command name "${spec.name}"`)
         }
@@ -205,7 +205,7 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
         return this._serviceClasses
     }
 
-    get functionCommands(): ReadonlyMap<string, CmdCommandSpec> {
+    get functionCommands(): ReadonlyMap<string, CmdOneShotSpec> {
         return this._functionCommands
     }
 
@@ -273,7 +273,7 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
             async createService(start: InvokeStart): Promise<RunnableService> {
                 const fnSpec = functionCommands.get(start.commandName)
                 if (fnSpec) {
-                    return makeFunctionCommandService(fnSpec, start, app)
+                    return makeOneShotService(fnSpec, start, app)
                 }
                 const cls = serviceClasses.get(start.commandName)
                 if (!cls) {
