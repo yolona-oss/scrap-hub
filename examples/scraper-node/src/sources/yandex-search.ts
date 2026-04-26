@@ -1,10 +1,11 @@
 import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
 import { getScraperConfig } from "../scraper-config"
+import { SCRAPER_LANGUAGE } from "../scraper-defaults"
 import { extractEmail, extractPhone, extractAddress } from "./extract"
+import { httpGet } from "./http"
 import * as cheerio from "cheerio"
-import axios from "axios"
-import { log } from "@cmd-hub/common"
+import { log, sleep } from "@cmd-hub/common"
 
 export class YandexSearchSource implements IScraperSource {
     async availability(): Promise<SourceAvailability> {
@@ -40,12 +41,11 @@ export class YandexSearchSource implements IScraperSource {
                     query: searchQuery,
                     page: String(page),
                     groupby: 'attr=d.mode=deep.groups-on-page=10.docs-in-group=1',
-                    l10n: 'ru',
+                    l10n: SCRAPER_LANGUAGE,
                 })
 
-                const res = await axios.get(`https://yandex.com/search/xml?${params}`, {
-                    timeout: 15000,
-                    headers: { 'Accept': 'application/xml' }
+                const res = await httpGet(`https://yandex.com/search/xml?${params}`, {
+                    headers: { 'Accept': 'application/xml' },
                 })
 
                 const $ = cheerio.load(res.data, { xmlMode: true })
@@ -77,7 +77,7 @@ export class YandexSearchSource implements IScraperSource {
                 }
 
                 page++
-                await new Promise(r => setTimeout(r, 1500))
+                await sleep(1500)
             } catch (e: any) {
                 log.error(`yandex.search: ${e.message ?? e}`)
                 break

@@ -1,12 +1,26 @@
 import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
-import { DEFAULT_USER_AGENT, getScraperConfig } from "../scraper-config"
-import axios from "axios"
+import { SCRAPER_LANGUAGE } from "../scraper-defaults"
+import { httpGet, httpHead } from "./http"
 import { log } from "@cmd-hub/common"
+
+const YANDEX_MAPS_BASE = 'https://yandex.ru/maps'
+const YANDEX_MAPS_API = `${YANDEX_MAPS_BASE}/api/search`
 
 export class YandexBusinessSource implements IScraperSource {
     async availability(): Promise<SourceAvailability> {
-        return { ok: true }
+        // HEAD the homepage, NOT the API endpoint — probing /api/search would
+        // burn quota with each /scrape (the AI-agent calls availability before
+        // every search_source).
+        try {
+            const res = await httpHead(`${YANDEX_MAPS_BASE}/`, { timeoutMs: 5000, retries: 1 })
+            if (res.status >= 400) {
+                return { ok: false, reason: `yandex maps HEAD: HTTP ${res.status}` }
+            }
+            return { ok: true }
+        } catch (e: any) {
+            return { ok: false, reason: `yandex maps HEAD: ${e?.message ?? e}` }
+        }
     }
 
     async* search(query: SearchQuery, onProgress: (found: number) => void): AsyncGenerator<OrgData> {
@@ -16,23 +30,20 @@ export class YandexBusinessSource implements IScraperSource {
 
         log.info(`yandex-business.search: query="${searchQuery}" maxResults=${query.maxResults}`)
         let found = 0
-        const userAgent = (await getScraperConfig()).userAgent || DEFAULT_USER_AGENT
 
         try {
             const params = new URLSearchParams({
                 text: searchQuery,
                 type: 'biz',
-                lang: 'ru_RU',
+                lang: `${SCRAPER_LANGUAGE}_RU`,
                 results: String(Math.min(query.maxResults, 50)),
             })
 
-            const res = await axios.get(`https://yandex.ru/maps/api/search?${params}`, {
-                timeout: 15000,
+            const res = await httpGet(`${YANDEX_MAPS_API}?${params}`, {
                 headers: {
-                    'User-Agent': userAgent,
                     'Accept': 'application/json',
-                    'Referer': 'https://yandex.ru/maps/',
-                }
+                    'Referer': `${YANDEX_MAPS_BASE}/`,
+                },
             })
 
             const data = res.data

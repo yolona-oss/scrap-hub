@@ -1,8 +1,10 @@
 import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
 import { getScraperConfig } from "../scraper-config"
+import { SCRAPER_LANGUAGE } from "../scraper-defaults"
 import { extractEmail, extractPhone, extractAddress } from "./extract"
-import { log } from "@cmd-hub/common"
+import { httpGet } from "./http"
+import { log, sleep } from "@cmd-hub/common"
 
 export class GoogleSearchSource implements IScraperSource {
     async availability(): Promise<SourceAvailability> {
@@ -33,17 +35,17 @@ export class GoogleSearchSource implements IScraperSource {
                     q: searchQuery,
                     start: String(start),
                     num: String(perPage),
-                    hl: 'ru',
-                    gl: 'ru',
+                    hl: SCRAPER_LANGUAGE,
+                    gl: SCRAPER_LANGUAGE,
                 })
 
-                const res = await fetch(`https://serpapi.com/search.json?${params}`)
-                if (!res.ok) {
-                    log.error(`SerpAPI error: ${res.status} ${res.statusText}`)
+                const res = await httpGet(`https://serpapi.com/search.json?${params}`)
+                if (res.status >= 400) {
+                    log.error(`SerpAPI error: ${res.status}`)
                     break
                 }
 
-                const data = await res.json()
+                const data = res.data
 
                 // Extract from local results (business listings)
                 const localResults = data.local_results?.places || data.local_results || []
@@ -85,7 +87,7 @@ export class GoogleSearchSource implements IScraperSource {
                 if (!data.serpapi_pagination?.next) break
 
                 start += perPage
-                await new Promise(r => setTimeout(r, 1000))
+                await sleep(1000)
             } catch (e: any) {
                 log.error(`google.search: ${e.message ?? e}`)
                 break

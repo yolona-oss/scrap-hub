@@ -1,6 +1,7 @@
 import { Tool } from "./types"
 import { makeWebSearchTool } from "./web-search"
 import { makeFetchUrlTool } from "./fetch-url"
+import { makeParseHtmlTool } from "./parse-html"
 import { makeDelegateSourceTool } from "./delegate-source"
 import { makeReportResultsTool } from "./report-results"
 import { SearchQuery, OrgData } from "../../../types"
@@ -19,6 +20,7 @@ export async function buildTools(
     return [
         makeWebSearchTool(cfg.webSearchProvider),
         makeFetchUrlTool(),
+        makeParseHtmlTool(),
         await makeDelegateSourceTool(query, queue, state),
         makeReportResultsTool(queue, query, state),
     ]

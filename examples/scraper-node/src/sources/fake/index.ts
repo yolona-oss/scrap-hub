@@ -1,7 +1,7 @@
 import type { IScraperSource, SourceAvailability } from "../types"
 import type { OrgData, SearchQuery } from "../../types"
 import type { ServiceContext } from "../../exporters/types"
-import { log } from "@cmd-hub/common"
+import { log, sleep } from "@cmd-hub/common"
 
 export interface FakeSourceConfig {
     count: number
@@ -31,7 +31,7 @@ export class FakeSource implements IScraperSource {
         log.info(`fake.search: count=${this.cfg.count} delayMs=${this.cfg.delayMs}`)
         for (let i = 1; i <= this.cfg.count; i++) {
             if (this.cfg.delayMs > 0) {
-                await new Promise((r) => setTimeout(r, this.cfg.delayMs))
+                await sleep(this.cfg.delayMs)
             }
             const n = String(i).padStart(3, '0')
             const org: OrgData = {

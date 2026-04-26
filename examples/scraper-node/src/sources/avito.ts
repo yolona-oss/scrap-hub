@@ -1,13 +1,27 @@
 import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
-import { DEFAULT_USER_AGENT, getScraperConfig } from "../scraper-config"
+import { httpGet, httpHead, isHttpError } from "./http"
 import * as cheerio from "cheerio"
-import axios from "axios"
-import { log } from "@cmd-hub/common"
+import { log, randSleep } from "@cmd-hub/common"
+
+const AVITO_BASE = 'https://www.avito.ru'
+const AVITO_LISTINGS_PATH = '/all/predlozheniya_uslug'
+/** Avito blocks aggressive scraping; jittered inter-page delay on top of
+ *  the shared throttler reduces fingerprinting. */
+const INTER_PAGE_DELAY_MIN_MS = 2000
+const INTER_PAGE_DELAY_MAX_MS = 4000
 
 export class AvitoSource implements IScraperSource {
     async availability(): Promise<SourceAvailability> {
-        return { ok: true }
+        try {
+            const res = await httpHead(AVITO_BASE, { timeoutMs: 5000, retries: 1 })
+            if (res.status >= 400) {
+                return { ok: false, reason: `avito.ru HEAD: HTTP ${res.status}` }
+            }
+            return { ok: true }
+        } catch (e: any) {
+            return { ok: false, reason: `avito.ru HEAD: ${e?.message ?? e}` }
+        }
     }
 
     async* search(query: SearchQuery, onProgress: (found: number) => void): AsyncGenerator<OrgData> {
@@ -18,22 +32,15 @@ export class AvitoSource implements IScraperSource {
         log.info(`avito.search: query="${searchQuery}" maxResults=${query.maxResults}`)
         let found = 0
         let page = 1
-        const userAgent = (await getScraperConfig()).userAgent || DEFAULT_USER_AGENT
 
         while (found < query.maxResults) {
             log.trace(`avito.search: page=${page} found=${found}`)
             try {
-                const searchUrl = `https://www.avito.ru/all/predlozheniya_uslug?q=${encodeURIComponent(searchQuery)}&p=${page}`
+                const searchUrl = `${AVITO_BASE}${AVITO_LISTINGS_PATH}?q=${encodeURIComponent(searchQuery)}&p=${page}`
 
-                const res = await axios.get(searchUrl, {
-                    timeout: 15000,
-                    headers: {
-                        'User-Agent': userAgent,
-                        'Accept': 'text/html,application/xhtml+xml',
-                        'Accept-Language': 'ru-RU,ru;q=0.9',
-                    },
+                const res = await httpGet(searchUrl, {
                     proxy: false,
-                    validateStatus: (status) => status < 500,
+                    validateStatus: s => s < 500,
                 })
 
                 const $ = cheerio.load(res.data)
@@ -58,7 +65,7 @@ export class AvitoSource implements IScraperSource {
                         email: null,
                         phone: null,  // Avito hides phones behind auth
                         address: address || null,
-                        url: link ? `https://www.avito.ru${link}` : undefined,
+                        url: link ? `${AVITO_BASE}${link}` : undefined,
                     }
 
                     found++
@@ -69,10 +76,9 @@ export class AvitoSource implements IScraperSource {
                 }
 
                 page++
-                // Rate limit — Avito blocks aggressive scraping
-                await new Promise(r => setTimeout(r, 2000 + Math.random() * 2000))
+                await randSleep(INTER_PAGE_DELAY_MAX_MS, INTER_PAGE_DELAY_MIN_MS)
             } catch (e: any) {
-                if (axios.isAxiosError(e) && e.response?.status === 403) {
+                if (isHttpError(e, 403)) {
                     log.warn("avito.search: 403 — likely rate-limited or blocked")
                     break
                 }

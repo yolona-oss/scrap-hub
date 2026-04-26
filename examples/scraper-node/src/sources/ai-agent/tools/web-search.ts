@@ -1,7 +1,8 @@
-import axios from "axios"
 import * as cheerio from "cheerio"
 import { Tool } from "./types"
 import { getScraperConfig } from "../../../scraper-config"
+import { SCRAPER_LANGUAGE } from "../../../scraper-defaults"
+import { httpGet, httpPostForm } from "../../http"
 import { log } from "@cmd-hub/common"
 
 export interface WebSearchResult {
@@ -57,10 +58,10 @@ async function searchSerpapi(query: string, limit: number): Promise<WebSearchRes
         engine: 'google',
         q: query,
         num: String(limit),
-        hl: 'ru',
-        gl: 'ru',
+        hl: SCRAPER_LANGUAGE,
+        gl: SCRAPER_LANGUAGE,
     })
-    const res = await axios.get(`https://serpapi.com/search.json?${params}`, { timeout: 15000 })
+    const res = await httpGet(`https://serpapi.com/search.json?${params}`)
     const organic = (res.data?.organic_results ?? []) as any[]
     const results = organic.slice(0, limit).map(r => ({
         title: r.title ?? '',
@@ -75,8 +76,8 @@ async function searchYandex(query: string, limit: number): Promise<WebSearchResp
     if (!cfg.yandexXmlUser || !cfg.yandexXmlKey) {
         return { results: [], error: 'yandex XML credentials not configured' }
     }
-    const url = `https://yandex.ru/search/xml?user=${encodeURIComponent(cfg.yandexXmlUser)}&key=${encodeURIComponent(cfg.yandexXmlKey)}&query=${encodeURIComponent(query)}&l10n=ru&sortby=rlv&filter=none&groupby=attr%3Dd.mode%3Ddeep.groups-on-page%3D${limit}.docs-in-group%3D1`
-    const res = await axios.get(url, { timeout: 15000 })
+    const url = `https://yandex.ru/search/xml?user=${encodeURIComponent(cfg.yandexXmlUser)}&key=${encodeURIComponent(cfg.yandexXmlKey)}&query=${encodeURIComponent(query)}&l10n=${SCRAPER_LANGUAGE}&sortby=rlv&filter=none&groupby=attr%3Dd.mode%3Ddeep.groups-on-page%3D${limit}.docs-in-group%3D1`
+    const res = await httpGet(url)
     const $ = cheerio.load(res.data, { xmlMode: true })
     const results: WebSearchResult[] = []
     $('doc').each((_, el) => {
@@ -92,17 +93,10 @@ async function searchYandex(query: string, limit: number): Promise<WebSearchResp
 }
 
 async function searchDuckDuckGo(query: string, limit: number): Promise<WebSearchResponse> {
-    const res = await axios.post(
+    const res = await httpPostForm(
         'https://html.duckduckgo.com/html/',
-        new URLSearchParams({ q: query }).toString(),
-        {
-            timeout: 15000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            validateStatus: s => s < 500,
-        },
+        { q: query },
+        { validateStatus: s => s < 500 },
     )
     const $ = cheerio.load(res.data)
     const results: WebSearchResult[] = []

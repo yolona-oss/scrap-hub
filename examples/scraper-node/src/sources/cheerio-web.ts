@@ -1,11 +1,12 @@
 import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
 import type { ServiceContext } from "../exporters/types"
-import { DEFAULT_USER_AGENT, getScraperConfig, resolveScraperUserConfig } from "../scraper-config"
+import { resolveScraperUserConfig } from "../scraper-config"
 import { extractEmail, extractPhone } from "./extract"
+import { extractFromElement } from "./cheerio-extract"
+import { httpGet, httpHead, isHttpError } from "./http"
 import * as cheerio from "cheerio"
-import axios from "axios"
-import { log } from "@cmd-hub/common"
+import { log, randSleep } from "@cmd-hub/common"
 
 /**
  * Configuration for a cheerio-based web scraper source.
@@ -40,20 +41,9 @@ export interface CheerioSourceConfig {
     delayMs?: number
     /** Custom headers */
     headers?: Record<string, string>
-}
-
-function extractValue($el: cheerio.Cheerio<any>, selector: string, mode?: string): string | null {
-    const el = $el.find(selector)
-    if (el.length === 0) return null
-
-    switch (mode) {
-        case 'href': return el.attr('href') || null
-        case 'src': return el.attr('src') || null
-        case 'text': return el.text().trim() || null
-        default:
-            if (mode) return el.attr(mode) || null
-            return el.text().trim() || null
-    }
+    /** Optional explicit availability probe URL. If omitted, a HEAD against
+     *  `urlTemplate` with empty `{query}/{city}/{page}` is used. */
+    probeUrl?: string
 }
 
 /**
@@ -68,16 +58,25 @@ export class CheerioWebSource implements IScraperSource {
     }
 
     async availability(): Promise<SourceAvailability> {
-        return { ok: true }
+        const probeUrl = this.config.probeUrl ?? this.config.urlTemplate
+            .replace('{query}', '')
+            .replace('{city}', '')
+            .replace('{page}', '1')
+        try {
+            const res = await httpHead(probeUrl, { timeoutMs: 5000, retries: 1 })
+            if (res.status >= 400) {
+                return { ok: false, reason: `probe ${probeUrl}: HTTP ${res.status}` }
+            }
+            return { ok: true }
+        } catch (e: any) {
+            return { ok: false, reason: `probe ${probeUrl}: ${e?.message ?? e}` }
+        }
     }
 
     async* search(query: SearchQuery, onProgress: (found: number) => void, context?: ServiceContext): AsyncGenerator<OrgData> {
-        const scraperCfg = await getScraperConfig()
-        const userAgent = scraperCfg.userAgent || DEFAULT_USER_AGENT
-
         const userMerged = await resolveScraperUserConfig(context)
         const maxPages = this.config.maxPages ?? 10
-        const delayMs = this.config.delayMs ?? userMerged.requestDelayMs
+        const interPageDelayMs = this.config.delayMs ?? userMerged.requestDelayMs
         log.info(`cheerio-web[${this.name}].search: query="${query.query}" city="${query.city ?? ''}" maxResults=${query.maxResults} maxPages=${maxPages}`)
         let found = 0
 
@@ -94,15 +93,9 @@ export class CheerioWebSource implements IScraperSource {
             log.trace(`cheerio-web[${this.name}].search: fetching ${url}`)
 
             try {
-                const res = await axios.get(url, {
-                    timeout: 15000,
-                    headers: {
-                        'User-Agent': userAgent,
-                        'Accept': 'text/html,application/xhtml+xml',
-                        'Accept-Language': 'ru-RU,ru;q=0.9',
-                        ...this.config.headers,
-                    },
-                    validateStatus: (status) => status < 500,
+                const res = await httpGet(url, {
+                    headers: this.config.headers,
+                    validateStatus: s => s < 500,
                 })
 
                 if (res.status >= 400) {
@@ -124,7 +117,7 @@ export class CheerioWebSource implements IScraperSource {
                     const sel = this.config.selectors
                     const mode = this.config.extractMode ?? {}
 
-                    const name = extractValue($item, sel.name, mode.name)
+                    const name = extractFromElement($item, sel.name, mode.name)
                     if (!name) continue
 
                     const rawText = $item.text()
@@ -132,10 +125,10 @@ export class CheerioWebSource implements IScraperSource {
                     const org: OrgData = {
                         name,
                         source: this.name,
-                        email: sel.email ? extractValue($item, sel.email, mode.email) : extractEmail(rawText),
-                        phone: sel.phone ? extractValue($item, sel.phone, mode.phone) : extractPhone(rawText),
-                        address: sel.address ? extractValue($item, sel.address, mode.address) : null,
-                        url: (sel.url ? extractValue($item, sel.url, mode.url) : undefined) ?? undefined,
+                        email: sel.email ? extractFromElement($item, sel.email, mode.email) : extractEmail(rawText),
+                        phone: sel.phone ? extractFromElement($item, sel.phone, mode.phone) : extractPhone(rawText),
+                        address: sel.address ? extractFromElement($item, sel.address, mode.address) : null,
+                        url: (sel.url ? extractFromElement($item, sel.url, mode.url) : undefined) ?? undefined,
                     }
 
                     found++
@@ -145,11 +138,17 @@ export class CheerioWebSource implements IScraperSource {
                     if (found >= query.maxResults) return
                 }
 
-                // Delay between pages
+                // Inter-page delay (jittered) on top of the global throttler so
+                // listing pagination doesn't hit one site like a synchronized
+                // burst across a back-to-back run.
                 if (page < maxPages) {
-                    await new Promise(r => setTimeout(r, delayMs + Math.random() * 1000))
+                    await randSleep(interPageDelayMs + 1000, interPageDelayMs)
                 }
             } catch (e: any) {
+                if (isHttpError(e, 403)) {
+                    log.warn(`cheerio-web[${this.name}].search: 403 — likely rate-limited or blocked`)
+                    break
+                }
                 log.error(`cheerio-web[${this.name}].search: page=${page}: ${e.message ?? e}`)
                 break
             }

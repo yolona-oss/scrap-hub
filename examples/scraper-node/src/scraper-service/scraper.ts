@@ -2,7 +2,7 @@ import { OrgData, SearchQuery } from "../types"
 import { SourceRegistry } from "../sources/registry"
 import { ExporterRegistry } from "../exporters/registry"
 import { ExportResult, ServiceContext } from "../exporters/types"
-import { log } from "@cmd-hub/common"
+import { log, sleep } from "@cmd-hub/common"
 
 
 function normalizeString(s: string | null): string {
@@ -78,6 +78,17 @@ export class OrgScraper {
                 onProgressStatus(`scraping.${sourceName}`, 'skipped')
                 continue
             }
+
+            // Pre-flight availability probe — skip dead/misconfigured sources
+            // before starting their search loop, so the user sees WHY a source
+            // is skipped rather than a silent zero-result.
+            const availability = await SourceRegistry.availabilityOf(sourceName, context)
+            if (!availability.ok) {
+                onProgress(`${sourceName}: skipped — ${availability.reason}`)
+                onProgressStatus(`scraping.${sourceName}`, 'skipped')
+                continue
+            }
+
             let sourceCount = 0
             let sourceFailed = false
             onProgressBar(`scraping.${sourceName}`, 0, sourceLimit)
@@ -93,7 +104,7 @@ export class OrgScraper {
                     if (!this._isRunning) break
 
                     while (isPaused() && this._isRunning) {
-                        await new Promise(r => setTimeout(r, 500))
+                        await sleep(500)
                     }
 
                     if (this.addOrg(org)) {

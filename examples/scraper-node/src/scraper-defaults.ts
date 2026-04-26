@@ -5,6 +5,12 @@
  *  layered store. These constants provide the fallback when the user
  *  hasn't (yet) set anything via `/sconfig` or the hierarchical builder. */
 
+/** Locale used across the scraper for HTTP `Accept-Language` headers and
+ *  provider-specific `lang/hl/gl/l10n` parameters. Hardcoded for now —
+ *  promote to a config field if the scraper needs to support more locales. */
+export const SCRAPER_LANGUAGE = 'ru' as const
+export const SCRAPER_ACCEPT_LANGUAGE = 'ru-RU,ru;q=0.9' as const
+
 export interface IAIAgentConfig {
     baseUrl?: string
     apiKey?: string

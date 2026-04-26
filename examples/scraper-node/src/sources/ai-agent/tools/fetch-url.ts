@@ -1,6 +1,6 @@
-import axios from "axios"
 import * as cheerio from "cheerio"
 import { Tool } from "./types"
+import { httpGet } from "../../http"
 import { log } from "@cmd-hub/common"
 
 const MAX_CONTENT_CHARS = 15_000
@@ -15,7 +15,7 @@ interface FetchResult {
 export function makeFetchUrlTool(): Tool {
     return {
         name: 'fetch_url',
-        description: 'Fetch a web page. Returns extracted text (mode=text) or raw HTML (mode=html), truncated to 15000 chars.',
+        description: 'Fetch a web page. Returns extracted text (mode=text) or raw HTML (mode=html), truncated to 15000 chars. For HTML extraction use parse_html — do not substring-search HTML yourself.',
         parameters: {
             type: 'object',
             properties: {
@@ -31,14 +31,8 @@ export function makeFetchUrlTool(): Tool {
 
             log.trace(`ai-agent.fetch_url: ${url} mode=${mode}`)
             try {
-                const res = await axios.get(url, {
-                    timeout: 15000,
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml',
-                        'Accept-Language': 'ru-RU,ru;q=0.9',
-                    },
-                    maxContentLength: 5_000_000,
+                const res = await httpGet(url, {
+                    headers: { 'Accept': 'text/html,application/xhtml+xml' },
                     validateStatus: s => s < 600,
                 })
 
