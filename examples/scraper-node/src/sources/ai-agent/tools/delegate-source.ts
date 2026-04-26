@@ -46,11 +46,11 @@ export async function makeDelegateSourceTool(
                 return { accepted: 0, rejected: 0, totalYielded: state.yielded, error: 'empty query' }
             }
 
-            const availability = await SourceRegistry.availabilityOf(sourceName)
-            if (!availability.ok) {
-                log.warn(`ai-agent.search_source[${sourceName}]: unavailable — ${availability.reason}`)
-                return { accepted: 0, rejected: 0, totalYielded: state.yielded, error: availability.reason }
-            }
+            // No re-check of availability here: the tool's `enum` (line 30)
+            // was filtered by `availableFor()` at boot, so the model can only
+            // call sources that were available then. If a source dies between
+            // boot and this call, the inner search() loop's try/catch surfaces
+            // it as a normal error response.
 
             const subQuery: SearchQuery = {
                 query: queryStr,

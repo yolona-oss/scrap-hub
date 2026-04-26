@@ -6,11 +6,13 @@ export function buildSystemPrompt(query: SearchQuery): string {
         .filter(n => n !== 'ai-agent')
         .join(', ') || '(none registered)'
 
-    const cityClause = query.city ? ` in ${query.city}` : ''
+    const cityBlock = query.city
+        ? `\nCity (decline to the appropriate Russian case for the surrounding sentence — locative for "в …", e.g. "Москва" → "в Москве", "Санкт-Петербург" → "в Санкт-Петербурге"): ${query.city}`
+        : ''
 
     return `You are an organization research agent.
 
-Language: respond and search in Russian (ru-RU). If the query is transliterated Latin, transliterate back to Cyrillic before searching.
+Language: respond and search in Russian (ru-RU). If the query is transliterated Latin, transliterate back to Cyrillic before searching.${cityBlock}
 
 Available tools:
 - web_search(query, limit): general web search via the configured provider. Returns title/url/snippet only — fetch_url + parse_html to get contact info.
@@ -31,11 +33,13 @@ Workflow:
 3. For web_search results: fetch_url(mode='html') the result page, then parse_html with selectors targeting contact info (e.g. 'a[href^="tel:"]', 'a[href^="mailto:"]', '.address', '[itemprop="telephone"]').
 4. Stop when totalYielded reaches ${query.maxResults}, or when further searches return nothing new.
 
-Target query: "${query.query}"${cityClause}
+Target query: "${query.query}"
 Target count: ${query.maxResults}`
 }
 
 export function buildUserPrompt(query: SearchQuery): string {
-    const cityClause = query.city ? ` in ${query.city}` : ''
+    const cityClause = query.city
+        ? ` in the city "${query.city}" (use the appropriate Russian case in any phrasing)`
+        : ''
     return `Find up to ${query.maxResults} organizations matching: "${query.query}"${cityClause}. Begin with search_source for the best-fitting source. Watch totalYielded in tool responses to know when to stop.`
 }

@@ -2,7 +2,16 @@ import { OrgData, SearchQuery } from "../types"
 import { SourceRegistry } from "../sources/registry"
 import { ExporterRegistry } from "../exporters/registry"
 import { ExportResult, ServiceContext } from "../exporters/types"
-import { log, sleep } from "@cmd-hub/common"
+import { log, sleep, SourceFailedInfo } from "@cmd-hub/common"
+
+export interface ScraperRunOptions {
+    onProgress: (msg: string) => void
+    onProgressBar: (name: string, current: number, total: number) => void
+    onProgressStatus: (name: string, status: 'active' | 'done' | 'failed' | 'skipped') => void
+    isPaused: () => boolean
+    context?: ServiceContext
+    onSourceFailed?: (info: SourceFailedInfo) => void
+}
 
 
 function normalizeString(s: string | null): string {
@@ -57,13 +66,8 @@ export class OrgScraper {
         return true
     }
 
-    async* run(
-        onProgress: (msg: string) => void,
-        onProgressBar: (name: string, current: number, total: number) => void,
-        onProgressStatus: (name: string, status: 'active' | 'done' | 'failed' | 'skipped') => void,
-        isPaused: () => boolean,
-        context?: ServiceContext,
-    ): AsyncGenerator<OrgData> {
+    async* run(opts: ScraperRunOptions): AsyncGenerator<OrgData> {
+        const { onProgress, onProgressBar, onProgressStatus, isPaused, context, onSourceFailed } = opts
         const sourceNames = this.query.sources.length > 0
             ? this.query.sources
             : SourceRegistry.available()
@@ -71,21 +75,25 @@ export class OrgScraper {
         // Each source gets the full limit independently
         const sourceLimit = this.query.maxResults
 
-        for (const sourceName of sourceNames) {
-            if (!this._isRunning) break
-            if (!SourceRegistry.has(sourceName)) {
-                onProgress(`${sourceName}: not found, skipping`)
-                onProgressStatus(`scraping.${sourceName}`, 'skipped')
-                continue
-            }
+        // Pre-flight availability probes in parallel — different hosts, no
+        // shared rate limit, so HEADs fire concurrently and the slowest
+        // source's probe sets the wall-clock floor (typically <1s). On
+        // subsequent runs the registry's 60s cache absorbs all of these.
+        // `availabilityOf` already returns `{ok: false, reason: 'unknown source ...'}`
+        // for unregistered names, so no separate `has()` guard is needed.
+        const probes = await Promise.all(
+            sourceNames.map(async name => ({
+                name,
+                availability: await SourceRegistry.availabilityOf(name, context),
+            })),
+        )
 
-            // Pre-flight availability probe — skip dead/misconfigured sources
-            // before starting their search loop, so the user sees WHY a source
-            // is skipped rather than a silent zero-result.
-            const availability = await SourceRegistry.availabilityOf(sourceName, context)
+        for (const { name: sourceName, availability } of probes) {
+            if (!this._isRunning) break
             if (!availability.ok) {
                 onProgress(`${sourceName}: skipped — ${availability.reason}`)
                 onProgressStatus(`scraping.${sourceName}`, 'skipped')
+                onSourceFailed?.({ source: sourceName, reason: availability.reason, kind: 'unavailable' })
                 continue
             }
 
@@ -120,8 +128,10 @@ export class OrgScraper {
                 }
             } catch (e: any) {
                 sourceFailed = true
-                log.error(`Source "${sourceName}" error: ${e.message ?? e}`)
-                onProgress(`${sourceName}: failed — ${e.message ?? e}`)
+                const reason = e?.message ?? String(e)
+                log.error(`Source "${sourceName}" error: ${reason}`)
+                onProgress(`${sourceName}: failed — ${reason}`)
+                onSourceFailed?.({ source: sourceName, reason, kind: 'thrown' })
             }
 
             if (sourceFailed || sourceCount === 0) {

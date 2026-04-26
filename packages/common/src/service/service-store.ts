@@ -36,6 +36,12 @@ export interface IServiceSessionLayer {
     /** Current snapshot of the session's `data` subtree. */
     readonly data: Record<string, unknown>
     setField(path: string, value: unknown): Promise<void>
+    /** Multiple field writes in one DB round-trip. Mongo: applies all
+     *  `$set` paths then issues a single `save()`. Use this in place of
+     *  consecutive `setField` calls that target the same document — the
+     *  underlying Mongoose doc rejects parallel saves and back-to-back
+     *  awaits multiply the round-trip cost. */
+    setFields(updates: Record<string, unknown>): Promise<void>
     replaceData(data: Record<string, unknown>): Promise<void>
 }
 

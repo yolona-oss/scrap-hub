@@ -1,6 +1,6 @@
 import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
-import { SCRAPER_LANGUAGE } from "../scraper-defaults"
+import { SCRAPER_LANGUAGE, SCRAPER_COUNTRY } from "../scraper-defaults"
 import { httpGet, httpHead } from "./http"
 import { log } from "@cmd-hub/common"
 
@@ -35,7 +35,7 @@ export class YandexBusinessSource implements IScraperSource {
             const params = new URLSearchParams({
                 text: searchQuery,
                 type: 'biz',
-                lang: `${SCRAPER_LANGUAGE}_RU`,
+                lang: `${SCRAPER_LANGUAGE}_${SCRAPER_COUNTRY}`,
                 results: String(Math.min(query.maxResults, 50)),
             })
 

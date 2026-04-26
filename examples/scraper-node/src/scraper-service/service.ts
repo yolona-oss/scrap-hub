@@ -18,6 +18,14 @@ import { log } from "@cmd-hub/common"
  *  siblings; we instead path-target each leaf via `setConfigValue`. */
 const BRANCHED_CONFIG_KEYS = ['aiAgent', 'googleSheets'] as const
 
+/** Cap how many results we persist back to runtimeState. A 10000-result
+ *  run would write a progressively larger array on every periodic save;
+ *  capping the tail keeps each save bounded. The CSV/Sheets exporter
+ *  remains the source of truth for full result sets — runtimeState is
+ *  only for resumption after a node restart, and resuming with the last
+ *  N is enough to dedupe future yields. */
+const RESULTS_TAIL_CAP = 1000
+
 export const SCRAPER_NAME = 'scraper'
 export const SCRAPER_DESCRIPTION = 'Search and collect organization data from open sources'
 
@@ -50,6 +58,10 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
 
     private scraper: OrgScraper | null = null
     private isPaused = false
+    /** Tracks the result count at the last `saveProgress` write, so a
+     *  no-op save (called every 10 orgs but possibly before any new ones
+     *  arrived) skips the Mongo round-trip + tail-cap copy. */
+    private _lastPersistedResultCount = -1
 
     constructor(
         userId: string = BLANK_USER_ID,
@@ -148,13 +160,14 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
 
         this.sendToWorld(`Starting search: "${queryStr}" | sources: ${sourceNames.join(', ')} | limit: ${limit}`)
 
-        const generator = this.scraper.run(
-            (msg) => this.sendToWorld(msg),
-            (name, current, total) => this.emit('progress', name, current, total),
-            (name, status) => this.emit('progressStatus', name, status),
-            () => this.isPaused,
-            this.getServiceContext(),
-        )
+        const generator = this.scraper.run({
+            onProgress: (msg) => this.sendToWorld(msg),
+            onProgressBar: (name, current, total) => this.emit('progress', name, current, total),
+            onProgressStatus: (name, status) => this.emit('progressStatus', name, status),
+            isPaused: () => this.isPaused,
+            context: this.getServiceContext(),
+            onSourceFailed: (info) => this.emit('sourceFailed', info),
+        })
 
         for await (const _org of generator) {
             if (!this.isRunning()) break
@@ -179,10 +192,18 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
 
     private async saveProgress(): Promise<void> {
         if (!this.scraper) return
+        const results = this.scraper.collected
+        if (results.length === this._lastPersistedResultCount) return
+        const persisted = results.length > RESULTS_TAIL_CAP
+            ? results.slice(-RESULTS_TAIL_CAP)
+            : results
         try {
-            await this.setRuntimeStateValue('results', this.scraper.collected)
-            await this.setRuntimeStateValue('processedUrls', this.scraper.urls)
-            await this.setRuntimeStateValue('lastQuery', this.data.config.query)
+            await this.setRuntimeState({
+                results: persisted,
+                processedUrls: this.scraper.urls,
+                lastQuery: this.data.config.query,
+            })
+            this._lastPersistedResultCount = results.length
         } catch (e: any) {
             log.debug(`Failed to save scraper progress: ${e.message ?? e}`)
         }

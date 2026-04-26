@@ -5,7 +5,7 @@ import { resolveAIAgentConfig } from "./config"
 import { createClient } from "./client"
 import { AsyncQueue } from "./async-queue"
 import { buildTools, ReportState } from "./tools"
-import { runAgentLoop } from "./loop"
+import { runAgentLoop, AgentToolCallInfo } from "./loop"
 import { log } from "@cmd-hub/common"
 
 export class AIAgentSource implements IScraperSource {
@@ -32,7 +32,14 @@ export class AIAgentSource implements IScraperSource {
         const tools = await buildTools(query, queue, cfg, reportState)
         log.trace(`ai-agent.search: tools=[${tools.map(t => t.name).join(', ')}]`)
 
-        const loopPromise = runAgentLoop(client, query, tools, cfg)
+        const liveLog = context?.events?.liveLog
+        const onToolCall = liveLog
+            ? (info: AgentToolCallInfo) => liveLog([
+                `🤖 ${info.name} (${info.durationMs}ms)${info.ok ? '' : ` — ${info.error ?? 'error'}`}: ${info.args.slice(0, 60)}`,
+            ])
+            : undefined
+
+        const loopPromise = runAgentLoop(client, query, tools, cfg, { onToolCall })
             .catch(e => log.error(`ai-agent.search: loop error: ${e?.message ?? e}`))
             .finally(() => queue.close())
 

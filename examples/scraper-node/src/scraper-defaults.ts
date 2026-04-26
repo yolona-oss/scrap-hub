@@ -9,7 +9,14 @@
  *  provider-specific `lang/hl/gl/l10n` parameters. Hardcoded for now —
  *  promote to a config field if the scraper needs to support more locales. */
 export const SCRAPER_LANGUAGE = 'ru' as const
-export const SCRAPER_ACCEPT_LANGUAGE = 'ru-RU,ru;q=0.9' as const
+/** ISO 3166-1 alpha-2 country code paired with `SCRAPER_LANGUAGE` for
+ *  BCP-47 (`xx-XX`) and Yandex's `xx_XX` formats. */
+export const SCRAPER_COUNTRY = 'RU' as const
+/** BCP-47 Accept-Language with primary tag + bare-language fallback
+ *  (`ru-RU,ru;q=0.9`). Derived rather than hand-encoded so changing
+ *  `SCRAPER_LANGUAGE` / `SCRAPER_COUNTRY` propagates everywhere. */
+export const SCRAPER_ACCEPT_LANGUAGE =
+    `${SCRAPER_LANGUAGE}-${SCRAPER_COUNTRY},${SCRAPER_LANGUAGE};q=0.9` as const
 
 export interface IAIAgentConfig {
     baseUrl?: string

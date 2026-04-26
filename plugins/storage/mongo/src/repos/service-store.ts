@@ -38,6 +38,10 @@ class ServiceSessionLayerAdapter implements IServiceSessionLayer {
         return this.inner.setDataPath(path, value)
     }
 
+    setFields(updates: Record<string, unknown>): Promise<void> {
+        return this.inner.setDataPaths(updates)
+    }
+
     replaceData(data: Record<string, unknown>): Promise<void> {
         return this.inner.replaceData(data)
     }

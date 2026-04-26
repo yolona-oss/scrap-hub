@@ -6,11 +6,27 @@ import { buildSystemPrompt, buildUserPrompt } from "./prompts"
 import { SearchQuery } from "../../types"
 import { log } from "@cmd-hub/common"
 
+export interface AgentToolCallInfo {
+    name: string
+    /** Full JSON-stringified arguments. Consumers should truncate for
+     *  display — keeping it intact here so structured listeners (e.g.
+     *  audit logs) get the unabridged value. */
+    args: string
+    durationMs: number
+    ok: boolean
+    error?: string
+}
+
+export interface AgentLoopHooks {
+    onToolCall?: (info: AgentToolCallInfo) => void
+}
+
 export async function runAgentLoop(
     client: OpenAI,
     query: SearchQuery,
     tools: Tool[],
     cfg: ResolvedAIAgentConfig,
+    hooks?: AgentLoopHooks,
 ): Promise<void> {
     const toolByName = new Map(tools.map(t => [t.name, t]))
     const openAITools = tools.map(toOpenAISchema)
@@ -115,14 +131,30 @@ export async function runAgentLoop(
             log.debug(`ai-agent.loop: invoke ${tool.name} args=${JSON.stringify(parsed).slice(0, 200)}`)
             const callStart = Date.now()
             const result = await executeWithTimeout(tool, parsed, cfg.toolTimeoutMs)
-            log.trace(`ai-agent.loop: ${tool.name} returned in ${Date.now() - callStart}ms`)
+            const durationMs = Date.now() - callStart
+            log.trace(`ai-agent.loop: ${tool.name} returned in ${durationMs}ms`)
             if (result?.error) {
                 log.warn(`ai-agent.loop: ${tool.name} returned error: ${result.error}`)
             }
+
+            hooks?.onToolCall?.({
+                name: tool.name,
+                args: JSON.stringify(parsed),
+                durationMs,
+                ok: !result?.error,
+                error: result?.error,
+            })
+
+            // Inject a budget reminder once the agent has burned half its
+            // tool-call budget, so it self-regulates the wrap-up.
+            const remaining = cfg.maxToolCalls - toolCallsUsed
+            const budgetPrefix = remaining <= Math.floor(cfg.maxToolCalls / 2)
+                ? `[budget: ${remaining}/${cfg.maxToolCalls} tool calls left] `
+                : ''
             messages.push({
                 role: 'tool',
                 tool_call_id: call.id,
-                content: JSON.stringify(result),
+                content: budgetPrefix + JSON.stringify(result),
             })
         }
     }

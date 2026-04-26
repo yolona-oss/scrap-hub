@@ -89,6 +89,16 @@ export class MongoAccountSessionHandle implements IAccountSessionHandle {
         await this.doc.save()
     }
 
+    async setDataPaths(updates: Record<string, unknown>): Promise<void> {
+        let touched = false
+        for (const [path, value] of Object.entries(updates)) {
+            if (path.length === 0) continue
+            this.doc.set(`data.${path}`, value)
+            touched = true
+        }
+        if (touched) await this.doc.save()
+    }
+
     async replaceData(data: Record<string, unknown>): Promise<void> {
         this.doc.set('data', data)
         await this.doc.save()

@@ -1,12 +1,10 @@
 import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from "axios"
-import { log, sleep, SingleThrottler } from "@cmd-hub/common"
+import { log, retrier, SingleThrottler } from "@cmd-hub/common"
 import { DEFAULT_USER_AGENT, getScraperConfig, IScraperConfig } from "../scraper-config"
 import { SCRAPER_ACCEPT_LANGUAGE } from "../scraper-defaults"
 
 const DEFAULT_TIMEOUT_MS = 15_000
 const DEFAULT_RETRIES = 3
-const RETRY_BASE_WAIT_MS = 700
-const RETRY_GAIN_MS = 200
 /** System-config memo TTL. The scraper reads userAgent on every HTTP call;
  *  without this each /scrape paginated run would hit Mongo N times for a
  *  value that changes once per node restart in practice. */
@@ -97,30 +95,6 @@ async function executeOnce(
     return axios.request(config)
 }
 
-async function executeWithRetry(
-    method: 'GET' | 'POST' | 'HEAD',
-    url: string,
-    body: unknown,
-    opts: HttpRequestOpts | undefined,
-    extraConfig?: Partial<AxiosRequestConfig>,
-): Promise<AxiosResponse> {
-    const retries = opts?.retries ?? DEFAULT_RETRIES
-    let lastErr: unknown = null
-    for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-            return await executeOnce(method, url, body, opts, extraConfig)
-        } catch (e) {
-            lastErr = e
-            if (!isRetriableHttpError(e) || attempt === retries) throw e
-            const wait = RETRY_BASE_WAIT_MS + attempt * RETRY_GAIN_MS
-            log.debug(`http.${method} ${url}: retriable error (attempt ${attempt + 1}/${retries + 1}), retrying in ${wait}ms`)
-            await sleep(wait)
-        }
-    }
-    // Unreachable — the loop either returns or throws.
-    throw lastErr ?? new Error(`http ${method} ${url}: unknown failure`)
-}
-
 async function execute(
     method: 'GET' | 'POST' | 'HEAD',
     url: string,
@@ -128,7 +102,11 @@ async function execute(
     opts: HttpRequestOpts | undefined,
     extraConfig?: Partial<AxiosRequestConfig>,
 ): Promise<AxiosResponse> {
-    const run = () => executeWithRetry(method, url, body, opts, extraConfig)
+    const retries = opts?.retries ?? DEFAULT_RETRIES
+    const run = () => retrier(
+        () => executeOnce(method, url, body, opts, extraConfig),
+        { retries, retryIf: isRetriableHttpError },
+    )
     return opts?.throttleGroup
         ? SingleThrottler.Instance.throttle(opts.throttleGroup, run)
         : run()

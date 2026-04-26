@@ -57,11 +57,22 @@ export interface IntercomAction {
     args?: string[]
 }
 
+/** Per-source diagnostic from a multi-source aggregator (e.g. scraper).
+ *  Distinct from the operator-visible `error` event which signals a whole-run
+ *  failure; this fires when one of N sources is unavailable or threw. UIs
+ *  can render a structured failure panel by listening to this. */
+export interface SourceFailedInfo {
+    source: string
+    reason: string
+    /** `unavailable` = pre-flight availability probe said no.
+     *  `thrown` = the source's `search()` threw mid-run. */
+    kind: 'unavailable' | 'thrown'
+}
+
 /**
  * Typed event map for BaseCommandService. Subclasses get autocomplete +
- * type-check on every emit/on for these 8 kinds. The node-side invoke
- * adapter reads all of them off the emitter and forwards them as proto
- * InvokeServer messages.
+ * type-check on every emit/on. The node-side invoke adapter reads all of
+ * them off the emitter and forwards them as proto InvokeServer messages.
  */
 export interface IBaseCmdService_EvMap<T = string> extends EventMap {
     message: (msg: T) => void,
@@ -72,6 +83,7 @@ export interface IBaseCmdService_EvMap<T = string> extends EventMap {
     progressStatus: (name: string, status: string) => void,
     intercom: (actions: IntercomAction[]) => void,
     file: (handleOrPath: unknown) => void,
+    sourceFailed: (info: SourceFailedInfo) => void,
 }
 
 function merge<T extends Object>(dst: T, src: T): T {
@@ -190,6 +202,9 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
             serviceName: this.name,
             sessionId: this.data.sessionId,
             config: this.data.config as Record<string, any>,
+            events: {
+                liveLog: (lines) => this.emit('liveLog', lines),
+            },
         }
     }
 
@@ -365,6 +380,20 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
     protected async setRuntimeStateValue(path: string, value: any) {
         const { sessionLayer } = await this.retrieveAccountData()
         await sessionLayer.setField(joinFieldPath(SESSION_RUNTIME_STATE_KEY, path), value)
+    }
+
+    /** Persist multiple runtime-state fields in one DB round-trip. Use this
+     *  over consecutive `setRuntimeStateValue` calls — the underlying
+     *  Mongoose doc rejects parallel `save()`s, and back-to-back awaits
+     *  multiply the round-trip cost. The `updates` keys are dot-paths
+     *  relative to `runtimeState`. */
+    protected async setRuntimeState(updates: Record<string, unknown>): Promise<void> {
+        const { sessionLayer } = await this.retrieveAccountData()
+        const prefixed: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(updates)) {
+            prefixed[joinFieldPath(SESSION_RUNTIME_STATE_KEY, k)] = v
+        }
+        await sessionLayer.setFields(prefixed)
     }
 
     async run(): Promise<void> {

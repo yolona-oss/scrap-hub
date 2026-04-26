@@ -28,16 +28,28 @@ class FakeAccountLayer implements IServiceAccountLayer {
 class FakeSessionLayer implements IServiceSessionLayer {
     public data: Record<string, unknown> = {}
     public writes: Array<{ path: string; value: unknown }> = []
+    /** Counts saves performed; one entry per `setField` or `setFields` call. */
+    public saveCount = 0
 
     constructor(public readonly name: string) {}
 
     async setField(path: string, value: unknown): Promise<void> {
         this.writes.push({ path, value })
         assignToCustomPath(this.data, path, value)
+        this.saveCount++
+    }
+
+    async setFields(updates: Record<string, unknown>): Promise<void> {
+        for (const [path, value] of Object.entries(updates)) {
+            this.writes.push({ path, value })
+            assignToCustomPath(this.data, path, value)
+        }
+        this.saveCount++
     }
 
     async replaceData(data: Record<string, unknown>): Promise<void> {
         this.data = data
+        this.saveCount++
     }
 }
 
@@ -71,6 +83,7 @@ class TestService extends BaseCommandService<TestServiceData> {
     /** Public hooks so tests can drive the protected setters. */
     public async testSetConfig(path: string, value: unknown) { return this.setConfigValue(path, value) }
     public async testSetRuntimeState(path: string, value: unknown) { return this.setRuntimeStateValue(path, value) }
+    public async testSetRuntimeStateBatch(updates: Record<string, unknown>) { return this.setRuntimeState(updates) }
 }
 
 function newScenario(opts: {
@@ -146,6 +159,29 @@ describe('BaseCommandService — setConfigValue routes to session layer', () => 
 
         await svc.testSetRuntimeState('progress', 42)
         expect(sessionLayer.writes).toEqual([{ path: 'runtimeState.progress', value: 42 }])
+    })
+
+    test('setRuntimeState (batched) writes all paths in a single save', async () => {
+        const { sessionLayer } = newScenario()
+        const svc = new TestService('u1')
+        await svc.Initialize()
+        sessionLayer.writes.length = 0
+        const baselineSaves = sessionLayer.saveCount
+
+        await svc.testSetRuntimeStateBatch({
+            results: [{ name: 'org-1' }],
+            processedUrls: ['https://a.test'],
+            lastQuery: 'foo',
+        })
+
+        // All three writes recorded under the runtimeState prefix.
+        expect(sessionLayer.writes).toEqual([
+            { path: 'runtimeState.results', value: [{ name: 'org-1' }] },
+            { path: 'runtimeState.processedUrls', value: ['https://a.test'] },
+            { path: 'runtimeState.lastQuery', value: 'foo' },
+        ])
+        // Exactly ONE save() across the batch — the whole point of the API.
+        expect(sessionLayer.saveCount - baselineSaves).toBe(1)
     })
 })
 

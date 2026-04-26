@@ -1,16 +1,24 @@
 import { sleep } from './time'
-import log from '../../application/logger'
 
 export interface RetrierOpts {
+    /** Number of retries after the initial attempt. Total attempts = retries + 1. */
     retries: number
+    /** Base wait between attempts (ms). Actual wait = `wait + attempt * gain`. */
     wait: number
+    /** Per-attempt timeout (ms). 0 disables. */
     timeout: number
+    /** Retry only when this returns true. Default: every throw retries. */
+    retryIf?: (err: unknown) => boolean
+    /** Linear backoff gain per attempt (ms). Default 200. */
+    gain?: number
 }
 
-const retrierOptsDefaults: RetrierOpts = {
+const retrierOptsDefaults: Required<RetrierOpts> = {
     retries: 3,
     wait: 700,
     timeout: 0,
+    retryIf: () => true,
+    gain: 200,
 }
 
 export async function timeouted<T>(task: () => Promise<T>, timeout: number): Promise<T> {
@@ -31,40 +39,26 @@ export async function timeouted<T>(task: () => Promise<T>, timeout: number): Pro
     })
 }
 
+/**
+ * Retry an async fn with linear backoff. The original error from the last
+ * attempt is preserved and re-thrown — callers can inspect status codes,
+ * response bodies, etc. Pass `retryIf` to opt into conditional retry
+ * (e.g. retry only on 429/5xx, short-circuit on 4xx).
+ *
+ * Total attempts = `retries + 1` (one initial + N retries). Default retries=3
+ * yields 4 attempts.
+ */
 export async function retrier<T>(fn: () => Promise<T>, opts: Partial<RetrierOpts> = {}): Promise<T> {
-    let { retries, wait, timeout } = { ...retrierOptsDefaults, ...opts }
+    const { retries, wait, timeout, retryIf, gain } = { ...retrierOptsDefaults, ...opts }
 
-    if (timeout <= 0) {
-        log.error('retrier::Timeout must be greater than 0. Setting to 0.')
-        timeout = 0
-    }
-
-    let iter = 0
-    const gain = 200
-    const checkFn = async () => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
         try {
-            return await fn()
+            return await (timeout > 0 ? timeouted(fn, timeout) : fn())
         } catch (e) {
-            await sleep(wait + (iter * gain))
-            iter++
-            return null
+            if (!retryIf(e) || attempt === retries) throw e
+            await sleep(wait + attempt * gain)
         }
     }
-    let loopFn: () => Promise<T | null>
-    if (timeout > 0) {
-        loopFn = async () => await new Promise((res) => {
-            timeouted(checkFn, timeout).then((v) => {
-                if (!v) { res(null) }
-                res(v)
-            }).catch(() => { res(null) })
-        })
-    } else {
-        loopFn = checkFn
-    }
-    for (let attempts = 0; attempts < retries; attempts++) {
-        const res = await loopFn()
-        if (res) { return res }
-    }
-
-    throw new Error('retrier::Unreachable action: ' + fn.name)
+    // Unreachable: the loop returns on success or throws on the last attempt.
+    throw new Error('retrier: unreachable')
 }
