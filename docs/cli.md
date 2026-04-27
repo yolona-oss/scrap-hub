@@ -4,32 +4,49 @@ Operator-level command-line tool for managing a cmd-hub federation: CA setup, no
 
 ## Invocation
 
-The bin lives at `packages/core/build/src/cli/hub-cli.js` and is exposed as `cmd-hub` via `@cmd-hub/core`'s `bin` field. Three equivalent forms:
+The bin lives at `packages/cli/build/src/index.js` and is exposed as `cmd-hub` via `@cmd-hub/cli`'s `bin` field. Three equivalent forms:
 
 ```bash
 # 1. via npx — resolves through the workspace symlink
 npx cmd-hub <subcommand>
 
 # 2. explicit npm exec
-npm exec --workspace=@cmd-hub/core -- cmd-hub <subcommand>
+npm exec --workspace=@cmd-hub/cli -- cmd-hub <subcommand>
 
 # 3. direct node invocation (no npm exec roundtrip)
-node packages/core/build/src/cli/hub-cli.js <subcommand>
+node packages/cli/build/src/index.js <subcommand>
 ```
 
 The package must be built first:
 
 ```bash
-npm run build:sdk
+npm run build --workspace=@cmd-hub/cli
 ```
 
 All three forms accept the same arguments. Examples in this doc use form 1.
+
+## Storage backend
+
+Every `node-*` subcommand needs to talk to a backing store. The CLI itself never imports a specific driver — pick one with `--storage <pkg>` (or set `CMDHUB_STORAGE`) and pass driver-specific config with `--storage-config <json>` or `--storage-config-file <path>`.
+
+```bash
+# Mongo, inline config:
+npx cmd-hub node-list \
+  --storage @cmd-hub/storage-mongo \
+  --storage-config '{"url":"mongodb://127.0.0.1:27017/cmdhub"}'
+
+# Same, via env + a config file:
+export CMDHUB_STORAGE=@cmd-hub/storage-mongo
+npx cmd-hub node-list --storage-config-file ./storage.json
+```
+
+The driver package must be installed in the same `node_modules` tree as `@cmd-hub/cli`. The CLI loads it via dynamic `import()`; failure surfaces as a clear "install it (npm i …)" error.
 
 ## Global options
 
 ```
 --help        show help for any subcommand
---version     1.0.0
+--version     0.1.0
 ```
 
 ## Subcommands
@@ -59,7 +76,7 @@ Provision a new node: signs a leaf cert under the CA, persists a `NodeRecord` ro
 
 ```
 cmd-hub node-add <name> \
-  --mongo <url> \
+  --storage <pkg> --storage-config <json> \
   --ca-key <path> --ca-cert <path> \
   --out-dir <dir> \
   [--auto-activate]
@@ -68,7 +85,9 @@ cmd-hub node-add <name> \
 | Flag | Required | Description |
 |---|---|---|
 | `<name>` | yes (positional) | Human-readable node name. Embedded in the cert CN. |
-| `--mongo` | yes | MongoDB URL where the registry row is written |
+| `--storage` | yes | Storage driver package name (or `CMDHUB_STORAGE`). E.g. `@cmd-hub/storage-mongo`. |
+| `--storage-config` | yes (or `--storage-config-file`) | Driver-specific config as inline JSON. |
+| `--storage-config-file` | yes (or `--storage-config`) | Driver-specific config from a JSON file. |
 | `--ca-key` | yes | CA private key path (from `ca-init`) |
 | `--ca-cert` | yes | CA certificate path (from `ca-init`) |
 | `--out-dir` | yes | Directory to write `node.{key,crt,token,id}`. Created if missing. |
@@ -101,7 +120,7 @@ If you forget `--auto-activate`, the node will register in `PENDING` state — c
 Dump the registry.
 
 ```
-cmd-hub node-list --mongo <url>
+cmd-hub node-list --storage <pkg> --storage-config <json>
 ```
 
 Output (one row per node):
@@ -124,7 +143,7 @@ States:
 Move a `PENDING` node to `ACTIVE`.
 
 ```
-cmd-hub node-approve <nodeId> --mongo <url>
+cmd-hub node-approve <nodeId> --storage <pkg> --storage-config <json>
 ```
 
 Idempotent for already-active nodes; errors if `nodeId` doesn't exist.
@@ -134,7 +153,7 @@ Idempotent for already-active nodes; errors if `nodeId` doesn't exist.
 Hard-delete a node from the registry. The node's `node.token` becomes useless immediately; its cert remains valid until the CA reissues, but the hub will reject the missing-record token check before it ever validates the cert.
 
 ```
-cmd-hub node-remove <nodeId> --mongo <url>
+cmd-hub node-remove <nodeId> --storage <pkg> --storage-config <json>
 ```
 
 No confirmation prompt — wrap in your own scripts if you need one.
@@ -148,7 +167,7 @@ No confirmation prompt — wrap in your own scripts if you need one.
 
 ## Notes
 
-- The CLI requires Mongo to be reachable for any `node-*` subcommand. `ca-init` is filesystem-only.
+- The CLI requires the chosen storage backend to be reachable for any `node-*` subcommand. `ca-init` is filesystem-only.
 - The token is shown **once** at provisioning and never retrievable afterward. If a node loses its token, run `node-remove` then `node-add` again.
 - `InternalTokenVerifier` uses `bcryptjs` with 10 rounds; provisioning is therefore O(100ms) per call, which is fine for human-driven CLI use.
 
@@ -207,11 +226,11 @@ If a Mongo-write capability leaks, an attacker can run `node-add` in a loop and 
 
 **Mitigation:** Mongo-side auth + a dedicated provisioning user with restricted IP allowlist.
 
-#### 🟡 8. Internal `--mongo` URL frequently contains credentials
+#### 🟡 8. `--storage-config` JSON frequently contains credentials
 
-Operators often paste `mongodb://user:pass@host:port/db` into shell commands. That URL ends up in `~/.bash_history`, in `ps`-visible argv on the CLI host, and (if logging is verbose) in mongoose connection logs.
+Operators often paste connection URLs (`mongodb://user:pass@host/db`, `postgres://...`) inline into `--storage-config '{"url":"..."}'`. That argument ends up in `~/.bash_history` and in `ps`-visible argv on the CLI host.
 
-**Mitigation:** export the URL via env var and reference it: `--mongo "$MONGO_URL"`. Better still, run the CLI on the same host as Mongo and use `mongodb://127.0.0.1/...` without auth in trusted environments.
+**Mitigation:** put the JSON in a file with `0o600` permissions and use `--storage-config-file ./storage.json`. Better still, run the CLI on the same host as the backing store and use a loopback / trusted-network URL without auth.
 
 ### Summary
 

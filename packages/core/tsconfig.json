@@ -17,7 +17,6 @@
     ],
     "references": [
         { "path": "../common" },
-        { "path": "../../plugins/storage/mongo" },
         { "path": "../transport" }
     ]
 }

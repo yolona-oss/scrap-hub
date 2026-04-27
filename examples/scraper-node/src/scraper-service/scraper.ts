@@ -2,7 +2,18 @@ import { OrgData, SearchQuery } from "../types"
 import { SourceRegistry } from "../sources/registry"
 import { ExporterRegistry } from "../exporters/registry"
 import { ExportResult, ServiceContext } from "../exporters/types"
-import { log, sleep, SourceFailedInfo } from "@cmd-hub/common"
+import { log, sleep } from "@cmd-hub/common"
+
+/** Per-source diagnostic from the scraper aggregator. The service
+ *  translates these into `{kind:'sourceFailed'}` UiMessages on the
+ *  service emitter — they don't cross the wire as a dedicated event. */
+export interface SourceFailedInfo {
+    source: string
+    reason: string
+    /** `unavailable` = pre-flight availability probe said no.
+     *  `thrown` = the source's `search()` threw mid-run. */
+    kind: 'unavailable' | 'thrown'
+}
 
 export interface ScraperRunOptions {
     onProgress: (msg: string) => void

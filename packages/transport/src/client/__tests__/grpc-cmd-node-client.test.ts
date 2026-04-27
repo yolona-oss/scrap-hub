@@ -46,9 +46,16 @@ function startMockNodeServer(onStart: (
 
 describe('GrpcCmdNodeClient', () => {
     it('dials a node and streams events back in order', async () => {
+        const mkUiMsg = (text: string) => ({
+            kind: 'text',
+            payloadJson: Buffer.from(JSON.stringify({ text })),
+            severity: '',
+            compatibilityId: 'cmd-hub.builtin.text',
+            version: '1.0.0',
+        })
         const node = await startMockNodeServer((_start, call) => {
-            call.write({ seq: 1, message: { text: 'one' } })
-            call.write({ seq: 2, message: { text: 'two' } })
+            call.write({ seq: 1, uiMessage: mkUiMsg('one') })
+            call.write({ seq: 2, uiMessage: mkUiMsg('two') })
             call.write({ seq: 3, done: { finalMessage: 'done' } })
             call.end()
         })
@@ -67,9 +74,14 @@ describe('GrpcCmdNodeClient', () => {
             for await (const e of handle.events()) seen.push(e)
             resolver.clear()
 
-            expect(seen.map((e) => e.message?.text ?? e.done?.finalMessage)).toEqual(
-                ['one', 'two', 'done'],
-            )
+            const decode = (e: InvokeServer): string => {
+                if (e.uiMessage) {
+                    const payload = JSON.parse(Buffer.from(e.uiMessage.payloadJson).toString('utf8')) as { text?: string }
+                    return payload.text ?? ''
+                }
+                return e.done?.finalMessage ?? ''
+            }
+            expect(seen.map(decode)).toEqual(['one', 'two', 'done'])
             expect(seen.map((e) => e.seq)).toEqual([1, 2, 3])
         } finally {
             await node.shutdown()

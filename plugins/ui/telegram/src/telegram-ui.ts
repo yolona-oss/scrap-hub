@@ -14,6 +14,7 @@ import type { IAuthGate } from '@cmd-hub/common'
 
 import { LockManager } from '@cmd-hub/common'
 import type { UIFederationRequires } from '@cmd-hub/core'
+import { CmdHubApp } from '@cmd-hub/core'
 import {
     log,
     readConfigSlice,
@@ -22,10 +23,10 @@ import {
     CAP_HttpAgent,
     layoutCommonKeyboard,
     layoutBuilderKeyboard,
-    type ManagerRecord,
     type MessageHistoryInput,
     type AppLike,
 } from '@cmd-hub/common'
+import { registerTelegramRenderers } from './ui-message-renderers'
 
 import crypto from 'crypto'
 import type { Agent } from 'http'
@@ -119,6 +120,13 @@ export class TelegramUI extends BaseUI<TgContext> {
     async onAppAttach(app: AppLike): Promise<void> {
         const cfg = readConfigSlice(app, this)
         this.tgConfig = cfg
+        // Register Telegram-HTML renderers for every framework builtin so
+        // text/markdown/code/list/kv/link arrive as styled HTML rather
+        // than the framework's plain-text fallback. Replaces the
+        // `text`/`code` defaults seeded at useUI() time.
+        if (app instanceof CmdHubApp) {
+            registerTelegramRenderers(app.uiMessageRegistryFor(this))
+        }
         if (!this.bot) {
             // If a ProxyMiddleware published an HTTP agent, route api.telegram.org through it.
             const agent = app.get(CAP_HttpAgent) as Agent | undefined

@@ -12,7 +12,17 @@ import {
     type AggregatedManifest,
 } from '@cmd-hub/transport'
 import { CAP_ManifestAggregator } from '@cmd-hub/transport'
+import { uiMessageKindCap } from '@cmd-hub/common'
 import { CmdHubApp, type UIFederationRequires } from '../cmd-hub-app'
+
+/** The framework auto-registers `text` (essential) and `code` (supported)
+ *  for every UI. Tests prepend BOTH caps to any manifest's published list
+ *  so the UiMessage federation rule doesn't reject (text) or warn (code)
+ *  on unrelated test grounds. */
+const FRAMEWORK_BASELINE_CAPS: string[] = [
+    uiMessageKindCap('text') as string,
+    uiMessageKindCap('code') as string,
+]
 
 const CAP_DB = defineCapability<string>('phase-c-hub.db')
 const CAP_ANALYTICS = defineCapability<string>('phase-c-hub.analytics')
@@ -69,7 +79,10 @@ function makeManifest(opts: {
         configs: [],
         hardware: {},
         metrics: {},
-        publishedCapabilities: opts.publishedCapabilities ?? [],
+        publishedCapabilities: [
+            ...FRAMEWORK_BASELINE_CAPS,
+            ...(opts.publishedCapabilities ?? []),
+        ],
     }
 }
 

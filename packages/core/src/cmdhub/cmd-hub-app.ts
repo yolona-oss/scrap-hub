@@ -13,6 +13,13 @@ import {
     CapabilityValidationError,
     log,
     type CapabilityValidationFailure,
+    UiMessageRendererRegistry,
+    IUiMessageRendererRegistry,
+    UiUiMessageKindPlugin,
+    uiMessageKindCap,
+    registerBuiltinRenderers,
+    CAP_SessionLogRepo,
+    type UiMessage,
 } from '@cmd-hub/common'
 import {
     CAP_ManifestAggregator,
@@ -53,16 +60,46 @@ interface DispatcherForAttach {
 /** Hub-side Application with first-class UI plugins. */
 export class CmdHubApp<Cfg = unknown> extends Application<Cfg> {
     private readonly _uis: Array<IUI<any> & IUIWithAttach> = []
+    /** Per-UI UiMessage renderer registries, keyed by reference identity
+     *  with the UI instance. Each UI gets its own registry so its
+     *  `federationRequires.supported` reflects what THAT UI can render. */
+    private readonly _uiMessageRegistries = new Map<IUI<any>, UiMessageRendererRegistry>()
     /** Drained in `terminate()` so re-run() doesn't accumulate listeners. */
     private _aggregatorUnsubs: Array<() => void> = []
 
     useUI(ui: IUI<any> & IUIWithAttach): this {
         this._uis.push(ui)
+        // Seed the per-UI registry with framework essentials (text + code).
+        // UIs that want optional builtins (markdown/list/kv/link) call
+        // `app.uiMessageRegistryFor(this)` from `onAppAttach` and register.
+        const registry = new UiMessageRendererRegistry(ui.ContextType?.() ?? 'unknown')
+        registerBuiltinRenderers(registry, [])  // essentials only
+        this._uiMessageRegistries.set(ui, registry)
         return this
     }
 
     get UIs(): ReadonlyArray<IUI<any> & IUIWithAttach> {
         return this._uis
+    }
+
+    /** Returns the renderer registry owned by `ui`. UI plugins call this
+     *  in `onAppAttach` to register their per-platform render-halves
+     *  (CLI/Telegram/web) and to opt into optional framework builtins. */
+    uiMessageRegistryFor(ui: IUI<any>): IUiMessageRendererRegistry {
+        const reg = this._uiMessageRegistries.get(ui)
+        if (!reg) {
+            throw new Error('uiMessageRegistryFor: UI was not registered via useUI()')
+        }
+        return reg
+    }
+
+    /** Override: walk every registered UI and register the render half on
+     *  each. Plugin authors can call `useUiMessageKind` once and have
+     *  every UI pick it up. */
+    protected override _registerUiMessageKindRender<P, R>(plugin: UiUiMessageKindPlugin<P, R>): void {
+        for (const reg of this._uiMessageRegistries.values()) {
+            reg.register(plugin)
+        }
     }
 
     protected _collectSubclassContributors(): ConfigContributor[] {
@@ -83,16 +120,27 @@ export class CmdHubApp<Cfg = unknown> extends Application<Cfg> {
         // rather than by a middleware.
         if (!remoteInvoker && aggregator && nodeClient) {
             const createDashboard = (session: DashboardSession): ServiceDashboard => {
+                const uiImpl = session.uiHandle.uiImpl
+                const registry = this.uiMessageRegistryFor(uiImpl)
+                const baseCtx = { ui: uiImpl.ContextType() } as const
+                const renderUiMessage = (msg: UiMessage): string =>
+                    String(registry.render(msg, baseCtx) ?? '')
                 return new ServiceDashboard(
-                    session.uiHandle.uiImpl,
+                    uiImpl,
                     session.userId,
                     session.sessionId,
+                    { renderUiMessage },
                 )
             }
+            // Optional: when storage middleware is installed, persist
+            // every session's UiMessage history and replay on resume.
+            // Absent → invoker runs without persistence (e.g. test harnesses).
+            const sessionLogRepo = this.get(CAP_SessionLogRepo)
             remoteInvoker = new RemoteCmdInvoker({
                 aggregator,
                 client: nodeClient,
                 createDashboard,
+                sessionLogRepo,
             })
             this.provide(CAP_RemoteCmdInvoker, remoteInvoker)
         }
@@ -109,10 +157,26 @@ export class CmdHubApp<Cfg = unknown> extends Application<Cfg> {
                 const uiEssential = (ui.federationRequires?.essential ?? []).map(k => k as string)
                 const uiSupported = (ui.federationRequires?.supported ?? []).map(k => k as string)
 
-                const mergedEssential = unique([...appEssential, ...uiEssential])
+                // Inject UiMessage kinds the UI's renderer registry knows
+                // about. `text` is always essential (every UI MUST render
+                // it); the rest are supported (missing → text fallback).
+                const reg = this._uiMessageRegistries.get(ui)
+                const kindCaps = reg
+                    ? reg.registeredKinds().map(kind => uiMessageKindCap(kind) as string)
+                    : []
+                const textCap = uiMessageKindCap('text') as string
+
+                const mergedEssential = unique([
+                    ...appEssential,
+                    ...uiEssential,
+                    textCap,
+                ])
                 // UI essentials win: drop them from supported even if appSupported includes them.
-                const mergedSupported = unique([...appSupported, ...uiSupported])
-                    .filter(k => !mergedEssential.includes(k))
+                const mergedSupported = unique([
+                    ...appSupported,
+                    ...uiSupported,
+                    ...kindCaps,
+                ]).filter(k => !mergedEssential.includes(k))
 
                 if (mergedEssential.length === 0 && mergedSupported.length === 0) continue
                 uiReqs.push({
@@ -126,11 +190,12 @@ export class CmdHubApp<Cfg = unknown> extends Application<Cfg> {
         }
         const repos: DispatcherRepos = {
             manager:        requireCap(this, CAP_ManagerRepo,
-                'CmdHubApp needs a storage middleware (e.g. MongoStorageMiddleware) before run()'),
+                'CmdHubApp needs a storage middleware that provides the manager/account/alias/etc. repo capabilities before run()'),
             account:        requireCap(this, CAP_AccountRepo),
             invitationLink: requireCap(this, CAP_InvitationLinkRepo),
             cmdAlias:       requireCap(this, CAP_CmdAliasRepo),
             pendingDelete:  requireCap(this, CAP_PendingDeleteRepo),
+            sessionLog:     this.get(CAP_SessionLogRepo),
         }
 
         // Attach every UI's dispatcher BEFORE validation, since some UIs

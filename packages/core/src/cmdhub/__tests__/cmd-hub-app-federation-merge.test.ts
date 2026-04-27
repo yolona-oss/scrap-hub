@@ -15,9 +15,20 @@ import {
     type CapabilityKey,
 } from '@cmd-hub/common'
 import { CAP_ManifestAggregator, type UIRequirementsForFiltering } from '@cmd-hub/transport'
+import { uiMessageKindCap } from '@cmd-hub/common'
 import { CmdHubApp } from '../cmd-hub-app'
 import type { UIFederationRequires } from '../cmd-hub-app'
 import { FederationCapsMiddleware } from '../../middleware/federation-caps-middleware'
+
+/** The framework auto-injects `text` as essential for every UI and adds
+ *  `code` to supported. Tests strip these out before asserting on
+ *  caller-controlled essentials/supported, since the focus is the merge
+ *  logic for app/UI caps, not the UiMessage layer. */
+const FRAMEWORK_TEXT_CAP: string = uiMessageKindCap('text') as string
+const FRAMEWORK_CODE_CAP: string = uiMessageKindCap('code') as string
+function stripFrameworkCaps(arr: ReadonlyArray<string>): string[] {
+    return arr.filter(k => k !== FRAMEWORK_TEXT_CAP && k !== FRAMEWORK_CODE_CAP)
+}
 
 const CAP_APP_X = defineCapability<string>('test.appX')
 const CAP_APP_Y = defineCapability<string>('test.appY')
@@ -115,7 +126,7 @@ describe('CmdHubApp federation-requirements merge', () => {
         expect(fakeAgg.lastReqs!.length).toBe(1)
         const req = fakeAgg.lastReqs![0]
         expect(req.uiName).toBe('stub')
-        const essentials = [...req.essential].sort()
+        const essentials = stripFrameworkCaps(req.essential).sort()
         expect(essentials).toEqual([CAP_APP_X as string, CAP_UI_Z as string].sort())
 
         await app.terminate()
@@ -131,7 +142,7 @@ describe('CmdHubApp federation-requirements merge', () => {
         await app.run()
 
         const req = fakeAgg.lastReqs![0]
-        expect(req.essential).toEqual([CAP_APP_X as string])
+        expect(stripFrameworkCaps(req.essential)).toEqual([CAP_APP_X as string])
         expect(req.supported).toContain(CAP_APP_Y as string)
         expect(req.supported).not.toContain(CAP_APP_X as string)
 
@@ -154,7 +165,7 @@ describe('CmdHubApp federation-requirements merge', () => {
 
         const req = fakeAgg.lastReqs![0]
         expect(req.supported).not.toContain(CAP_APP_Y as string)
-        expect([...req.essential].sort()).toEqual([CAP_APP_X as string, CAP_APP_Y as string].sort())
+        expect(stripFrameworkCaps(req.essential).sort()).toEqual([CAP_APP_X as string, CAP_APP_Y as string].sort())
 
         await app.terminate()
     })
@@ -171,8 +182,10 @@ describe('CmdHubApp federation-requirements merge', () => {
         await app.run()
 
         const req = fakeAgg.lastReqs![0]
-        expect(req.essential).toEqual([CAP_UI_Z as string])
-        expect(req.supported).toEqual([])
+        expect(stripFrameworkCaps(req.essential)).toEqual([CAP_UI_Z as string])
+        // `supported` may carry framework-injected caps (code etc.); the
+        // caller-controlled supported set is empty here.
+        expect(stripFrameworkCaps(req.supported)).toEqual([])
 
         await app.terminate()
     })

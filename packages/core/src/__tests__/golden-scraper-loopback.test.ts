@@ -30,8 +30,19 @@ const FIXTURE_DIR = path.resolve(__dirname, './__fixtures__/golden-scraper')
 function capturedToProto(e: CapturedEvent): CmdHubProto.InvokeServer {
     const base = { seq: e.seq }
     switch (e.kind) {
-        case 'message':
-            return { ...base, message: { text: String(e.payload.text) } }
+        case 'uiMessage': {
+            const { kind, severity, ...rest } = e.payload as { kind: string, severity?: string, [k: string]: unknown }
+            return {
+                ...base,
+                uiMessage: {
+                    kind: String(kind),
+                    payloadJson: Buffer.from(JSON.stringify(rest)),
+                    severity: severity ? String(severity) : '',
+                    compatibilityId: `cmd-hub.builtin.${kind}`,
+                    version: '1.0.0',
+                },
+            }
+        }
         case 'progress':
             return {
                 ...base,
@@ -131,9 +142,12 @@ describe('golden scraper loopback', () => {
             const got = dashEvents[i]
             expect(got.kind).toBe(src.kind)
             switch (src.kind) {
-                case 'message':
-                    expect((got as { kind: 'message'; text: string }).text).toBe(src.payload.text)
+                case 'uiMessage': {
+                    const dashEv = got as { kind: 'uiMessage'; message: { kind: string; text?: string } }
+                    expect(dashEv.message.kind).toBe(src.payload.kind)
+                    expect(dashEv.message.text).toBe(src.payload.text)
                     break
+                }
                 case 'progress':
                     expect(got).toMatchObject({
                         kind: 'progress',

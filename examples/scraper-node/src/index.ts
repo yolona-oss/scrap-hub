@@ -10,6 +10,8 @@ import { registerSources } from './sources'
 import { registerExporters } from './exporters'
 import { registerGoogleSheetsPlugin } from './plugins/google-sheets'
 import { registerBuiltInCheerioSources } from './plugins/cheerio-sources'
+import { OrgKind } from './ui-messages/org'
+import { SourceFailedKind } from './ui-messages/source-failed'
 
 // Side-effecting plugin registrations. These populate SourceRegistry /
 // ExporterRegistry before any scraper invocation runs.
@@ -26,6 +28,11 @@ async function bootstrap() {
         .use(new MongoStorageMiddleware())
         .use(new InvokeServerMiddleware())
         .use(new HubClientMiddleware())
+        // Register the scraper's UiMessage kinds. Same plugin object holds
+        // both the build half (used here, on the node) and a default render
+        // half (used when a hub running this app loads us as a UI plugin).
+        .useUiMessageKind(OrgKind)
+        .useUiMessageKind(SourceFailedKind)
         .useCommand(OrgScraperService)
 
     await app.Initialize()

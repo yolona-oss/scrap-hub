@@ -1,0 +1,29 @@
+{
+    "name": "@cmd-hub/cli",
+    "version": "0.1.0",
+    "description": "Operator CLI for cmd-hub: CA setup and node provisioning. Storage backend is loaded by name; the CLI itself never depends on a specific driver.",
+    "license": "ISC",
+    "main": "./build/src/index.js",
+    "types": "./build/src/index.d.ts",
+    "bin": {
+        "cmd-hub": "./build/src/index.js"
+    },
+    "scripts": {
+        "build": "tsc --build --pretty",
+        "clean": "rm -rf build",
+        "test": "jest --forceExit --passWithNoTests"
+    },
+    "dependencies": {
+        "@cmd-hub/common": "*",
+        "@cmd-hub/transport": "*",
+        "commander": "^12.1.0",
+        "reflect-metadata": "^0.2.2"
+    },
+    "devDependencies": {
+        "@types/jest": "^30.0.0",
+        "@types/node": "^20.0.0",
+        "jest": "^30.3.0",
+        "ts-jest": "^29.4.9",
+        "typescript": "^5.7.3"
+    }
+}

@@ -22,6 +22,20 @@ import {
     CapabilityValidationFailure,
 } from './manifest'
 import log from './logger'
+import {
+    NodeUiMessageRegistry,
+    INodeUiMessageRegistry,
+} from '../ui-message/node-registry'
+import {
+    CAP_NodeUiMessageRegistry,
+} from '../ui-message/capability'
+import {
+    isNodeKindPlugin,
+    isUiKindPlugin,
+    NodeUiMessageKindPlugin,
+    UiUiMessageKindPlugin,
+} from '../ui-message/kind-plugin'
+import { registerBuiltinBuilders } from '../ui-message/register-builtins'
 
 export interface ApplicationOptions<Cfg> {
     /** JSON config file path; ignored when `inlineConfig` is set. */
@@ -57,6 +71,12 @@ export abstract class Application<Cfg = unknown>
     /** Side-band: which middleware (if any) provided each cap. Pruned on revoke. */
     private readonly _providers: Map<string, string> = new Map()
 
+    /** Node-side UiMessage registry. Always present (so a service running
+     *  embedded in the hub still resolves it). Builtin builders are
+     *  auto-registered at `Initialize()`; plugin builders register via
+     *  `useUiMessageKind`. */
+    private readonly _nodeUiMessageRegistry: NodeUiMessageRegistry = new NodeUiMessageRegistry()
+
     provide<V>(key: CapabilityKey<V>, value: V, providedBy?: string): void {
         this.context[key] = value
         this._providers.set(key, providedBy ?? '')
@@ -74,6 +94,36 @@ export abstract class Application<Cfg = unknown>
 
     has<V>(key: CapabilityKey<V>): boolean {
         return key in this.context
+    }
+
+    /** Read-only access to the node-side UiMessage registry. Resolved
+     *  via `CAP_NodeUiMessageRegistry` for code that prefers cap-keys. */
+    get nodeUiMessageRegistry(): INodeUiMessageRegistry {
+        return this._nodeUiMessageRegistry
+    }
+
+    /** Register a UiMessage kind plugin. The same plugin object can carry
+     *  both halves (`build` + `render`); the framework picks up whichever
+     *  apply on this side via duck-typing. Hub apps additionally walk
+     *  every registered UI to register the render half — see
+     *  `CmdHubApp._registerUiMessageKindRender`. Node-only apps only
+     *  register the build half. */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    useUiMessageKind<P>(plugin: NodeUiMessageKindPlugin<P> | UiUiMessageKindPlugin<P, any>): this {
+        if (isNodeKindPlugin(plugin)) {
+            this._nodeUiMessageRegistry.register(plugin as NodeUiMessageKindPlugin<P>)
+        }
+        if (isUiKindPlugin(plugin)) {
+            this._registerUiMessageKindRender(plugin as UiUiMessageKindPlugin<P, unknown>)
+        }
+        return this
+    }
+
+    /** Subclass hook: hub-side apps override to walk `useUI(impl)`s and
+     *  register the render half on every UI's registry. The base impl
+     *  is a no-op so node-only apps don't need to know about UIs. */
+    protected _registerUiMessageKindRender<P, R>(_plugin: UiUiMessageKindPlugin<P, R>): void {
+        /* no-op for node-only apps */
     }
 
     protected readonly lockManager: LockManager = new LockManager(`./.lock`)
@@ -152,6 +202,13 @@ export abstract class Application<Cfg = unknown>
         }
 
         await this.lockApp()
+
+        // Auto-register every framework builtin builder before middlewares
+        // run, so any `BaseCommandService.send({kind:'text', ...})` in
+        // service code finds a builder regardless of which package
+        // bootstraps the app.
+        registerBuiltinBuilders(this._nodeUiMessageRegistry)
+        this.provide(CAP_NodeUiMessageRegistry, this._nodeUiMessageRegistry, 'Application')
 
         // Paired with removal in terminate() so a failed init never leaks listeners.
         this._sigHandler = async () => {

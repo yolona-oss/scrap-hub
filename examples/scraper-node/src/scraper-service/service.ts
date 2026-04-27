@@ -1,4 +1,6 @@
 import { BaseCommandService, CmdService, PAIR_PATH_DELIMITER, assignToCustomPath } from "@cmd-hub/common"
+import { OrgKind } from "../ui-messages/org"
+import { SourceFailedKind } from "../ui-messages/source-failed"
 import { BLANK_USER_ID } from "@cmd-hub/core"
 import { z } from "zod"
 import {
@@ -166,11 +168,30 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
             onProgressStatus: (name, status) => this.emit('progressStatus', name, status),
             isPaused: () => this.isPaused,
             context: this.getServiceContext(),
-            onSourceFailed: (info) => this.emit('sourceFailed', info),
+            onSourceFailed: (info) => {
+                this.send(SourceFailedKind.build({
+                    source: info.source,
+                    reason: info.reason,
+                    mode: info.kind,
+                }))
+            },
         })
 
-        for await (const _org of generator) {
+        for await (const org of generator) {
             if (!this.isRunning()) break
+
+            // Stream each found org as a structured UiMessage so a Telegram
+            // contact-card renderer (or future web React OrgCard) can show
+            // it in real time. CLI/web Plan-A render via the default text
+            // form ("· name · phone · address · <url>").
+            this.send(OrgKind.build({
+                name: org.name,
+                phone: org.phone ?? null,
+                email: org.email ?? null,
+                address: org.address ?? null,
+                url: org.url,
+                source: org.source,
+            }))
 
             // Periodic save every 10 orgs
             if (this.scraper.count % 10 === 0) {

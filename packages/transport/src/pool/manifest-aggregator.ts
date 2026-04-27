@@ -16,7 +16,8 @@ export interface AggregatedManifest {
     configs: Array<{ name: string; scope: string; fields: unknown[] }>
     hardware: unknown
     metrics: unknown
-    /** Optional for back-compat with older nodes / test fixtures. */
+    /** Optional in the type to keep test fixtures terse; production
+     *  nodes always set this (CmdNodeApp.buildManifest emits it). */
     publishedCapabilities?: readonly string[]
 }
 

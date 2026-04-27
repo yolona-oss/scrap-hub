@@ -18,6 +18,7 @@ import {
     makeCmdOneShotContext,
     CommandArgumentHolder,
     CmdOneShotSpec,
+    uiMessageKindCap,
 } from '@cmd-hub/common'
 import { CmdHubProto } from '@cmd-hub/transport'
 import { hardwareInfo } from '../manifest/hardware-info'
@@ -86,10 +87,13 @@ function makeOneShotService(
         sessionId: start.sessionId,
         registry: app,
         emit: (event) => {
+            // Translate the OneShot context's free-form text events into
+            // the unified `uiMessage` channel — there's no legacy text
+            // event on the service emitter anymore.
             if (event.kind === 'message') {
-                ee.emit('message', event.text)
+                ee.emit('uiMessage', { kind: 'text', text: event.text })
             } else {
-                ee.emit('error', event.text)
+                ee.emit('uiMessage', { kind: 'text', text: event.text, severity: 'error' })
             }
         },
     })
@@ -105,7 +109,7 @@ function makeOneShotService(
                 ee.emit('done', '')
             } catch (e: unknown) {
                 const text = e instanceof Error ? e.message : String(e)
-                ee.emit('error', text)
+                ee.emit('uiMessage', { kind: 'text', text, severity: 'error' })
                 ee.emit('done', '')
             }
         },
@@ -251,7 +255,14 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
             configs: [],
             hardware: hardwareInfo(),
             metrics: { gauges: [], counters: [], histograms: [] },
-            publishedCapabilities: this.manifestSnapshot().capabilities.map(c => c.key),
+            publishedCapabilities: [
+                ...this.manifestSnapshot().capabilities.map(c => c.key),
+                // One cap per UiMessage kind this node may emit. UIs whose
+                // `federationRequires.supported` lists matching caps render
+                // those kinds natively; UIs missing a kind get a warning at
+                // attach time and the dashboard falls back to text.
+                ...this.nodeUiMessageRegistry.registeredKinds().map(kind => uiMessageKindCap(kind) as string),
+            ],
         }
     }
 

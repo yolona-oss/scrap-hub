@@ -21,11 +21,11 @@ export class ConfigBootMiddleware implements IAppMiddleware {
     async install(app: AppLike): Promise<void> {
         const sys = requireCap(
             app, CAP_SystemConfigRepo,
-            'ConfigBootMiddleware needs a storage middleware before it (e.g. MongoStorageMiddleware)',
+            'ConfigBootMiddleware needs a storage middleware that provides CAP_SystemConfigRepo + CAP_UserConfigRepo before it',
         )
         const user = requireCap(
             app, CAP_UserConfigRepo,
-            'ConfigBootMiddleware needs a storage middleware before it (e.g. MongoStorageMiddleware)',
+            'ConfigBootMiddleware needs a storage middleware that provides CAP_SystemConfigRepo + CAP_UserConfigRepo before it',
         )
         ConfigRegistry.attachRepos(sys, user)
         await ConfigRegistry.seedSystemDefaults()

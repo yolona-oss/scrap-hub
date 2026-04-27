@@ -1,0 +1,22 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "outDir": "./build",
+        "baseUrl": "./",
+        "rootDir": "./",
+        "declaration": true,
+        "composite": true
+    },
+    "include": [
+        "./src/**/*"
+    ],
+    "exclude": [
+        "node_modules",
+        "build",
+        "src/**/__tests__/**"
+    ],
+    "references": [
+        { "path": "../common" },
+        { "path": "../transport" }
+    ]
+}

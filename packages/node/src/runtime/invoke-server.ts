@@ -1,8 +1,25 @@
 import * as grpc from '@grpc/grpc-js'
-import type { EventEmitter } from 'events'
+import type { INodeUiMessageRegistry } from '@cmd-hub/common'
 import { CmdHubProto } from '@cmd-hub/transport'
 import { adaptService } from './event-adapter'
 import { dispatchIntercom } from './intercom-dispatch'
+
+/** RPC-level errors (duplicate InvokeStart, invoke handler crash, etc.)
+ *  ride the same UiMessageEnvelope channel as service-emitted errors so
+ *  the hub has one wire path to decode. severity='error' tags them as
+ *  operator-visible failures. */
+function rpcErrorEnvelope(seq: number, text: string): CmdHubProto.InvokeServer {
+    return {
+        seq,
+        uiMessage: {
+            kind: 'text',
+            payloadJson: Buffer.from(JSON.stringify({ text })),
+            severity: 'error',
+            compatibilityId: 'cmd-hub.builtin.text',
+            version: '1.0.0',
+        },
+    }
+}
 
 type InvokeStart = CmdHubProto.InvokeStart
 type InvokeClient = CmdHubProto.InvokeClient
@@ -48,6 +65,9 @@ export interface IExecutor {
 
 export interface MakeInvokeServerImplOptions {
     executor: IExecutor
+    /** Registry the event-adapter consults to look up `compatibilityId` /
+     *  `version` for outgoing UiMessage envelopes. */
+    nodeUiMessageRegistry: INodeUiMessageRegistry
 }
 
 /**
@@ -57,7 +77,7 @@ export interface MakeInvokeServerImplOptions {
 export function makeInvokeServerImpl(
     opts: MakeInvokeServerImplOptions,
 ): CmdHubProto.CmdNodeServiceServer {
-    const { executor } = opts
+    const { executor, nodeUiMessageRegistry } = opts
 
     return {
         invoke(call: grpc.ServerDuplexStream<InvokeClient, InvokeServer>) {
@@ -87,50 +107,35 @@ export function makeInvokeServerImpl(
                     try {
                         if (msg.start !== undefined) {
                             if (started) {
-                                writer({
-                                    seq: 0,
-                                    error: { text: 'duplicate InvokeStart on the same stream' },
-                                })
+                                writer(rpcErrorEnvelope(0, 'duplicate InvokeStart on the same stream'))
                                 closeStream()
                                 return
                             }
                             started = true
                             svc = await executor.createService(msg.start)
-                            stopAdapter = adaptService(svc, writer)
+                            stopAdapter = adaptService(svc, writer, nodeUiMessageRegistry)
                             if (typeof svc.Initialize === 'function') {
                                 try { await svc.Initialize() } catch (err) {
-                                    writer({
-                                        seq: 0,
-                                        error: { text: `service initialization failed: ${(err as Error).message}` },
-                                    })
+                                    writer(rpcErrorEnvelope(0, `service initialization failed: ${(err as Error).message}`))
                                     closeStream()
                                     return
                                 }
                             }
                             // Fire and forget run() — its events flow through the adapter.
                             svc.run().catch((err) => {
-                                writer({
-                                    seq: 0,
-                                    error: { text: `service run failed: ${(err as Error).message}` },
-                                })
+                                writer(rpcErrorEnvelope(0, `service run failed: ${(err as Error).message}`))
                                 closeStream()
                             })
                             return
                         }
                         if (!svc) {
-                            writer({
-                                seq: 0,
-                                error: { text: 'received InvokeClient message before InvokeStart' },
-                            })
+                            writer(rpcErrorEnvelope(0, 'received InvokeClient message before InvokeStart'))
                             closeStream()
                             return
                         }
                         await dispatchIntercom(svc, msg)
                     } catch (err) {
-                        writer({
-                            seq: 0,
-                            error: { text: `invoke handler error: ${(err as Error).message}` },
-                        })
+                        writer(rpcErrorEnvelope(0, `invoke handler error: ${(err as Error).message}`))
                         closeStream()
                     }
                 })()

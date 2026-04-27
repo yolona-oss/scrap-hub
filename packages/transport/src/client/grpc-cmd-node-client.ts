@@ -35,7 +35,19 @@ export class GrpcCmdNodeClient implements ICmdNodeClient {
         })
         call.on('end', () => { closed = true; bus.emit('event') })
         call.on('error', (err) => {
-            queue.push({ seq: 0, error: { text: (err as Error).message } })
+            // gRPC stream errored — surface as a UiMessage{kind:text,
+            // severity:error} so the consumer's per-event decoder sees it
+            // through the unified channel.
+            queue.push({
+                seq: 0,
+                uiMessage: {
+                    kind: 'text',
+                    payloadJson: Buffer.from(JSON.stringify({ text: (err as Error).message })),
+                    severity: 'error',
+                    compatibilityId: 'cmd-hub.builtin.text',
+                    version: '1.0.0',
+                },
+            })
             closed = true
             bus.emit('event')
         })

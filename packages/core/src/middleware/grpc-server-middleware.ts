@@ -60,11 +60,11 @@ export class GrpcServerMiddleware implements IAppMiddleware, ConfigContributor {
 
         const fileBackend = requireCap(
             app, CAP_FileBackend,
-            'GrpcServerMiddleware needs a file-backend middleware (e.g. GridFsStorageMiddleware) before it',
+            'GrpcServerMiddleware needs a file-backend middleware that provides CAP_FileBackend before it',
         )
         const nodeRepo = requireCap(
             app, CAP_NodeRecordRepo,
-            'GrpcServerMiddleware needs a storage middleware (e.g. MongoStorageMiddleware) before it',
+            'GrpcServerMiddleware needs a storage middleware that provides CAP_NodeRecordRepo before it',
         )
 
         const registry = new CmdNodeRegistry({ tokens: new InternalTokenVerifier(), repo: nodeRepo })

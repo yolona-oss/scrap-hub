@@ -21,6 +21,7 @@ import {
     toDescriptor
 } from "./service-data"
 
+import type { UiMessage } from "../ui-message/types"
 import {
     COMMAND_ARG_DESC_KEY,
     CommandMetadata,
@@ -57,33 +58,27 @@ export interface IntercomAction {
     args?: string[]
 }
 
-/** Per-source diagnostic from a multi-source aggregator (e.g. scraper).
- *  Distinct from the operator-visible `error` event which signals a whole-run
- *  failure; this fires when one of N sources is unavailable or threw. UIs
- *  can render a structured failure panel by listening to this. */
-export interface SourceFailedInfo {
-    source: string
-    reason: string
-    /** `unavailable` = pre-flight availability probe said no.
-     *  `thrown` = the source's `search()` threw mid-run. */
-    kind: 'unavailable' | 'thrown'
-}
-
 /**
  * Typed event map for BaseCommandService. Subclasses get autocomplete +
  * type-check on every emit/on. The node-side invoke adapter reads all of
  * them off the emitter and forwards them as proto InvokeServer messages.
+ *
+ * Every user-facing message — text, errors, structured payloads, source
+ * failures — rides the unified `uiMessage` channel as a `UiMessage`
+ * envelope. Domain-specific kinds (e.g. `'sourceFailed'`, `'org'`) are
+ * registered as plugin-augmented kinds via `Application.useUiMessageKind`.
  */
-export interface IBaseCmdService_EvMap<T = string> extends EventMap {
-    message: (msg: T) => void,
-    error: (err: string) => void,
+export interface IBaseCmdService_EvMap extends EventMap {
     done: (msg?: string) => void,
     liveLog: (logs: string[]) => void,
     progress: (name: string, current: number, total: number) => void,
     progressStatus: (name: string, status: string) => void,
     intercom: (actions: IntercomAction[]) => void,
     file: (handleOrPath: unknown) => void,
-    sourceFailed: (info: SourceFailedInfo) => void,
+    /** Structured user-facing message. Services emit via `send(msg)` —
+     *  `sendToWorld`/`sendToError` are typed-text shortcuts that go
+     *  through the same channel. */
+    uiMessage: (msg: UiMessage) => void,
 }
 
 function merge<T extends Object>(dst: T, src: T): T {
@@ -165,12 +160,20 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
     abstract receiveMsg(msg: string, args: string[]): Promise<void>
     abstract clone(userId: string, input?: Partial<ServiceDataType>, newName?: string): BaseCommandService<ServiceDataType>
 
-    protected sendToWorld(msg: string) {
-        this.emit("message", msg)
+    /** Emit a structured `UiMessage` to the dashboard / connected UIs.
+     *  The `kind` field is what the UI uses to pick a per-platform
+     *  renderer. For free-form text, use `sendToWorld` / `sendToError`
+     *  which are thin wrappers that build a `{kind:'text'}` envelope. */
+    protected send(msg: UiMessage) {
+        this.emit("uiMessage", msg)
     }
 
-    protected sendToError(msg: string) {
-        this.emit("error", msg)
+    protected sendToWorld(text: string) {
+        this.send({ kind: 'text', text })
+    }
+
+    protected sendToError(text: string) {
+        this.send({ kind: 'text', text, severity: 'error' })
     }
 
     /**

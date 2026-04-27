@@ -26,7 +26,7 @@ export interface OrgData {
 
 export interface CapturedEvent {
     seq: number
-    kind: 'message' | 'progress' | 'progressStatus' | 'done'
+    kind: 'uiMessage' | 'progress' | 'progressStatus' | 'done'
     payload: Record<string, unknown>
 }
 
@@ -65,9 +65,10 @@ export function orgsToCsvBytes(data: OrgData[]): Buffer {
 }
 
 /**
- * Runs the fake scraper and returns its event sequence + CSV bytes. The shape
- * of emitted events intentionally matches OrgScraperService's event contract:
- *   message          - human-readable status lines
+ * Runs the fake scraper and returns its event sequence + CSV bytes. The
+ * shape of emitted events intentionally matches OrgScraperService's
+ * contract:
+ *   uiMessage        - structured user-facing message (kind=text for status lines)
  *   progress         - (name, current, total) triples per source
  *   progressStatus   - (name, status) transitions per source
  *   done             - terminal marker with a final message
@@ -86,7 +87,7 @@ export async function runGoldenScraper(opts: { count: number }): Promise<{
     const sourceName = 'fake'
     const collected: OrgData[] = []
 
-    push('message', { text: `Starting search: "coffee" | sources: ${sourceName} | limit: ${total}` })
+    push('uiMessage', { kind: 'text', text: `Starting search: "coffee" | sources: ${sourceName} | limit: ${total}` })
     push('progressStatus', { name: `scraping.${sourceName}`, status: 'active' })
 
     for (let i = 1; i <= total; i++) {
@@ -96,7 +97,7 @@ export async function runGoldenScraper(opts: { count: number }): Promise<{
     }
 
     push('progressStatus', { name: `scraping.${sourceName}`, status: 'done' })
-    push('message', { text: `Collection complete: ${collected.length} organizations` })
+    push('uiMessage', { kind: 'text', text: `Collection complete: ${collected.length} organizations` })
     push('done', { finalMessage: `${collected.length} organizations captured` })
 
     return { events, csvBytes: orgsToCsvBytes(collected) }

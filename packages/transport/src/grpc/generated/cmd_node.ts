@@ -243,21 +243,38 @@ export interface CancelSession {
 
 export interface InvokeServer {
   seq: number;
-  message?: StreamMessage | undefined;
-  error?: StreamError | undefined;
   progress?: Progress | undefined;
   progressStatus?: ProgressStatus | undefined;
   intercom?: IntercomUpdate | undefined;
   file?: FileEmitted | undefined;
   done?: Done | undefined;
+  uiMessage?: UiMessageEnvelope | undefined;
+  liveLog?: LiveLog | undefined;
 }
 
-export interface StreamMessage {
-  text: string;
+/**
+ * Generic envelope for any UiMessage kind. `payload_json` carries the
+ * kind-specific payload (everything except `kind` and `severity`); the hub
+ * decodes it back into a UiMessage when dispatching to UI renderers.
+ */
+export interface UiMessageEnvelope {
+  kind: string;
+  payloadJson: Uint8Array;
+  /** Empty string when severity wasn't set on the source UiMessage. */
+  severity: string;
+  /**
+   * Compatibility identity of the kind-plugin that produced this envelope.
+   * The hub validates against its UI plugins' registered identities and
+   * emits a structured warning on mismatch (defense-in-depth — federation
+   * should have rejected the manifest at attach time).
+   */
+  compatibilityId: string;
+  version: string;
 }
 
-export interface StreamError {
-  text: string;
+/** Live operational log lines (e.g. AI-agent tool-call summaries). */
+export interface LiveLog {
+  lines: string[];
 }
 
 export interface Progress {
@@ -2892,13 +2909,13 @@ export const CancelSession: MessageFns<CancelSession> = {
 function createBaseInvokeServer(): InvokeServer {
   return {
     seq: 0,
-    message: undefined,
-    error: undefined,
     progress: undefined,
     progressStatus: undefined,
     intercom: undefined,
     file: undefined,
     done: undefined,
+    uiMessage: undefined,
+    liveLog: undefined,
   };
 }
 
@@ -2906,12 +2923,6 @@ export const InvokeServer: MessageFns<InvokeServer> = {
   encode(message: InvokeServer, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.seq !== 0) {
       writer.uint32(8).uint64(message.seq);
-    }
-    if (message.message !== undefined) {
-      StreamMessage.encode(message.message, writer.uint32(18).fork()).join();
-    }
-    if (message.error !== undefined) {
-      StreamError.encode(message.error, writer.uint32(26).fork()).join();
     }
     if (message.progress !== undefined) {
       Progress.encode(message.progress, writer.uint32(34).fork()).join();
@@ -2927,6 +2938,12 @@ export const InvokeServer: MessageFns<InvokeServer> = {
     }
     if (message.done !== undefined) {
       Done.encode(message.done, writer.uint32(66).fork()).join();
+    }
+    if (message.uiMessage !== undefined) {
+      UiMessageEnvelope.encode(message.uiMessage, writer.uint32(74).fork()).join();
+    }
+    if (message.liveLog !== undefined) {
+      LiveLog.encode(message.liveLog, writer.uint32(90).fork()).join();
     }
     return writer;
   },
@@ -2944,22 +2961,6 @@ export const InvokeServer: MessageFns<InvokeServer> = {
           }
 
           message.seq = longToNumber(reader.uint64());
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.message = StreamMessage.decode(reader, reader.uint32());
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.error = StreamError.decode(reader, reader.uint32());
           continue;
         }
         case 4: {
@@ -3002,6 +3003,22 @@ export const InvokeServer: MessageFns<InvokeServer> = {
           message.done = Done.decode(reader, reader.uint32());
           continue;
         }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.uiMessage = UiMessageEnvelope.decode(reader, reader.uint32());
+          continue;
+        }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.liveLog = LiveLog.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3014,8 +3031,6 @@ export const InvokeServer: MessageFns<InvokeServer> = {
   fromJSON(object: any): InvokeServer {
     return {
       seq: isSet(object.seq) ? globalThis.Number(object.seq) : 0,
-      message: isSet(object.message) ? StreamMessage.fromJSON(object.message) : undefined,
-      error: isSet(object.error) ? StreamError.fromJSON(object.error) : undefined,
       progress: isSet(object.progress) ? Progress.fromJSON(object.progress) : undefined,
       progressStatus: isSet(object.progressStatus)
         ? ProgressStatus.fromJSON(object.progressStatus)
@@ -3025,6 +3040,16 @@ export const InvokeServer: MessageFns<InvokeServer> = {
       intercom: isSet(object.intercom) ? IntercomUpdate.fromJSON(object.intercom) : undefined,
       file: isSet(object.file) ? FileEmitted.fromJSON(object.file) : undefined,
       done: isSet(object.done) ? Done.fromJSON(object.done) : undefined,
+      uiMessage: isSet(object.uiMessage)
+        ? UiMessageEnvelope.fromJSON(object.uiMessage)
+        : isSet(object.ui_message)
+        ? UiMessageEnvelope.fromJSON(object.ui_message)
+        : undefined,
+      liveLog: isSet(object.liveLog)
+        ? LiveLog.fromJSON(object.liveLog)
+        : isSet(object.live_log)
+        ? LiveLog.fromJSON(object.live_log)
+        : undefined,
     };
   },
 
@@ -3032,12 +3057,6 @@ export const InvokeServer: MessageFns<InvokeServer> = {
     const obj: any = {};
     if (message.seq !== 0) {
       obj.seq = Math.round(message.seq);
-    }
-    if (message.message !== undefined) {
-      obj.message = StreamMessage.toJSON(message.message);
-    }
-    if (message.error !== undefined) {
-      obj.error = StreamError.toJSON(message.error);
     }
     if (message.progress !== undefined) {
       obj.progress = Progress.toJSON(message.progress);
@@ -3054,6 +3073,12 @@ export const InvokeServer: MessageFns<InvokeServer> = {
     if (message.done !== undefined) {
       obj.done = Done.toJSON(message.done);
     }
+    if (message.uiMessage !== undefined) {
+      obj.uiMessage = UiMessageEnvelope.toJSON(message.uiMessage);
+    }
+    if (message.liveLog !== undefined) {
+      obj.liveLog = LiveLog.toJSON(message.liveLog);
+    }
     return obj;
   },
 
@@ -3063,12 +3088,6 @@ export const InvokeServer: MessageFns<InvokeServer> = {
   fromPartial<I extends Exact<DeepPartial<InvokeServer>, I>>(object: I): InvokeServer {
     const message = createBaseInvokeServer();
     message.seq = object.seq ?? 0;
-    message.message = (object.message !== undefined && object.message !== null)
-      ? StreamMessage.fromPartial(object.message)
-      : undefined;
-    message.error = (object.error !== undefined && object.error !== null)
-      ? StreamError.fromPartial(object.error)
-      : undefined;
     message.progress = (object.progress !== undefined && object.progress !== null)
       ? Progress.fromPartial(object.progress)
       : undefined;
@@ -3082,26 +3101,44 @@ export const InvokeServer: MessageFns<InvokeServer> = {
       ? FileEmitted.fromPartial(object.file)
       : undefined;
     message.done = (object.done !== undefined && object.done !== null) ? Done.fromPartial(object.done) : undefined;
+    message.uiMessage = (object.uiMessage !== undefined && object.uiMessage !== null)
+      ? UiMessageEnvelope.fromPartial(object.uiMessage)
+      : undefined;
+    message.liveLog = (object.liveLog !== undefined && object.liveLog !== null)
+      ? LiveLog.fromPartial(object.liveLog)
+      : undefined;
     return message;
   },
 };
 
-function createBaseStreamMessage(): StreamMessage {
-  return { text: "" };
+function createBaseUiMessageEnvelope(): UiMessageEnvelope {
+  return { kind: "", payloadJson: new Uint8Array(0), severity: "", compatibilityId: "", version: "" };
 }
 
-export const StreamMessage: MessageFns<StreamMessage> = {
-  encode(message: StreamMessage, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.text !== "") {
-      writer.uint32(10).string(message.text);
+export const UiMessageEnvelope: MessageFns<UiMessageEnvelope> = {
+  encode(message: UiMessageEnvelope, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.kind !== "") {
+      writer.uint32(10).string(message.kind);
+    }
+    if (message.payloadJson.length !== 0) {
+      writer.uint32(18).bytes(message.payloadJson);
+    }
+    if (message.severity !== "") {
+      writer.uint32(26).string(message.severity);
+    }
+    if (message.compatibilityId !== "") {
+      writer.uint32(34).string(message.compatibilityId);
+    }
+    if (message.version !== "") {
+      writer.uint32(42).string(message.version);
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): StreamMessage {
+  decode(input: BinaryReader | Uint8Array, length?: number): UiMessageEnvelope {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseStreamMessage();
+    const message = createBaseUiMessageEnvelope();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -3110,7 +3147,39 @@ export const StreamMessage: MessageFns<StreamMessage> = {
             break;
           }
 
-          message.text = reader.string();
+          message.kind = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.payloadJson = reader.bytes();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.severity = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.compatibilityId = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.version = reader.string();
           continue;
         }
       }
@@ -3122,44 +3191,74 @@ export const StreamMessage: MessageFns<StreamMessage> = {
     return message;
   },
 
-  fromJSON(object: any): StreamMessage {
-    return { text: isSet(object.text) ? globalThis.String(object.text) : "" };
+  fromJSON(object: any): UiMessageEnvelope {
+    return {
+      kind: isSet(object.kind) ? globalThis.String(object.kind) : "",
+      payloadJson: isSet(object.payloadJson)
+        ? bytesFromBase64(object.payloadJson)
+        : isSet(object.payload_json)
+        ? bytesFromBase64(object.payload_json)
+        : new Uint8Array(0),
+      severity: isSet(object.severity) ? globalThis.String(object.severity) : "",
+      compatibilityId: isSet(object.compatibilityId)
+        ? globalThis.String(object.compatibilityId)
+        : isSet(object.compatibility_id)
+        ? globalThis.String(object.compatibility_id)
+        : "",
+      version: isSet(object.version) ? globalThis.String(object.version) : "",
+    };
   },
 
-  toJSON(message: StreamMessage): unknown {
+  toJSON(message: UiMessageEnvelope): unknown {
     const obj: any = {};
-    if (message.text !== "") {
-      obj.text = message.text;
+    if (message.kind !== "") {
+      obj.kind = message.kind;
+    }
+    if (message.payloadJson.length !== 0) {
+      obj.payloadJson = base64FromBytes(message.payloadJson);
+    }
+    if (message.severity !== "") {
+      obj.severity = message.severity;
+    }
+    if (message.compatibilityId !== "") {
+      obj.compatibilityId = message.compatibilityId;
+    }
+    if (message.version !== "") {
+      obj.version = message.version;
     }
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<StreamMessage>, I>>(base?: I): StreamMessage {
-    return StreamMessage.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<UiMessageEnvelope>, I>>(base?: I): UiMessageEnvelope {
+    return UiMessageEnvelope.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<StreamMessage>, I>>(object: I): StreamMessage {
-    const message = createBaseStreamMessage();
-    message.text = object.text ?? "";
+  fromPartial<I extends Exact<DeepPartial<UiMessageEnvelope>, I>>(object: I): UiMessageEnvelope {
+    const message = createBaseUiMessageEnvelope();
+    message.kind = object.kind ?? "";
+    message.payloadJson = object.payloadJson ?? new Uint8Array(0);
+    message.severity = object.severity ?? "";
+    message.compatibilityId = object.compatibilityId ?? "";
+    message.version = object.version ?? "";
     return message;
   },
 };
 
-function createBaseStreamError(): StreamError {
-  return { text: "" };
+function createBaseLiveLog(): LiveLog {
+  return { lines: [] };
 }
 
-export const StreamError: MessageFns<StreamError> = {
-  encode(message: StreamError, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.text !== "") {
-      writer.uint32(10).string(message.text);
+export const LiveLog: MessageFns<LiveLog> = {
+  encode(message: LiveLog, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.lines) {
+      writer.uint32(10).string(v!);
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): StreamError {
+  decode(input: BinaryReader | Uint8Array, length?: number): LiveLog {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseStreamError();
+    const message = createBaseLiveLog();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -3168,7 +3267,7 @@ export const StreamError: MessageFns<StreamError> = {
             break;
           }
 
-          message.text = reader.string();
+          message.lines.push(reader.string());
           continue;
         }
       }
@@ -3180,24 +3279,24 @@ export const StreamError: MessageFns<StreamError> = {
     return message;
   },
 
-  fromJSON(object: any): StreamError {
-    return { text: isSet(object.text) ? globalThis.String(object.text) : "" };
+  fromJSON(object: any): LiveLog {
+    return { lines: globalThis.Array.isArray(object?.lines) ? object.lines.map((e: any) => globalThis.String(e)) : [] };
   },
 
-  toJSON(message: StreamError): unknown {
+  toJSON(message: LiveLog): unknown {
     const obj: any = {};
-    if (message.text !== "") {
-      obj.text = message.text;
+    if (message.lines?.length) {
+      obj.lines = message.lines;
     }
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<StreamError>, I>>(base?: I): StreamError {
-    return StreamError.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<LiveLog>, I>>(base?: I): LiveLog {
+    return LiveLog.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<StreamError>, I>>(object: I): StreamError {
-    const message = createBaseStreamError();
-    message.text = object.text ?? "";
+  fromPartial<I extends Exact<DeepPartial<LiveLog>, I>>(object: I): LiveLog {
+    const message = createBaseLiveLog();
+    message.lines = object.lines?.map((e) => e) || [];
     return message;
   },
 };

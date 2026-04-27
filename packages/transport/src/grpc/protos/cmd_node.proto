@@ -172,20 +172,33 @@ message CancelSession {
 message InvokeServer {
   uint64 seq = 1;
   oneof kind {
-    StreamMessage message = 2;
-    StreamError error = 3;
     Progress progress = 4;
     ProgressStatus progress_status = 5;
     IntercomUpdate intercom = 6;
     FileEmitted file = 7;
     Done done = 8;
+    UiMessageEnvelope ui_message = 9;
+    LiveLog live_log = 11;
   }
 }
-message StreamMessage {
-  string text = 1;
+// Generic envelope for any UiMessage kind. `payload_json` carries the
+// kind-specific payload (everything except `kind` and `severity`); the hub
+// decodes it back into a UiMessage when dispatching to UI renderers.
+message UiMessageEnvelope {
+  string kind = 1;
+  bytes payload_json = 2;
+  // Empty string when severity wasn't set on the source UiMessage.
+  string severity = 3;
+  // Compatibility identity of the kind-plugin that produced this envelope.
+  // The hub validates against its UI plugins' registered identities and
+  // emits a structured warning on mismatch (defense-in-depth — federation
+  // should have rejected the manifest at attach time).
+  string compatibility_id = 4;
+  string version = 5;
 }
-message StreamError {
-  string text = 1;
+// Live operational log lines (e.g. AI-agent tool-call summaries).
+message LiveLog {
+  repeated string lines = 1;
 }
 message Progress {
   string name = 1;

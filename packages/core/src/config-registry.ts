@@ -205,7 +205,7 @@ export class ConfigRegistry {
         if (!ConfigRegistry.systemRepo) {
             throw new Error(
                 `ConfigRegistry.${callerName}: no system-config repo attached — ` +
-                `register a storage middleware (e.g. MongoStorageMiddleware) and ConfigBootMiddleware before this call`,
+                `register a storage middleware that provides CAP_SystemConfigRepo + CAP_UserConfigRepo, and ConfigBootMiddleware, before this call`,
             )
         }
         return ConfigRegistry.systemRepo
@@ -215,7 +215,7 @@ export class ConfigRegistry {
         if (!ConfigRegistry.userRepo) {
             throw new Error(
                 `ConfigRegistry.${callerName}: no user-config repo attached — ` +
-                `register a storage middleware (e.g. MongoStorageMiddleware) and ConfigBootMiddleware before this call`,
+                `register a storage middleware that provides CAP_SystemConfigRepo + CAP_UserConfigRepo, and ConfigBootMiddleware, before this call`,
             )
         }
         return ConfigRegistry.userRepo

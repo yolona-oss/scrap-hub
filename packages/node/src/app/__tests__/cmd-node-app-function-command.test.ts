@@ -141,7 +141,9 @@ describe('CmdNodeApp + CmdOneShot function commands', () => {
 /** Drive a CmdNodeApp's executor end-to-end without spinning up the gRPC
  *  stack. Builds the executor, calls createService(start), wires the
  *  resulting RunnableService's events into the test callback, then calls
- *  run() and awaits 'done'. */
+ *  run() and awaits 'done'. The 'message'/'error' kinds in `onEvent` are
+ *  test-side aliases for severity= '' / 'error' on a uiMessage{kind:text}
+ *  envelope. */
 async function runViaExecutor(
     app: CmdNodeApp,
     start: { commandName: string; args: Record<string, string>; userId: string; sessionId: string },
@@ -160,8 +162,13 @@ async function runViaExecutor(
     const svc = await executor.createService(start)
 
     const finished = new Promise<void>((resolve) => {
-        svc.on('message', (text: unknown) => onEvent('message', String(text)))
-        svc.on('error', (text: unknown) => onEvent('error', String(text)))
+        svc.on('uiMessage', (msg: unknown) => {
+            const m = msg as { kind?: string; text?: string; severity?: string }
+            if (m?.kind === 'text') {
+                const kind = m.severity === 'error' ? 'error' : 'message'
+                onEvent(kind, String(m.text ?? ''))
+            }
+        })
         svc.on('done', () => { onEvent('done', ''); resolve() })
     })
     await svc.run()

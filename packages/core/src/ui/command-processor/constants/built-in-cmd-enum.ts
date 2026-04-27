@@ -35,4 +35,5 @@ export const BuiltInUiCommandsEnum = {
     CONFIG: "config",
     SINFO: "sinfo",
     INVITE: "invite",
+    LOG: "log",
 }

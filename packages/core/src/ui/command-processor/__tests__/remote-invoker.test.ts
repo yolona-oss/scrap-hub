@@ -1,5 +1,6 @@
 import { RemoteCmdInvoker } from '../remote-invoker'
 import { ManifestAggregator, type ICmdNodeClient } from '@cmd-hub/transport'
+import type { ISessionLogRepo, SessionLogEntry } from '@cmd-hub/common'
 
 function fakeManifest(nodeId: string, cmd: string) {
     return {
@@ -60,7 +61,16 @@ describe('RemoteCmdInvoker', () => {
                 send: async () => {},
                 cancel: async () => {},
                 async *events() {
-                    yield { seq: 1, message: { text: 'hi' } } as any
+                    yield {
+                        seq: 1,
+                        uiMessage: {
+                            kind: 'text',
+                            payloadJson: Buffer.from(JSON.stringify({ text: 'hi' })),
+                            severity: '',
+                            compatibilityId: 'cmd-hub.builtin.text',
+                            version: '1.0.0',
+                        },
+                    } as any
                     yield { seq: 2, done: { finalMessage: 'bye' } } as any
                 },
             }),
@@ -75,6 +85,79 @@ describe('RemoteCmdInvoker', () => {
         const r = await invoker.invoke({ command: 'echo', args: {}, userId: 'u', uiHandle: null })
         expect(r.success).toBe(true)
         expect(r.markup.text).toBe('bye')
-        expect(dashEvents.map((e) => e.kind)).toEqual(['message', 'done'])
+        expect(dashEvents.map((e) => e.kind)).toEqual(['uiMessage', 'done'])
+    })
+
+    it('replays existing log entries before live events when resuming a session', async () => {
+        const agg = new ManifestAggregator()
+        agg.attach(fakeManifest('A', 'echo'))
+
+        const existing: SessionLogEntry[] = [
+            { sessionId: 'r1', seq: 0, ts: 1, kind: 'text', payload: { text: 'old-1' }, compatibilityId: 'x', version: '1.0.0' },
+            { sessionId: 'r1', seq: 1, ts: 2, kind: 'text', payload: { text: 'old-2' }, compatibilityId: 'x', version: '1.0.0' },
+        ]
+        const appended: SessionLogEntry[] = []
+        const repo: ISessionLogRepo = {
+            async append(entries) { appended.push(...entries) },
+            async read() { return existing },
+            async latestSeq() { return 1 },
+            async deleteBySession() { return 0 },
+            async listSessions() { return [] },
+        }
+
+        const dashEvents: any[] = []
+        const dashboard: any = {
+            attach: async () => {},
+            detach: async () => {},
+            onEvent: (e: any) => { dashEvents.push(e) },
+            sendIntercom: async () => {},
+        }
+
+        const client: ICmdNodeClient = {
+            invoke: async () => ({
+                sessionId: 'r1',
+                send: async () => {},
+                cancel: async () => {},
+                async *events() {
+                    yield {
+                        seq: 1,
+                        uiMessage: {
+                            kind: 'text',
+                            payloadJson: Buffer.from(JSON.stringify({ text: 'live-1' })),
+                            severity: '',
+                            compatibilityId: 'cmd-hub.builtin.text',
+                            version: '1.0.0',
+                        },
+                    } as any
+                    yield { seq: 2, done: { finalMessage: 'ok' } } as any
+                },
+            }),
+        }
+
+        const invoker = new RemoteCmdInvoker({
+            aggregator: agg,
+            client,
+            createDashboard: () => dashboard,
+            sessionLogRepo: repo,
+        })
+
+        // s='r1' makes the invoker treat this as a resume of session r1.
+        const r = await invoker.invoke({
+            command: 'echo',
+            args: { s: 'r1' },
+            userId: 'u',
+            uiHandle: null,
+        })
+        expect(r.success).toBe(true)
+        // Dashboard saw the two replayed entries first, then the live one,
+        // then done.
+        expect(dashEvents.map(e => e.kind)).toEqual(['uiMessage', 'uiMessage', 'uiMessage', 'done'])
+        const texts = dashEvents.slice(0, 3).map(e => (e.message as { text: string }).text)
+        expect(texts).toEqual(['old-1', 'old-2', 'live-1'])
+        // The live event's text was also written back through the writer
+        // (resumed seq starts at 2 = latestSeq+1).
+        expect(appended.length).toBe(1)
+        expect(appended[0].seq).toBe(2)
+        expect(appended[0].payload).toEqual({ text: 'live-1' })
     })
 })

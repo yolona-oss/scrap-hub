@@ -10,14 +10,32 @@ import { CmdDispatcher } from '@cmd-hub/core'
 import { IMarkupOption } from '@cmd-hub/core'
 import { exposeCmdArgumentOptions } from '@cmd-hub/core'
 import { CBDescriptorCompiler } from '@cmd-hub/core'
+import { CmdHubApp } from '@cmd-hub/core'
 import {
     LockManager,
     log,
+    registerBuiltinRenderers,
+    BUILTIN_COMPAT_PREFIX,
+    BUILTIN_VERSION,
     type MessageOptions,
     type ManagerRecord,
     type AppLike,
+    type UiUiMessageKindPlugin,
 } from '@cmd-hub/common'
 import crypto from 'crypto'
+
+/** Web text renderer: emit JSON so the browser can apply CSS classes by
+ *  severity. Plain text without severity stays plain text — no JSON
+ *  envelope — so test harnesses and curl users keep readable output. */
+const WebTextKind: UiUiMessageKindPlugin<{ text: string }, string> = {
+    kind: 'text',
+    compatibilityId: `${BUILTIN_COMPAT_PREFIX}.text`,
+    version: BUILTIN_VERSION,
+    render: (payload, ctx) => {
+        if (!ctx.severity) return payload.text
+        return JSON.stringify({ kind: 'text', severity: ctx.severity, text: payload.text })
+    },
+}
 
 // --- Password hashing ---
 
@@ -115,6 +133,15 @@ export class WebUI extends BaseUI<WebContext> {
 
     async onAppAttach(app: AppLike): Promise<void> {
         this.attachReposFromApp(app)
+        // Plan A: text-mode renderers identical to CLI. The Plan B
+        // browser-side React runtime will register a richer renderer
+        // that emits `{component, props}` JSON and let the browser dispatch
+        // through its own component registry.
+        if (app instanceof CmdHubApp) {
+            const registry = app.uiMessageRegistryFor(this)
+            registerBuiltinRenderers(registry, ['markdown', 'list', 'kv', 'link'])
+            registry.register(WebTextKind)
+        }
     }
 
     // --- BaseUI abstract implementations ---

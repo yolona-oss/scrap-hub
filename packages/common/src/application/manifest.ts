@@ -42,7 +42,8 @@ function formatValidationFailures(failures: ReadonlyArray<CapabilityValidationFa
         `Capability validation failed at boot time:`,
         ...lines,
         `No middleware provides the capabilities listed above. Either install`,
-        `the relevant middleware (e.g. MongoStorageMiddleware for storage caps)`,
+        `the relevant middleware (e.g. a storage middleware that provides`,
+        `the missing CAP_*Repo capabilities)`,
         `or remove the requirement from the @CmdService.requires declaration.`,
     ].join('\n')
 }

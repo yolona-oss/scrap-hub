@@ -43,6 +43,7 @@ import type {
     IManagerRepo,
     IAccountRepo,
     IInvitationLinkRepo,
+    ISessionLogRepo,
     ICmdAliasRepo,
     IPendingDeleteRepo,
     CapabilityKey,
@@ -55,6 +56,9 @@ export interface DispatcherRepos {
     readonly invitationLink: IInvitationLinkRepo
     readonly cmdAlias: ICmdAliasRepo
     readonly pendingDelete: IPendingDeleteRepo
+    /** Optional. Set when storage middleware exposes
+     *  `CAP_SessionLogRepo`; absent in test harnesses without storage. */
+    readonly sessionLog?: ISessionLogRepo
 }
 
 import {
@@ -84,6 +88,7 @@ import {
     ConfigCommand,
     SInfoCommand,
     InviteCommand,
+    LogCommand,
 } from "./built-in-cmd";
 
 import 'reflect-metadata'
@@ -158,7 +163,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         if (!this._repos) {
             throw new Error(
                 `CmdDispatcher.${callerName}: no repos attached — ` +
-                `register a storage middleware (e.g. MongoStorageMiddleware) and use CmdHubApp`,
+                `register a storage middleware that provides the required repo capabilities and use CmdHubApp`,
             )
         }
         return this._repos
@@ -329,6 +334,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             toRegister(ConfigCommand as any, this),
             toRegister(SInfoCommand as any, this),
             toRegister(InviteCommand as any, this),
+            toRegister(LogCommand as any, this),
         ])
 
         const cbNames = Array.from(this.cmd_registry.keys())

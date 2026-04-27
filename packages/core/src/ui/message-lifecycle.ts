@@ -34,8 +34,9 @@ export class MessageLifecycleManager<Ctx extends BaseUIContext> {
     }
 
     /** Wire the persistence repo. UIs call this from `onAppAttach` once
-     *  `MongoStorageMiddleware` has run. Until attached, persistence calls
-     *  no-op (in-memory tracking still works). */
+     *  a storage middleware that provides `CAP_PendingDeleteRepo` has
+     *  run. Until attached, persistence calls no-op (in-memory tracking
+     *  still works). */
     attachRepo(repo: IPendingDeleteRepo): void {
         this.repo = repo
     }

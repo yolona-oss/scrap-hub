@@ -4,11 +4,17 @@ import type {
     ManifestAggregator,
     CmdHubProto,
 } from '@cmd-hub/transport'
-import type { IUI, BaseUIContext } from '@cmd-hub/common'
+import type {
+    IUI,
+    BaseUIContext,
+    ISessionLogRepo,
+    UiMessage,
+} from '@cmd-hub/common'
 import {
     decodePositionalName,
     isEncodedPositionalName,
     STANDALONE_ARG_VALUE,
+    SessionLogWriter,
     log,
 } from '@cmd-hub/common'
 import type { ICommandCompiled } from '../../ui/types/command'
@@ -52,6 +58,11 @@ export interface RemoteCmdInvokerDeps {
     aggregator: ManifestAggregator
     client: ICmdNodeClient
     createDashboard: DashboardFactory
+    /** Optional. When present, every UiMessage seen on the wire is
+     *  appended to this repo (batched) and existing entries are
+     *  replayed to the dashboard before live events. Skip when no
+     *  storage middleware is installed. */
+    sessionLogRepo?: ISessionLogRepo
 }
 
 /** Fans /command out to a remote cmd-node over gRPC. Picks via the pool,
@@ -78,13 +89,49 @@ export class RemoteCmdInvoker {
             return { success: false, markup: { text: reason }, messageType: 'system' }
         }
 
-        const sessionId = randomUUID()
-        log.info(`RemoteCmdInvoker: /${input.command} → node "${pick.nodeId}" (session=${sessionId})`)
+        // If the caller passed an explicit session id (via `s=<id>` or
+        // `sessionId=<id>`), reuse it — that's how replay-on-resume hooks
+        // up to the persisted log. Otherwise generate a fresh UUID.
+        const sessionId = (input.args.s || input.args.sessionId || randomUUID()).toString()
+        const isResume = sessionId === input.args.s || sessionId === input.args.sessionId
+        log.info(`RemoteCmdInvoker: /${input.command} → node "${pick.nodeId}" (session=${sessionId}${isResume ? ', resume' : ''})`)
         const dashboard = this.deps.createDashboard({
             sessionId,
             userId: input.userId,
             uiHandle: input.uiHandle,
         })
+
+        // Wire the session log writer if a repo is available. Replay
+        // existing entries to the dashboard BEFORE attach + before the
+        // live event loop so the user sees historical state immediately.
+        const writer = this.deps.sessionLogRepo
+            ? new SessionLogWriter(this.deps.sessionLogRepo, sessionId)
+            : null
+        if (writer) await writer.seedSeqFromExisting()
+        if (this.deps.sessionLogRepo && isResume) {
+            try {
+                const existing = await this.deps.sessionLogRepo.read(sessionId)
+                for (const entry of existing) {
+                    const msg = {
+                        kind: entry.kind,
+                        severity: entry.severity,
+                        ...entry.payload,
+                    } as unknown as UiMessage
+                    dashboard.onEvent({
+                        kind: 'uiMessage',
+                        message: msg,
+                        compatibilityId: entry.compatibilityId,
+                        version: entry.version,
+                    })
+                }
+                if (existing.length > 0) {
+                    log.info(`RemoteCmdInvoker: replayed ${existing.length} log entries for session=${sessionId}`)
+                }
+            } catch (e) {
+                log.warn(`RemoteCmdInvoker: replay failed for session=${sessionId}: ${(e as Error).message}`)
+            }
+        }
+
         await dashboard.attach()
 
         let handle: Awaited<ReturnType<ICmdNodeClient['invoke']>>
@@ -117,14 +164,40 @@ export class RemoteCmdInvoker {
         for await (const e of handle.events()) {
             const dashEvent = protoToDashboardEvent(e)
             if (dashEvent) dashboard.onEvent(dashEvent)
-            if (e.error !== undefined) {
+
+            // Persist UiMessages to the session log (batched via writer).
+            // Use the wire envelope's compatibilityId/version directly —
+            // they're already present, no registry lookup needed.
+            if (writer && dashEvent?.kind === 'uiMessage') {
+                writer.record(dashEvent.message, {
+                    compatibilityId: dashEvent.compatibilityId,
+                    version: dashEvent.version,
+                })
+            }
+
+            // Track terminal failure: any error-severity UiMessage marks
+            // the run as errored so the post-stream finalize state knows
+            // to flag the failure even if `done` is missing.
+            if (e.uiMessage?.severity === 'error') {
                 errored = true
-                if (!finalText) finalText = e.error.text
+                if (!finalText) {
+                    try {
+                        const parsed = JSON.parse(Buffer.from(e.uiMessage.payloadJson).toString('utf8')) as { text?: string }
+                        finalText = parsed.text ?? ''
+                    } catch {
+                        finalText = `[malformed envelope: kind=${e.uiMessage.kind}]`
+                    }
+                }
             }
             if (e.done !== undefined) {
                 sawDone = true
                 finalText = e.done.finalMessage ?? ''
             }
+        }
+        // Final flush so the trailing batch lands. Always close, even on
+        // error paths, so the buffer doesn't stay around.
+        if (writer) {
+            try { await writer.close() } catch { /* logged inside */ }
         }
         // Stream closed without `done` (node crash/disconnect): force terminal state.
         if (!sawDone) {
@@ -168,8 +241,6 @@ export class RemoteCmdInvoker {
 }
 
 export function protoToDashboardEvent(e: InvokeServer): DashboardEvent | null {
-    if (e.message !== undefined) return { kind: 'message', text: e.message.text }
-    if (e.error !== undefined) return { kind: 'error', text: e.error.text }
     if (e.progress !== undefined) {
         return {
             kind: 'progress',
@@ -198,6 +269,33 @@ export function protoToDashboardEvent(e: InvokeServer): DashboardEvent | null {
     }
     if (e.done !== undefined) {
         return { kind: 'done', finalMessage: e.done.finalMessage ?? '' }
+    }
+    if (e.uiMessage !== undefined) {
+        const env = e.uiMessage
+        let payload: Record<string, unknown> = {}
+        try {
+            const text = Buffer.from(env.payloadJson).toString('utf8')
+            payload = text ? JSON.parse(text) : {}
+        } catch {
+            // Malformed payload — surface as text fallback.
+            return {
+                kind: 'uiMessage',
+                message: { kind: 'text', text: `[malformed UiMessage envelope: kind=${env.kind}]`, severity: 'error' } as import('@cmd-hub/common').UiMessage,
+                compatibilityId: env.compatibilityId,
+                version: env.version,
+            }
+        }
+        const severity = env.severity ? (env.severity as import('@cmd-hub/common').UiSeverity) : undefined
+        const message = { kind: env.kind, severity, ...payload } as unknown as import('@cmd-hub/common').UiMessage
+        return {
+            kind: 'uiMessage',
+            message,
+            compatibilityId: env.compatibilityId,
+            version: env.version,
+        }
+    }
+    if (e.liveLog !== undefined) {
+        return { kind: 'liveLog', lines: e.liveLog.lines ?? [] }
     }
     return null
 }

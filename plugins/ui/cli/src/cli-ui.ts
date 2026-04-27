@@ -5,15 +5,41 @@ import {
     CLI_USER_ID,
     CLI_USER_NAME,
     BaseUI,
+    CmdHubApp,
 } from '@cmd-hub/core';
 import {
     LockManager,
     type ManagerRecord,
     type AppLike,
     log,
+    registerBuiltinRenderers,
+    BUILTIN_COMPAT_PREFIX,
+    BUILTIN_VERSION,
+    severityIconPrefix,
+    type UiSeverity,
+    type UiUiMessageKindPlugin,
 } from '@cmd-hub/common';
 
 import readline from 'readline';
+
+const ANSI_RESET = '\x1b[0m'
+const ANSI_BY_SEVERITY: Record<UiSeverity, string> = {
+    error: '\x1b[31m',
+    warn: '\x1b[33m',
+    success: '\x1b[32m',
+    info: '\x1b[36m',
+}
+
+const CliTextKind: UiUiMessageKindPlugin<{ text: string }, string> = {
+    kind: 'text',
+    compatibilityId: `${BUILTIN_COMPAT_PREFIX}.text`,
+    version: BUILTIN_VERSION,
+    render: (payload, ctx) => {
+        if (!ctx.severity) return payload.text
+        const body = `${severityIconPrefix(ctx.severity)}${payload.text}`
+        return `${ANSI_BY_SEVERITY[ctx.severity]}${body}${ANSI_RESET}`
+    },
+}
 
 const PLACEHOLDER_MANAGER: ManagerRecord = {
     id: '',
@@ -53,6 +79,15 @@ export class CLIUI extends BaseUI<CLIContext> {
 
     async onAppAttach(app: AppLike): Promise<void> {
         this.attachReposFromApp(app)
+        if (app instanceof CmdHubApp) {
+            const registry = app.uiMessageRegistryFor(this)
+            registerBuiltinRenderers(registry, ['markdown', 'list', 'kv', 'link'])
+            // Override the auto-registered plain `text` with an ANSI-coloured
+            // variant: the CLI is a TTY, so severity translates directly to
+            // SGR codes. Tests / non-tty stdout still see the codes; consumers
+            // that care strip them via standard ANSI utilities.
+            registry.register(CliTextKind)
+        }
     }
 
     // Platform-specific implementations for BaseUI

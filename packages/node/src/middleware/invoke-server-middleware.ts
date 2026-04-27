@@ -7,6 +7,8 @@ import {
     AppLike,
     readConfigSlice,
     log,
+    CAP_NodeUiMessageRegistry,
+    requireCap,
 } from '@cmd-hub/common'
 import {
     startNodeGrpcServer,
@@ -64,10 +66,15 @@ export class InvokeServerMiddleware implements IAppMiddleware, ConfigContributor
         }
 
         const credentials = this.opts.credentials ?? grpc.ServerCredentials.createInsecure()
+        const nodeUiMessageRegistry = requireCap(
+            app,
+            CAP_NodeUiMessageRegistry,
+            'InvokeServerMiddleware: framework-provided cap not present (Application.Initialize must run first)',
+        )
         this.handle = await startNodeGrpcServer({
             bindAddress: cfg.bindAddress,
             credentials,
-            impl: makeInvokeServerImpl({ executor }),
+            impl: makeInvokeServerImpl({ executor, nodeUiMessageRegistry }),
         })
 
         app.provide(CAP_NodeInvokeServer, this.handle)

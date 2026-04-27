@@ -15,6 +15,7 @@ import {
     CAP_CmdAliasRepo,
     CAP_PendingDeleteRepo,
     CAP_ServiceStore,
+    CAP_SessionLogRepo,
 } from '@cmd-hub/common'
 import { MongooseStorageConnection } from '../connection'
 import { MongoSystemConfigRepo } from '../repos/system-config.repo'
@@ -26,6 +27,7 @@ import { MongoInvitationLinkRepo } from '../repos/invitation-link.repo'
 import { MongoCmdAliasRepo } from '../repos/cmd-alias.repo'
 import { MongoPendingDeleteRepo } from '../repos/pending-delete.repo'
 import { MongoServiceStore } from '../repos/service-store'
+import { MongoSessionLogRepo } from '../repos/session-log.repo'
 
 export const MongoStorageConfigSchema = z.object({
     url: z.string().min(1),
@@ -48,6 +50,7 @@ export type MongoStorageConfig = z.infer<typeof MongoStorageConfigSchema>
  *   CAP_CmdAliasRepo        — per-Manager command aliases
  *   CAP_PendingDeleteRepo   — message-lifecycle persistence
  *   CAP_ServiceStore        — `BaseCommandService` session store
+ *   CAP_SessionLogRepo      — append-only UiMessage history per session
  *
  * Plugins that need richer mongoose access (registering their own schema, GridFS
  * bucket, etc.) read `app.get(CAP_StorageConnection)` and `narrowToMongo()` it.
@@ -75,9 +78,11 @@ export class MongoStorageMiddleware implements IAppMiddleware, ConfigContributor
         app.provide(CAP_CmdAliasRepo, new MongoCmdAliasRepo())
         app.provide(CAP_PendingDeleteRepo, new MongoPendingDeleteRepo())
         app.provide(CAP_ServiceStore, new MongoServiceStore())
+        app.provide(CAP_SessionLogRepo, new MongoSessionLogRepo())
     }
 
     async uninstall(app: AppLike): Promise<void> {
+        app.revoke(CAP_SessionLogRepo)
         app.revoke(CAP_ServiceStore)
         app.revoke(CAP_PendingDeleteRepo)
         app.revoke(CAP_CmdAliasRepo)

@@ -14,4 +14,5 @@ export enum DbModelsEnum {
     SystemConfigs = 'system_configs',
     UserConfigs = 'user_configs',
     InvitationLinks = 'invitation_links',
+    SessionLog = 'session_log',
 }

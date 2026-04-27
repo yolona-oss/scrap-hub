@@ -9,6 +9,7 @@ export * from './sconfig-cmd'
 export * from './config-cmd'
 export * from './sinfo-cmd'
 export * from './invite-cmd'
+export * from './log-cmd'
 
 import { BaseUIContext } from '../../../ui'
 import { BuiltInSeqCommandsEnum, BuiltInHelpCommandsEnum, BuiltInAccountCommandsEnum, BuiltInServiceCommandsEnum, BuiltInAliasCommandsEnum, BuiltInUiCommandsEnum } from '../constants'

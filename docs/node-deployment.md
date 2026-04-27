@@ -41,7 +41,7 @@ npm install
 npm run build
 ```
 
-This builds every workspace package, including the `cmd-hub` CLI binary at `packages/core/build/src/cli/hub-cli.js`.
+This builds every workspace package, including the `cmd-hub` CLI binary at `packages/cli/build/src/index.js`.
 
 ## Step 2 — generate the CA
 
@@ -60,11 +60,14 @@ Outputs `.local/ca.{key,crt}`. The `.local/` directory is gitignored.
 
 ## Step 3 — provision a node
 
-For every node you intend to run, allocate a name and call `node-add`. The Mongo URL must match the **hub**'s storage config (the hub's `node_records` collection is what the hub queries on Register).
+For every node you intend to run, allocate a name and call `node-add`. The Mongo URL in `--storage-config` must match the **hub**'s storage config (the hub's `node_records` collection is what the hub queries on Register).
+
+The CLI selects its storage backend by package name. Set `CMDHUB_STORAGE` once (as below) so subsequent commands don't need to repeat `--storage`. To use a different backend, point at its package: `--storage @cmd-hub/storage-postgres`, etc. — the CLI itself never references a specific driver.
 
 ```bash
+export CMDHUB_STORAGE=@cmd-hub/storage-mongo
 npx cmd-hub node-add scraper-node-1 \
-  --mongo   "mongodb://127.0.0.1:27017/cmd-hub" \
+  --storage-config '{"url":"mongodb://127.0.0.1:27017/cmd-hub"}' \
   --ca-key  .local/ca.key \
   --ca-cert .local/ca.crt \
   --out-dir .local/nodes/scraper-node-1 \
@@ -136,14 +139,14 @@ Repeat steps 3–5 for each additional node. Use a distinct `<name>` and `--out-
 If you forgot `--auto-activate`:
 
 ```bash
-npx cmd-hub node-list   --mongo "mongodb://127.0.0.1:27017/cmd-hub"
-npx cmd-hub node-approve <nodeId> --mongo "mongodb://127.0.0.1:27017/cmd-hub"
+npx cmd-hub node-list   --storage-config '{"url":"mongodb://127.0.0.1:27017/cmd-hub"}'
+npx cmd-hub node-approve <nodeId> --storage-config '{"url":"mongodb://127.0.0.1:27017/cmd-hub"}'
 ```
 
 ## Tearing a node down
 
 ```bash
-npx cmd-hub node-remove <nodeId> --mongo "mongodb://127.0.0.1:27017/cmd-hub"
+npx cmd-hub node-remove <nodeId> --storage-config '{"url":"mongodb://127.0.0.1:27017/cmd-hub"}'
 ```
 
 Hard delete — the node's token is invalidated immediately. Stop the node process; don't reuse its `.local/nodes/<name>/` directory.

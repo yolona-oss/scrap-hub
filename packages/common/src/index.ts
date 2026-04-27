@@ -4,6 +4,7 @@ export * from './command'
 export * from './types'
 export * from './service'
 export * from './ui'
+export * from './ui-message'
 export * from './utils'
 export * from './constants'
 

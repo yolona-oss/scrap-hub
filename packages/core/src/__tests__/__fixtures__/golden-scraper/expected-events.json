@@ -1,8 +1,9 @@
 [
   {
     "seq": 1,
-    "kind": "message",
+    "kind": "uiMessage",
     "payload": {
+      "kind": "text",
       "text": "Starting search: \"coffee\" | sources: fake | limit: 50"
     }
   },
@@ -474,8 +475,9 @@
   },
   {
     "seq": 54,
-    "kind": "message",
+    "kind": "uiMessage",
     "payload": {
+      "kind": "text",
       "text": "Collection complete: 50 organizations"
     }
   },
