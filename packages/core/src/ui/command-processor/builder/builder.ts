@@ -10,6 +10,7 @@ import { EvaluationResult } from './ev-result'
 import { anyToString } from '@cmd-hub/common'
 import { InterpreterMode } from './interpreter/interpreter'
 import log from '../../../application/logger'
+import type { SavedSources } from '../saved-sources'
 
 /**
  * Per-user command-builder session manager. Each user has at most one
@@ -48,7 +49,7 @@ export class CommandBuilder {
         command: string,
         desc: IUICommandDescriptor,
         mode?: InterpreterMode,
-        savedData?: Record<string, unknown>,
+        savedSources?: SavedSources,
     ): Promise<IBaseMarkup> {
         if (this.usersBuild.has(userId)) {
             throw new Error('User already has active build.')
@@ -58,11 +59,11 @@ export class CommandBuilder {
         }
 
         const parser = new CBParser({ command, descriptor: desc })
-        parser.SavedData = savedData
+        parser.SavedSources = savedSources
         const interpreter = new CBInterpreter(parser, mode)
         this.usersBuild.set(userId, interpreter)
 
-        return BuilderMarkuper.intro(parser, savedData)
+        return BuilderMarkuper.intro(parser, savedSources)
     }
 
     /** Re-open a build with previously-committed values pre-seeded and
@@ -78,14 +79,14 @@ export class CommandBuilder {
         seededValues: ReadonlyMap<string, string>,
         failedLeafPath: readonly string[],
         mode?: InterpreterMode,
-        savedData?: Record<string, unknown>,
+        savedSources?: SavedSources,
     ): Promise<IBaseMarkup> {
         // Drop any leftover build for this user (defensive — the previous
         // execute() should have cleared it via `handle`'s `Done` branch,
         // but a torn-down stream could leave one behind).
         this.usersBuild.delete(userId)
         const parser = new CBParser({ command, descriptor: desc })
-        parser.SavedData = savedData
+        parser.SavedSources = savedSources
         parser.seedValues(seededValues)
         parser.focusLeaf(failedLeafPath)
         const interpreter = new CBInterpreter(parser, mode)

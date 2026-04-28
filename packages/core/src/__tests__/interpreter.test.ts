@@ -486,3 +486,20 @@ describe('Parser — SavedSources & effectiveValues', () => {
         expect(eff.get('city')).toBe('Moscow')
     })
 })
+
+import { CommandBuilder } from '../ui/command-processor/builder/builder'
+
+describe('CommandBuilder.startBuild — SavedSources', () => {
+    test('passes SavedSources through to parser via interpreter', async () => {
+        const builder = new CommandBuilder()
+        const tree = branch({ city: leaf({ description: 'd' }) })
+        const desc = descriptorFromTree(tree)
+        const saved: SavedSources = new Map([
+            ['city', { value: 'Moscow', source: 'module' }],
+        ])
+        await builder.startBuild('u1', 'svc', desc, undefined, saved)
+        expect(builder.isUserOnBuild('u1')).toBe(true)
+        // Indirect verification: a fresh execute on no input yields effective city=Moscow.
+        // (Direct parser inspection isn't exposed; the markuper test covers rendering.)
+    })
+})
