@@ -58,7 +58,7 @@ class AIAgentSettings {
     @CmdArgument({
         required: false,
         description: 'Backing model id',
-        options: ['qwen2.5:7b', 'qwen3:8b', 'gpt-4o', 'gpt-4o-mini'],
+        options: ['qwen2.5:7b', 'qwen3:8b', 'qwen3.5:9b', 'gpt-4o', 'gpt-4o-mini'],
         default: 'qwen2.5:7b',
     })
     model?: string
