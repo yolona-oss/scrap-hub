@@ -57,7 +57,6 @@ function computeNowCoverage(
 export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHandler<UICtx> {
 
     private async loadSaved(
-        userId: string,
         command: string,
         ctx: UICtx,
         dispatcher: CmdDispatcher<UICtx>,
@@ -110,7 +109,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
 
         const { rest: argsNoFlag, nowSet } = extractNowFlag(args)
 
-        const savedSources = await this.loadSaved(userId, command, ctx, dispatcher)
+        const savedSources = await this.loadSaved(command, ctx, dispatcher)
 
         if (nowSet && dispatcher.isService(command)) {
             const tree = dispatcher.getCommandTree(command)
