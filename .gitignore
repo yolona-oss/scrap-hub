@@ -8,3 +8,6 @@ storage/
 .local/
 config.json
 config.docker.json
+
+# Worktrees for parallel work — never commit
+.worktrees/
