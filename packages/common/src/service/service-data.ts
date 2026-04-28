@@ -23,6 +23,13 @@ export class GlobalServiceParam {
         description: "Skip per-account/session config overlays for this run; use built-in defaults + explicit args only. Saved values are NOT modified.",
     })
     noCache?: string
+
+    @CmdArgument({
+        required: false,
+        standalone: true,
+        description: "Skip the builder. Run immediately using saved session/module data merged with any typed args. Falls back to the builder when required args are missing.",
+    })
+    now?: string
 }
 
 export class GlobalServiceMessages {

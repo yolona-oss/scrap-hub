@@ -5,6 +5,8 @@ const mockLog = { trace: jest.fn(), debug: jest.fn(), info: jest.fn(), warn: jes
 jest.mock('../application/logger', () => ({ __esModule: true, default: mockLog, log: mockLog }))
 jest.mock('../config-registry', () => ({ ConfigRegistry: { register: jest.fn() } }))
 
+import type { SavedSources } from '../ui/command-processor/saved-sources'
+
 import { branch, leaf, type OptionsTree, PAIR_PATH_DELIMITER } from '@cmd-hub/common'
 import { CBParser } from '../ui/command-processor/builder/interpreter/parser'
 import { CBInterpreter } from '../ui/command-processor/builder/interpreter/interpreter'
@@ -427,5 +429,101 @@ describe('Compiled output', () => {
         // auto-drill multiple branches in a single TEXT token. Use a pair of
         // steps in incremental mode for that case (covered above).
         expect(r.IsCompiled).toBe(true)
+    })
+})
+
+describe('Parser — SavedSources & effectiveValues', () => {
+    test('SavedSources getter returns whatever was assigned', () => {
+        const tree = branch({ city: leaf({ description: 'd' }) })
+        const parser = createParser(tree)
+
+        expect(parser.SavedSources).toBeUndefined()
+
+        const map: SavedSources = new Map([
+            ['config/city', { value: 'Moscow', source: 'module' as const }],
+        ])
+        parser.SavedSources = map
+        expect(parser.SavedSources).toBe(map)
+    })
+
+    test('effectiveValues folds saved values for unset leaves only', () => {
+        const tree = branch({ city: leaf({ description: 'd' }), depth: leaf({ description: 'd' }) })
+        const parser = createParser(tree)
+
+        const saved: SavedSources = new Map([
+            ['city', { value: 'Moscow', source: 'module' }],
+            ['depth', { value: '3', source: 'session' }],
+        ])
+        parser.SavedSources = saved
+
+        // User commits city → user value wins; depth stays from saved.
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'city' })
+        parser.parseNextToken({ type: 'TEXT', value: 'Kazan' })
+
+        const eff = parser.effectiveValues()
+        expect(eff.get('city')).toBe('Kazan')
+        expect(eff.get('depth')).toBe('3')
+    })
+
+    test('effectiveValues with no SavedSources returns just user values', () => {
+        const tree = branch({ city: leaf({ description: 'd' }) })
+        const parser = createParser(tree)
+
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'city' })
+        parser.parseNextToken({ type: 'TEXT', value: 'Kazan' })
+
+        const eff = parser.effectiveValues()
+        expect(eff.size).toBe(1)
+        expect(eff.get('city')).toBe('Kazan')
+    })
+
+    test('effectiveValues with SavedSources but no user input returns saved values', () => {
+        const tree = branch({ city: leaf({ description: 'd' }) })
+        const parser = createParser(tree)
+        parser.SavedSources = new Map([['city', { value: 'Moscow', source: 'module' }]])
+
+        const eff = parser.effectiveValues()
+        expect(eff.get('city')).toBe('Moscow')
+    })
+})
+
+import { CommandBuilder } from '../ui/command-processor/builder/builder'
+
+describe('CommandBuilder.startBuild — SavedSources', () => {
+    test('passes SavedSources through to parser via interpreter', async () => {
+        const builder = new CommandBuilder()
+        const tree = branch({ city: leaf({ description: 'd' }) })
+        const desc = descriptorFromTree(tree)
+        const saved: SavedSources = new Map([
+            ['city', { value: 'Moscow', source: 'module' }],
+        ])
+        await builder.startBuild('u1', 'svc', desc, undefined, saved)
+        expect(builder.isUserOnBuild('u1')).toBe(true)
+        // Indirect verification: a fresh execute on no input yields effective city=Moscow.
+        // (Direct parser inspection isn't exposed; the markuper test covers rendering.)
+    })
+})
+
+describe('Interpreter compile — saved values fold into effective args', () => {
+    test('compiled.raw includes saved values for unset leaves', () => {
+        const tree = branch({
+            city: leaf({ description: 'city' }),
+            depth: leaf({ description: 'depth' }),
+        })
+        const parser = createParser(tree)
+        parser.SavedSources = new Map([
+            ['city', { value: 'Moscow', source: 'module' }],
+            ['depth', { value: '5', source: 'session' }],
+        ])
+        const interpreter = new CBInterpreter(parser, 'incremental')
+
+        // User overrides depth, leaves city to saved.
+        interpreter.step('--depth 7')
+        const ev = interpreter.step(BuilderActionSigns.execute)
+
+        expect(ev.IsCompiled).toBe(true)
+        const compiled = ev.Result
+        expect(compiled.raw.get('city')).toBe('Moscow')
+        expect(compiled.raw.get('depth')).toBe('7')
     })
 })

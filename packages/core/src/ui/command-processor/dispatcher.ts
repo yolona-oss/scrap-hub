@@ -128,6 +128,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
                 description: string
                 options?: CmdHubProto.CommandOptionsTree
             }>
+            services?: Array<{ command?: { name?: string } }>
         }>
         findCommand?(name: string): {
             name: string
@@ -397,12 +398,9 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
 
     public isService(name: string): boolean {
         const cb = this.tryGetInvokable(name)
-        if (!cb) {
-            // Remote commands aren't in the local registry; treat as not-a-service.
-            log.debug(`isService("${name}"): not in local registry`)
-            return false
-        }
-        return isService(cb.invokable)
+        if (cb) return isService(cb.invokable)
+        // Remote: present in some node's services[] iff it's a service.
+        return this._isRemoteService(name)
     }
 
     isAllArgsPassed(command: string, passedArgs: string[]): boolean {
@@ -417,6 +415,10 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
 
         const remote = this.tryGetRemoteCommand(command)
         if (remote) {
+            // Services declared in any node's `services[]` always open the
+            // builder so the user can review hydrated saved data and
+            // toggle `-now` to skip it explicitly.
+            if (this._isRemoteService(command)) return false
             // Remote command trees aren't cached on the hub — the manifest
             // can change as cmd-nodes attach/detach. Recompute per call.
             return passedArgs.length >= countRequiredLeaves(protoToTree(remote.options))
@@ -424,6 +426,25 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
 
         log.error(`While processing command "${command}" with passed arguments "${passedArgs.join(", ")}", command not found`)
         return true
+    }
+
+    /** A remote command is a service iff at least one node lists it under
+     *  `services[]` in its manifest. The aggregator publishes the same
+     *  command shape under both `commands` and `services[].command`, so
+     *  the name-match here is unambiguous. */
+    private _isRemoteService(command: string): boolean {
+        const agg = this._manifestAggregator
+        if (!agg) return false
+        for (const m of agg.listManifests()) {
+            // services[] is typed `unknown[]` on AggregatedManifest — it's
+            // emitted from the proto NodeManifest where each entry has
+            // `command.name`. Defensive cast: anything missing the shape
+            // is ignored.
+            for (const s of (m.services as Array<{ command?: { name?: string } }>) ?? []) {
+                if (s?.command?.name === command) return true
+            }
+        }
+        return false
     }
 
     isBuiltInCommand(command: string) {
