@@ -128,6 +128,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
                 description: string
                 options?: CmdHubProto.CommandOptionsTree
             }>
+            services?: Array<{ command?: { name?: string } }>
         }>
         findCommand?(name: string): {
             name: string
