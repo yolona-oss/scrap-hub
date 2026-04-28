@@ -22,6 +22,7 @@ export interface IScraperSource {
         query: SearchQuery,
         onProgress: (found: number) => void,
         context?: ServiceContext,
+        signal?: AbortSignal,
     ): AsyncGenerator<OrgData>
 }
 

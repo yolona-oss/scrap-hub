@@ -47,9 +47,6 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
      *  fallback. */
     static readonly configNamespace = 'scraper'
     static readonly configSchema = z.object({
-        serpApiKey: z.string().default(''),
-        yandexXmlUser: z.string().default(''),
-        yandexXmlKey: z.string().default(''),
         chromePath: z.string().default(''),
         requestDelayMs: z.number().default(1000),
         userAgent: z.string().default(

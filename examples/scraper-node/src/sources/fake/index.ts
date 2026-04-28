@@ -27,6 +27,7 @@ export class FakeSource implements IScraperSource {
         _query: SearchQuery,
         onProgress: (found: number) => void,
         _ctx?: ServiceContext,
+        _signal?: AbortSignal,
     ): AsyncGenerator<OrgData> {
         log.info(`fake.search: count=${this.cfg.count} delayMs=${this.cfg.delayMs}`)
         for (let i = 1; i <= this.cfg.count; i++) {

@@ -19,6 +19,7 @@ import {
     CommandArgumentHolder,
     CmdOneShotSpec,
     uiMessageKindCap,
+    type BranchedOptionsTree,
 } from '@cmd-hub/common'
 import { CmdHubProto } from '@cmd-hub/transport'
 import { hardwareInfo } from '../manifest/hardware-info'
@@ -60,8 +61,19 @@ export interface CmdNodeAppOptions<Cfg>
     version?: string
 }
 
-/** Drop the `standalone` field so the result lines up with `CmdHubProto.ArgSpec`. */
-function toProtoArgs(args: { name: string; position: number; required: boolean; type: string; description: string; enumValues: string[]; defaultValue: string }[]): ProtoArgSpec[] {
+/** Drop the `standalone` field so the result lines up with `CmdHubProto.ArgSpec`,
+ *  and translate the in-memory `branchedOptions` tree into the proto's
+ *  `BranchedOptions` recursive shape. */
+function toProtoArgs(args: ReadonlyArray<{
+    name: string
+    position: number
+    required: boolean
+    type: string
+    description: string
+    enumValues: string[]
+    defaultValue: string
+    branchedOptions?: BranchedOptionsTree
+}>): ProtoArgSpec[] {
     return args.map((a) => ({
         name: a.name,
         position: a.position,
@@ -70,7 +82,16 @@ function toProtoArgs(args: { name: string; position: number; required: boolean; 
         description: a.description,
         enumValues: a.enumValues,
         defaultValue: a.defaultValue,
+        branchedOptions: a.branchedOptions ? treeToProto(a.branchedOptions) : undefined,
     }))
+}
+
+function treeToProto(tree: BranchedOptionsTree): CmdHubProto.BranchedOptions {
+    const branches: { [key: string]: CmdHubProto.BranchedOptions } = {}
+    for (const [name, child] of Object.entries(tree.branches)) {
+        branches[name] = treeToProto(child)
+    }
+    return { leaves: tree.leaves, branches }
 }
 
 /** Wraps a `CmdOneShotSpec` as a `RunnableService` so the

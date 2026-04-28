@@ -73,7 +73,7 @@ export class CheerioWebSource implements IScraperSource {
         }
     }
 
-    async* search(query: SearchQuery, onProgress: (found: number) => void, context?: ServiceContext): AsyncGenerator<OrgData> {
+    async* search(query: SearchQuery, onProgress: (found: number) => void, context?: ServiceContext, _signal?: AbortSignal): AsyncGenerator<OrgData> {
         const userMerged = await resolveScraperUserConfig(context)
         const maxPages = this.config.maxPages ?? 10
         const interPageDelayMs = this.config.delayMs ?? userMerged.requestDelayMs

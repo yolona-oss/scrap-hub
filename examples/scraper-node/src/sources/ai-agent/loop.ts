@@ -19,6 +19,22 @@ export interface AgentToolCallInfo {
 
 export interface AgentLoopHooks {
     onToolCall?: (info: AgentToolCallInfo) => void
+    /** When this aborts, the loop unwinds silently — the in-flight LLM
+     *  request is cancelled (via OpenAI SDK's `signal` option), pending
+     *  tool calls return immediately, and `runAgentLoop` returns without
+     *  logging an error. The outer source's `loopPromise.catch` therefore
+     *  never sees an abort. */
+    signal?: AbortSignal
+}
+
+/** True when an error came from `signal.abort()` propagating through the
+ *  OpenAI SDK or a tool's HTTP layer (axios). Both rethrow with `name`
+ *  set to one of these values; checking `signal.aborted` is a fallback
+ *  for tools that swallow the underlying error. */
+function isAbortError(e: any, signal?: AbortSignal): boolean {
+    if (signal?.aborted) return true
+    const name = e?.name
+    return name === 'APIUserAbortError' || name === 'AbortError' || name === 'CanceledError'
 }
 
 export async function runAgentLoop(
@@ -36,12 +52,14 @@ export async function runAgentLoop(
         { role: 'user', content: buildUserPrompt(query) },
     ]
 
+    const signal = hooks?.signal
     let toolCallsUsed = 0
     let turn = 0
     const startTime = Date.now()
     log.debug(`ai-agent.loop: starting model=${cfg.model} maxToolCalls=${cfg.maxToolCalls}`)
 
     while (true) {
+        if (signal?.aborted) return
         if (Date.now() - startTime > cfg.totalTimeoutMs) {
             log.warn(`ai-agent.loop: total timeout (${cfg.totalTimeoutMs}ms) exceeded after ${turn} turns, ${toolCallsUsed} tool calls`)
             return
@@ -52,14 +70,18 @@ export async function runAgentLoop(
         let response
         const reqStart = Date.now()
         try {
-            response = await client.chat.completions.create({
-                model: cfg.model,
-                temperature: cfg.temperature,
-                messages,
-                tools: openAITools,
-                tool_choice: 'auto',
-            })
+            response = await client.chat.completions.create(
+                {
+                    model: cfg.model,
+                    temperature: cfg.temperature,
+                    messages,
+                    tools: openAITools,
+                    tool_choice: 'auto',
+                },
+                { signal },
+            )
         } catch (e: any) {
+            if (isAbortError(e, signal)) return
             log.error(`ai-agent.loop: LLM request failed (turn ${turn}): ${e.message ?? e}`)
             return
         }
@@ -130,7 +152,8 @@ export async function runAgentLoop(
 
             log.debug(`ai-agent.loop: invoke ${tool.name} args=${JSON.stringify(parsed).slice(0, 200)}`)
             const callStart = Date.now()
-            const result = await executeWithTimeout(tool, parsed, cfg.toolTimeoutMs)
+            const result = await executeWithTimeout(tool, parsed, cfg.toolTimeoutMs, signal)
+            if (signal?.aborted) return
             const durationMs = Date.now() - callStart
             log.trace(`ai-agent.loop: ${tool.name} returned in ${durationMs}ms`)
             if (result?.error) {
@@ -160,7 +183,9 @@ export async function runAgentLoop(
     }
 }
 
-async function executeWithTimeout(tool: Tool, args: any, timeoutMs: number): Promise<any> {
+async function executeWithTimeout(tool: Tool, args: any, timeoutMs: number, signal?: AbortSignal): Promise<any> {
+    if (signal?.aborted) return { error: 'cancelled' }
+
     let timer: NodeJS.Timeout | undefined
     const timeoutPromise = new Promise<any>(resolve => {
         timer = setTimeout(() => {
@@ -168,13 +193,23 @@ async function executeWithTimeout(tool: Tool, args: any, timeoutMs: number): Pro
             resolve({ error: `tool "${tool.name}" timeout after ${timeoutMs}ms` })
         }, timeoutMs)
     })
+    let abortListener: (() => void) | undefined
+    const abortPromise = signal
+        ? new Promise<any>(resolve => {
+            abortListener = () => resolve({ error: 'cancelled' })
+            signal.addEventListener('abort', abortListener, { once: true })
+        })
+        : null
     try {
-        const result = await Promise.race([
-            tool.handler(args).catch(e => ({ error: String(e?.message ?? e) })),
-            timeoutPromise,
-        ])
-        return result
+        const handlerResult = tool.handler(args, signal).catch(e => {
+            if (isAbortError(e, signal)) return { error: 'cancelled' }
+            return { error: String(e?.message ?? e) }
+        })
+        const racers: Promise<any>[] = [handlerResult, timeoutPromise]
+        if (abortPromise) racers.push(abortPromise)
+        return await Promise.race(racers)
     } finally {
         if (timer) clearTimeout(timer)
+        if (abortListener) signal?.removeEventListener('abort', abortListener)
     }
 }

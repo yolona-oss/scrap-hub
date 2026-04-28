@@ -1,5 +1,6 @@
 import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
+import type { ServiceContext } from "../exporters/types"
 import { SCRAPER_LANGUAGE, SCRAPER_COUNTRY } from "../scraper-defaults"
 import { httpGet, httpHead } from "./http"
 import { log } from "@cmd-hub/common"
@@ -23,7 +24,7 @@ export class YandexBusinessSource implements IScraperSource {
         }
     }
 
-    async* search(query: SearchQuery, onProgress: (found: number) => void): AsyncGenerator<OrgData> {
+    async* search(query: SearchQuery, onProgress: (found: number) => void, _context?: ServiceContext, _signal?: AbortSignal): AsyncGenerator<OrgData> {
         const searchQuery = query.city
             ? `${query.query} ${query.city}`
             : query.query

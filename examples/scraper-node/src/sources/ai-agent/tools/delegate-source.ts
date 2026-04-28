@@ -33,7 +33,7 @@ export async function makeDelegateSourceTool(
             },
             required: ['source', 'query'],
         },
-        async handler(args): Promise<DelegateResult> {
+        async handler(args, signal): Promise<DelegateResult> {
             const sourceName = String(args?.source ?? '').trim()
             const queryStr = String(args?.query ?? '').trim()
             const limit = Math.min(Math.max(parseInt(args?.limit ?? 20), 1), 50)
@@ -63,7 +63,7 @@ export async function makeDelegateSourceTool(
             let rejected = 0
             try {
                 const source = SourceRegistry.create(sourceName)
-                const gen = source.search(subQuery, () => { /* no-op progress */ })
+                const gen = source.search(subQuery, () => { /* no-op progress */ }, undefined, signal)
                 for await (const org of gen) {
                     if (emitOrg(org, queue, state, baseQuery, sourceName)) accepted++
                     else rejected++

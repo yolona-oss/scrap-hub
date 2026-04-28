@@ -27,11 +27,11 @@ export type CmdArgumentPairOptionsType<
 export const isOptionSetterFunc = commonIsOptionSetterFunc
 export { isOptionSetterString, isBranched }
 
-/** Resolve flat options. Returns `undefined` for unset, a literal array
- *  passthrough, or the resolver's path-empty result coerced to a flat
- *  list (any branched result is collapsed by taking only `leaves`).
- *  Use `bindBranchedResolver` when a branched arg needs its full
- *  hierarchy preserved on the compiled descriptor. */
+/** Resolve flat root-level options. Returns `undefined` for unset, a
+ *  literal array passthrough, or the resolver's path-empty result
+ *  coerced to a flat list (a branched result collapses to its `.leaves`).
+ *  Always pair with `bindBranchedResolver` so the full tree is kept on
+ *  the compiled descriptor when the resolver is a function. */
 export async function exposeCmdArgumentOptions<CtxType extends BaseUIContext = any>(
     cmdName: string,
     options: CmdArgumentPairOptionsType<CmdArgumentOptionSetter> | undefined,
@@ -50,8 +50,9 @@ export async function exposeCmdArgumentOptions<CtxType extends BaseUIContext = a
 
 /** Bind a path-aware resolver for use on a compiled descriptor. The
  *  parser/markuper will call the returned closure with each new path
- *  level as the user drills the menu. Throws if `options` is not a
- *  function (branched mode requires a resolver). */
+ *  level as the user drills the menu. Returns `undefined` if `options`
+ *  isn't a function — in that case the descriptor only carries
+ *  `pairOptions` (flat list) and the menu can't drill deeper. */
 export function bindBranchedResolver<CtxType extends BaseUIContext = any>(
     cmdName: string,
     options: CmdArgumentPairOptionsType<CmdArgumentOptionSetter> | undefined,

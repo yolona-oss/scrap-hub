@@ -6,7 +6,6 @@ import { makeDelegateSourceTool } from "./delegate-source"
 import { makeReportResultsTool } from "./report-results"
 import { SearchQuery, OrgData } from "../../../types"
 import { AsyncQueue } from "../async-queue"
-import { ResolvedAIAgentConfig } from "../config"
 import type { ReportState } from "./emit"
 
 export type { ReportState } from "./emit"
@@ -14,11 +13,10 @@ export type { ReportState } from "./emit"
 export async function buildTools(
     query: SearchQuery,
     queue: AsyncQueue<OrgData>,
-    cfg: ResolvedAIAgentConfig,
     state: ReportState,
 ): Promise<Tool[]> {
     return [
-        makeWebSearchTool(cfg.webSearchProvider),
+        makeWebSearchTool(),
         makeFetchUrlTool(),
         makeParseHtmlTool(),
         await makeDelegateSourceTool(query, queue, state),

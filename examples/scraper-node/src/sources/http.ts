@@ -28,6 +28,10 @@ export interface HttpRequestOpts {
     proxy?: false
     /** Response type; default leaves axios's auto-detection alone. */
     responseType?: AxiosRequestConfig['responseType']
+    /** Abort signal forwarded to axios. On abort, the request rejects with
+     *  an `axios.isCancel` error, which `isRetriableHttpError` short-circuits
+     *  so retries don't keep firing aborted requests. */
+    signal?: AbortSignal
 }
 
 let _configMemo: { value: IScraperConfig; expiresAt: number } | null = null
@@ -49,6 +53,7 @@ export function clearHttpConfigMemo(): void {
 /** Network-level error (no response) and 429 / 5xx are worth retrying;
  *  4xx other than 429 mean "you asked wrong, retrying won't help". */
 export function isRetriableHttpError(err: unknown): boolean {
+    if (axios.isCancel(err)) return false
     if (axios.isAxiosError(err)) {
         const e = err as AxiosError
         if (!e.response) return true
@@ -89,6 +94,7 @@ async function executeOnce(
         validateStatus: opts?.validateStatus ?? (s => s < 600),
         ...(opts?.proxy === false && { proxy: false }),
         ...(opts?.responseType && { responseType: opts.responseType }),
+        ...(opts?.signal && { signal: opts.signal }),
         ...(body !== undefined && { data: body }),
         ...extraConfig,
     }

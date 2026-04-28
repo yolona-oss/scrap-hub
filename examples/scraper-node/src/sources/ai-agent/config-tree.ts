@@ -19,7 +19,6 @@ export const aiAgentTreeResolver: CmdArgumentOptionSetter = async (
             branches: [
                 'model',
                 'temperature',
-                'webSearchProvider',
                 'maxToolCalls',
                 'toolTimeoutMs',
                 'totalTimeoutMs',
@@ -32,17 +31,15 @@ export const aiAgentTreeResolver: CmdArgumentOptionSetter = async (
 
     switch (path[0]) {
         case 'model':
-            return ['qwen2.5:7b', 'qwen2.5:14b', 'gpt-4o-mini', 'gpt-4o', 'claude-3-5-sonnet']
+            return ['qwen2.5:7b', 'qwen3:8b']
         case 'temperature':
             return ['0.0', '0.2', '0.5', '0.7', '1.0']
-        case 'webSearchProvider':
-            return ['serpapi', 'yandex', 'duckduckgo']
         case 'maxToolCalls':
             return ['10', '25', '50', '100']
         case 'toolTimeoutMs':
             return ['30000', '60000', '120000']
         case 'totalTimeoutMs':
-            return ['60000', '300000', '600000', '1800000']
+            return ['60000', '300000', '600000', '1800000', '3600000']
         // baseUrl / apiKey have no canonical leaf list — return [] so the
         // builder shows just the "Back" aux button and the user types a
         // free-form value as plain text.

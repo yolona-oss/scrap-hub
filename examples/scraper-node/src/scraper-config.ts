@@ -15,9 +15,6 @@ export const DEFAULT_USER_AGENT =
  *  per-user account/session storage with `scraper-defaults.ts` as
  *  fallback. See `resolveScraperUserConfig` for the merged read. */
 export interface IScraperConfig {
-    serpApiKey?: string
-    yandexXmlUser?: string
-    yandexXmlKey?: string
     chromePath?: string
     requestDelayMs?: number
     userAgent?: string
@@ -26,11 +23,7 @@ export interface IScraperConfig {
 ConfigRegistry.register({
     name: 'scraper',
     scope: 'system',
-    sensitive: ['serpApiKey', 'yandexXmlKey'],
     defaults: {
-        serpApiKey: '',
-        yandexXmlUser: '',
-        yandexXmlKey: '',
         chromePath: '',
         requestDelayMs: 1000,
         userAgent: DEFAULT_USER_AGENT,
@@ -70,7 +63,6 @@ export async function resolveScraperUserConfig(
         apiKey: userAi.apiKey ?? AI_AGENT_DEFAULTS.apiKey,
         model: userAi.model ?? AI_AGENT_DEFAULTS.model,
         temperature: userAi.temperature ?? AI_AGENT_DEFAULTS.temperature,
-        webSearchProvider: userAi.webSearchProvider ?? AI_AGENT_DEFAULTS.webSearchProvider,
         maxToolCalls: userAi.maxToolCalls ?? AI_AGENT_DEFAULTS.maxToolCalls,
         toolTimeoutMs: userAi.toolTimeoutMs ?? AI_AGENT_DEFAULTS.toolTimeoutMs,
         totalTimeoutMs: userAi.totalTimeoutMs ?? AI_AGENT_DEFAULTS.totalTimeoutMs,

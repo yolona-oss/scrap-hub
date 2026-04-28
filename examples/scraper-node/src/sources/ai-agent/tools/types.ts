@@ -4,7 +4,7 @@ export interface Tool {
     name: string
     description: string
     parameters: Record<string, any>
-    handler: (args: any) => Promise<any>
+    handler: (args: any, signal?: AbortSignal) => Promise<any>
 }
 
 export function toOpenAISchema(tool: Tool): ChatCompletionTool {

@@ -1,7 +1,17 @@
 import { CmdArgumentMetadataRaw, getCmdArgMetadata } from './argument-decorator'
 import { getCmdServiceMeta } from './service-decorator'
 import { BaseCommandIdentity } from './identity'
+import { isBranched, BranchedPairOptions } from './argument-option-types'
 import log from '../application/logger'
+
+/** Eager snapshot of a function-form `pairOptions` resolver, walked at
+ *  manifest-build time. Mirrors the proto `BranchedOptions` shape so
+ *  encoders/decoders trace through cleanly. Empty tree (`leaves: [],
+ *  branches: {}`) means the resolver yielded nothing. */
+export interface BranchedOptionsTree {
+    leaves: string[]
+    branches: Record<string, BranchedOptionsTree>
+}
 
 export interface ProtoArgSpec {
     name: string
@@ -9,9 +19,14 @@ export interface ProtoArgSpec {
     required: boolean
     type: string
     description: string
+    /** Flat root-level leaves. Mirrors `branchedOptions.leaves` for
+     *  consumers that don't speak the tree (legacy). */
     enumValues: string[]
     defaultValue: string
     standalone: boolean
+    /** Recursive snapshot. `undefined` when `pairOptions` is a `string[]`
+     *  literal or absent — in which case `enumValues` is the only payload. */
+    branchedOptions?: BranchedOptionsTree
 }
 
 export interface ProtoCommand extends BaseCommandIdentity {
@@ -24,47 +39,93 @@ export type DecoratableServiceClass = Function // eslint-disable-line @typescrip
 
 /**
  * Build the `ProtoArgSpec[]` for a single `@CmdArgument`-decorated data class.
- * Function-form `pairOptions` is eagerly resolved (with `(commandName,
- * undefined, undefined)`) so the manifest snapshot carries actual enum
- * values; resolution errors degrade to an empty enum (see `resolvePairOptions`).
+ * Function-form `pairOptions` is walked recursively (tree snapshot); literal
+ * `string[]` lands directly in `enumValues`. Resolution errors at any branch
+ * degrade locally — the bad branch is dropped, siblings are kept.
  */
 export async function buildProtoArgsFromDataClass(
     DataCls: new () => object,
     commandName: string = '',
 ): Promise<ProtoArgSpec[]> {
     const fields: Record<string, CmdArgumentMetadataRaw> = getCmdArgMetadata(DataCls)
-    return Promise.all(Object.entries(fields).map(async ([name, f]) => ({
-        name,
-        position: f.position ?? 0,
-        required: f.required ?? false,
-        type: 'string',
-        description: f.description ?? '',
-        enumValues: await resolvePairOptions(f.pairOptions, commandName, name),
-        defaultValue: f.defaultValue ?? '',
-        standalone: f.standalone ?? false,
-    })))
+    return Promise.all(Object.entries(fields).map(async ([name, f]) => {
+        const tree = await snapshotPairOptions(f.pairOptions, commandName, name)
+        return {
+            name,
+            position: f.position ?? 0,
+            required: f.required ?? false,
+            type: 'string',
+            description: f.description ?? '',
+            // Flat mirror — root-level leaves only — for legacy consumers.
+            enumValues: tree?.leaves ?? (Array.isArray(f.pairOptions) ? f.pairOptions : []),
+            defaultValue: f.defaultValue ?? '',
+            standalone: f.standalone ?? false,
+            branchedOptions: tree,
+        }
+    }))
 }
 
-async function resolvePairOptions(
+/**
+ * Recursively walk a function-form `pairOptions` resolver. Each path is
+ * called with `(commandName, undefined, undefined, path)` — at manifest-
+ * build time there's no dispatcher or manager, so resolvers that branch
+ * on per-user state are inherently unsupported and snapshot the role-
+ * less view (documented constraint of the eager-snapshot model).
+ *
+ * Returns `undefined` for non-function `pairOptions` so callers can fall
+ * back to the literal `string[]` mirror.
+ */
+async function snapshotPairOptions(
     pairOptions: CmdArgumentMetadataRaw['pairOptions'],
     commandName: string,
     fieldName: string,
-): Promise<string[]> {
-    if (Array.isArray(pairOptions)) return pairOptions
-    if (typeof pairOptions !== 'function') return []
-    try {
-        const result = await (pairOptions as (cmd: string, d: unknown, m: unknown) => Promise<string[]>)(
-            commandName, undefined, undefined,
+): Promise<BranchedOptionsTree | undefined> {
+    if (typeof pairOptions !== 'function') return undefined
+    const visited = new Set<string>()
+    return walk(pairOptions, commandName, fieldName, [], visited)
+}
+
+async function walk(
+    resolver: Exclude<CmdArgumentMetadataRaw['pairOptions'], string[] | undefined>,
+    commandName: string,
+    fieldName: string,
+    path: string[],
+    visited: Set<string>,
+): Promise<BranchedOptionsTree> {
+    const pathKey = path.join('')
+    if (visited.has(pathKey)) {
+        log.warn(
+            `buildProtoArgs: pairOptions resolver for ${commandName || '(anon)'}.${fieldName} ` +
+            `revisited path [${path.join(', ')}]; snapshot truncated to break cycle.`,
         )
-        return Array.isArray(result) ? result : []
+        return { leaves: [], branches: {} }
+    }
+    visited.add(pathKey)
+
+    let result: string[] | BranchedPairOptions
+    try {
+        result = await (resolver as (
+            cmd: string, d: unknown, m: unknown, p: string[],
+        ) => Promise<string[] | BranchedPairOptions>)(commandName, undefined, undefined, path)
     } catch (e) {
         log.warn(
-            `buildProtoArgs: failed to eagerly resolve pairOptions for ` +
-            `${commandName || '(anon)'}.${fieldName}: ${(e as Error)?.message ?? e}. ` +
-            `Falling back to empty enum.`,
+            `buildProtoArgs: pairOptions resolver for ${commandName || '(anon)'}.${fieldName} ` +
+            `at path [${path.join(', ')}] threw: ${(e as Error)?.message ?? e}. Branch dropped.`,
         )
-        return []
+        return { leaves: [], branches: {} }
     }
+
+    if (Array.isArray(result)) {
+        return { leaves: result, branches: {} }
+    }
+    if (!isBranched(result)) {
+        return { leaves: [], branches: {} }
+    }
+    const branches: Record<string, BranchedOptionsTree> = {}
+    for (const branchName of result.branches) {
+        branches[branchName] = await walk(resolver, commandName, fieldName, [...path, branchName], visited)
+    }
+    return { leaves: result.leaves, branches }
 }
 
 export async function buildCommandFromDecorator(ServiceClass: DecoratableServiceClass): Promise<ProtoCommand> {

@@ -19,18 +19,24 @@ export class AIAgentSource implements IScraperSource {
         query: SearchQuery,
         onProgress: (found: number) => void,
         context?: ServiceContext,
+        signal?: AbortSignal,
     ): AsyncGenerator<OrgData> {
         const cfg = await resolveAIAgentConfig(context)
         if (!cfg) throw new Error('aiAgent.baseUrl / model is empty')
 
         log.info(`ai-agent.search: query="${query.query}" city="${query.city ?? ''}" maxResults=${query.maxResults}`)
-        log.debug(`ai-agent.search: model=${cfg.model} baseUrl=${cfg.baseUrl} provider=${cfg.webSearchProvider} maxToolCalls=${cfg.maxToolCalls} totalTimeoutMs=${cfg.totalTimeoutMs}`)
+        log.debug(`ai-agent.search: model=${cfg.model} baseUrl=${cfg.baseUrl} maxToolCalls=${cfg.maxToolCalls} totalTimeoutMs=${cfg.totalTimeoutMs}`)
 
         const client = createClient(cfg)
         const queue = new AsyncQueue<OrgData>()
         const reportState: ReportState = { yielded: 0 }
-        const tools = await buildTools(query, queue, cfg, reportState)
+        const tools = await buildTools(query, queue, reportState)
         log.trace(`ai-agent.search: tools=[${tools.map(t => t.name).join(', ')}]`)
+
+        // The agent loop blocks on AsyncQueue.next(); when the outer scrape
+        // cancels, close the queue so the consumer loop below also exits.
+        const onAbort = () => queue.close()
+        signal?.addEventListener('abort', onAbort, { once: true })
 
         const liveLog = context?.events?.liveLog
         const onToolCall = liveLog
@@ -39,9 +45,12 @@ export class AIAgentSource implements IScraperSource {
             ])
             : undefined
 
-        const loopPromise = runAgentLoop(client, query, tools, cfg, { onToolCall })
+        const loopPromise = runAgentLoop(client, query, tools, cfg, { onToolCall, signal })
             .catch(e => log.error(`ai-agent.search: loop error: ${e?.message ?? e}`))
-            .finally(() => queue.close())
+            .finally(() => {
+                queue.close()
+                signal?.removeEventListener('abort', onAbort)
+            })
 
         let found = 0
         for await (const org of queue) {

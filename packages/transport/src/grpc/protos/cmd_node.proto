@@ -70,8 +70,24 @@ message ArgSpec {
   bool required = 3;
   string type = 4;
   string description = 5;
+  // Flat enum mirror of the root-level leaves. Kept for back-compat with
+  // consumers that don't speak `branched_options`. When `branched_options`
+  // is non-empty, prefer it.
   repeated string enum_values = 6;
   string default_value = 7;
+  // Eager snapshot of a function-form `pairOptions` resolver, walked at
+  // manifest-build time. Empty for args with `pairOptions: string[]` or
+  // no `pairOptions`. The hub's builder rebuilds an offline resolver from
+  // this so users get the full menu without per-click RPCs.
+  BranchedOptions branched_options = 8;
+}
+message BranchedOptions {
+  // Terminal values at this path — clicking commits the value.
+  repeated string leaves = 1;
+  // Sub-trees keyed by branch label; clicking a branch drills deeper.
+  // proto3 map values must be messages (BranchedOptions itself is fine —
+  // recursion terminates when both `leaves` and `branches` are empty).
+  map<string, BranchedOptions> branches = 2;
 }
 message Service {
   Command command = 1;

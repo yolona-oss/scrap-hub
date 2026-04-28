@@ -23,7 +23,6 @@ export interface IAIAgentConfig {
     apiKey?: string
     model?: string
     temperature?: number
-    webSearchProvider?: 'serpapi' | 'yandex' | 'duckduckgo'
     maxToolCalls?: number
     toolTimeoutMs?: number
     totalTimeoutMs?: number
@@ -34,10 +33,9 @@ export const AI_AGENT_DEFAULTS: Required<IAIAgentConfig> = {
     apiKey: '',
     model: 'qwen2.5:7b',
     temperature: 0.2,
-    webSearchProvider: 'duckduckgo',
     maxToolCalls: 25,
     toolTimeoutMs: 60_000,
-    totalTimeoutMs: 300_000,
+    totalTimeoutMs: 3_600_000,
 }
 
 export interface IGoogleSheetsConfig {

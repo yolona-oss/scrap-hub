@@ -4,9 +4,9 @@ import { BranchedPairOptions } from "./argument-option-types"
 
 export type ArgumentDescriptorType = 'positional'|'pair'|'standalone'
 
-/** Resolver kept on the compiled descriptor for branched pair-options. The
- *  desc-compiler binds dispatcher/manager/cmdName upfront; only `path` is
- *  passed at call time. */
+/** Path-aware resolver kept on the compiled descriptor. Local commands
+ *  bind their function-form `pairOptions` directly; remote commands get
+ *  an offline resolver synthesized from the manifest's tree snapshot. */
 export type CompiledPairOptionsResolver = (path: string[]) => Promise<string[] | BranchedPairOptions>
 
 /**
@@ -15,13 +15,13 @@ export type CompiledPairOptionsResolver = (path: string[]) => Promise<string[] |
 export interface IArgumentDescriptor extends CmdArgumentMetadataRaw {
     ctx: CmdArgumentContextType,
     name: string,
-    /** Flat option list. Set when `branched` is false (or absent) and
-     *  the raw `pairOptions` was either a literal `string[]` or a flat
-     *  resolver. The builder renders these as leaf buttons. */
+    /** Flat root-level options. Mirrors `pairOptionsResolver(path=[]).leaves`
+     *  so first render of a tree menu has buttons immediately, and remains
+     *  the only field set when the raw `pairOptions` was a literal string[]. */
     pairOptions?: string[]
-    /** Path-aware resolver. Set when `@CmdArgument({ branched: true })`.
-     *  The builder calls it on each descent to render the level's
-     *  branches/leaves. */
+    /** Path-aware resolver. Present whenever the raw `pairOptions` was a
+     *  function — even if it returns flat `string[]` at the root. The
+     *  builder calls it on each descent to render the level's options. */
     pairOptionsResolver?: CompiledPairOptionsResolver
     /** Override `PAIR_PATH_DELIMITER` for this argument's commits. */
     pairOptionsSeparator?: string

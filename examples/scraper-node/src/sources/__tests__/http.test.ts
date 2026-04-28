@@ -4,9 +4,6 @@ jest.mock('axios')
 jest.mock('../../scraper-config', () => ({
     DEFAULT_USER_AGENT: 'test-ua',
     getScraperConfig: jest.fn(async () => ({
-        serpApiKey: '',
-        yandexXmlUser: '',
-        yandexXmlKey: '',
         chromePath: '',
         requestDelayMs: 0,
         userAgent: 'test-ua',

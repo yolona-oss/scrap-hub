@@ -40,17 +40,7 @@ export class ScraperConfigData extends GlobalServiceConfig {
         description: "Sources to scrape (comma-separated, or 'all')",
         pairOptions: async () => {
             const sources = SourceRegistry.available()
-            // Generate useful combos: each individual + "all" + common pairs
-            const options = ['all', ...sources]
-            if (sources.length > 2) {
-                // Add some 2-source combos
-                for (let i = 0; i < Math.min(sources.length, 3); i++) {
-                    for (let j = i + 1; j < Math.min(sources.length, 4); j++) {
-                        options.push(`${sources[i]},${sources[j]}`)
-                    }
-                }
-            }
-            return options
+            return ['all', ...sources]
         },
         defaultValue: "all"
     })
@@ -60,7 +50,6 @@ export class ScraperConfigData extends GlobalServiceConfig {
         required: false,
         description: "AI agent settings (drill into key, then pick a value)",
         pairOptions: aiAgentTreeResolver,
-        branched: true,
     })
     aiAgent?: string
 
@@ -68,7 +57,6 @@ export class ScraperConfigData extends GlobalServiceConfig {
         required: false,
         description: "Google Sheets export config (credentials, spreadsheetId)",
         pairOptions: googleSheetsTreeResolver,
-        branched: true,
     })
     googleSheets?: string
 

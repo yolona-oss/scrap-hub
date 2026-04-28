@@ -1,5 +1,6 @@
 import { WithInit } from "@cmd-hub/common";
 import { validateWithNeighborsMap } from "@cmd-hub/common";
+import type { CmdHubProto } from "@cmd-hub/transport";
 import { BaseUIContext } from "../../ui/types";
 
 /** Local mirror of the proto ArgSpec the dispatcher's builder consumes. */
@@ -11,6 +12,10 @@ export interface RemoteArgSpec {
     description: string
     enumValues: string[]
     defaultValue: string
+    /** Eager snapshot of a branched-pair-options tree when the node-side
+     *  arg used a function-form `pairOptions`. Mirrors the proto field of
+     *  the same name. Undefined for args with a literal string[] or none. */
+    branchedOptions?: CmdHubProto.BranchedOptions
 }
 
 export interface RemoteCommandSpec {

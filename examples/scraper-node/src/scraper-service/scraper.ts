@@ -42,6 +42,7 @@ export class OrgScraper {
     private results: OrgData[] = []
     private seen = new Map<string, OrgData>()
     private _isRunning = true
+    private controller = new AbortController()
 
     constructor(
         private query: SearchQuery,
@@ -60,7 +61,10 @@ export class OrgScraper {
     get urls(): string[] { return this.processedUrls }
     get count(): number { return this.results.length }
 
-    stop() { this._isRunning = false }
+    stop() {
+        this._isRunning = false
+        this.controller.abort()
+    }
 
     private addOrg(org: OrgData): boolean {
         const key = dedupKey(org)
@@ -117,7 +121,7 @@ export class OrgScraper {
                 const gen = source.search(this.query, (n) => {
                     sourceCount = n
                     onProgressBar(`scraping.${sourceName}`, Math.min(n, sourceLimit), sourceLimit)
-                }, context)
+                }, context, this.controller.signal)
 
                 for await (const org of gen) {
                     if (!this._isRunning) break

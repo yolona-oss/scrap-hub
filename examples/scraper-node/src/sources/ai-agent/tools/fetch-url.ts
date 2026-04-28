@@ -24,7 +24,7 @@ export function makeFetchUrlTool(): Tool {
             },
             required: ['url'],
         },
-        async handler(args): Promise<FetchResult> {
+        async handler(args, signal): Promise<FetchResult> {
             const url = String(args?.url ?? '').trim()
             const mode: 'text' | 'html' = args?.mode === 'html' ? 'html' : 'text'
             if (!url) return { status: 0, content: '', truncated: false, error: 'empty url' }
@@ -34,6 +34,7 @@ export function makeFetchUrlTool(): Tool {
                 const res = await httpGet(url, {
                     headers: { 'Accept': 'text/html,application/xhtml+xml' },
                     validateStatus: s => s < 600,
+                    signal,
                 })
 
                 const status = res.status

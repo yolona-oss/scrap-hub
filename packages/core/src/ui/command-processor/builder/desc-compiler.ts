@@ -5,24 +5,55 @@ import { ICmdService } from "../../../ui/types/command"
 import { CmdArgumentContextType } from "../../../ui/types/command"
 import { CmdDispatcher, type RemoteCommandSpec } from "./../dispatcher"
 import { CmdArgumentMetadataRaw, exposeCmdArgumentOptions, bindBranchedResolver } from "../../../ui/types/command"
-import type { ManagerRecord } from "@cmd-hub/common"
+import type { ManagerRecord, BranchedOptionsTree, CompiledPairOptionsResolver } from "@cmd-hub/common"
+import type { CmdHubProto } from "@cmd-hub/transport"
 
-/** Resolve `pairOptions` for one descriptor entry: a flat list at root
- *  level plus, when `branched: true`, a bound resolver the parser can
- *  re-invoke at deeper paths. */
+/** Resolve `pairOptions` for one local-descriptor entry. Function-form
+ *  resolvers always bind a path-aware closure so the builder can drill
+ *  arbitrarily deep; literal `string[]` only fills `pairOptions`. */
 async function resolvePairOptions<UICtx extends BaseUIContext>(
     cmdName: string,
-    meta: Pick<CmdArgumentMetadataRaw, 'pairOptions' | 'branched'>,
+    meta: Pick<CmdArgumentMetadataRaw, 'pairOptions'>,
     dispatcher: CmdDispatcher<UICtx>,
     manager: ManagerRecord,
 ) {
     const options = meta.pairOptions
         ? await exposeCmdArgumentOptions(cmdName, meta.pairOptions, dispatcher, manager)
         : undefined
-    const resolver = meta.branched === true
-        ? bindBranchedResolver(cmdName, meta.pairOptions, dispatcher, manager)
-        : undefined
+    const resolver = bindBranchedResolver(cmdName, meta.pairOptions, dispatcher, manager)
     return { options, resolver }
+}
+
+/** Convert the proto's recursive `BranchedOptions` shape into the same
+ *  `BranchedOptionsTree` we use in-memory. Defensive against `undefined`
+ *  (proto3 default) and missing `branches` map. */
+function protoToTree(proto: CmdHubProto.BranchedOptions | undefined): BranchedOptionsTree | undefined {
+    if (!proto) return undefined
+    const branches: Record<string, BranchedOptionsTree> = {}
+    for (const [name, child] of Object.entries(proto.branches ?? {})) {
+        const sub = protoToTree(child)
+        if (sub) branches[name] = sub
+    }
+    return { leaves: proto.leaves ?? [], branches }
+}
+
+/** Synthesize an offline `CompiledPairOptionsResolver` over a snapshot
+ *  tree. Lookups walk the `branches` map; missing paths return an empty
+ *  result rather than throwing — the builder will simply render no
+ *  options. */
+function makeOfflineResolver(tree: BranchedOptionsTree): CompiledPairOptionsResolver {
+    return async (path: string[]) => {
+        let node: BranchedOptionsTree | undefined = tree
+        for (const segment of path) {
+            node = node?.branches[segment]
+            if (!node) return { branches: [], leaves: [] }
+        }
+        const branches = Object.keys(node.branches)
+        // If a level has no branches, return a flat string[] so the builder
+        // renders it as plain leaves (matching the local-resolver convention).
+        if (branches.length === 0) return node.leaves
+        return { branches, leaves: node.leaves }
+    }
 }
 
 export class CBDescriptorCompiler<UICtx extends BaseUIContext> {
@@ -134,12 +165,18 @@ export class CBDescriptorCompiler<UICtx extends BaseUIContext> {
     private configureRemoteDesc(remote: RemoteCommandSpec): IUICommandDescriptor {
         const args: IArgumentDescriptor[] = remote.args.map((a) => {
             const isPositional = Number.isInteger(a.position) && a.position > 0
+            const tree = protoToTree(a.branchedOptions)
+            // Prefer the tree's root leaves over `enumValues` so the two
+            // stay in sync when the node populates both. Fall back to
+            // `enumValues` for non-tree args (literal `string[]` pairOptions).
+            const rootLeaves = tree?.leaves ?? a.enumValues
             const base = {
                 ctx: 'args' as CmdArgumentContextType,
                 name: a.name,
                 required: a.required,
                 description: a.description,
-                pairOptions: a.enumValues.length > 0 ? a.enumValues : undefined,
+                pairOptions: rootLeaves.length > 0 ? rootLeaves : undefined,
+                pairOptionsResolver: tree ? makeOfflineResolver(tree) : undefined,
                 defaultValue: a.defaultValue || undefined,
                 validator: () => true,
             }
