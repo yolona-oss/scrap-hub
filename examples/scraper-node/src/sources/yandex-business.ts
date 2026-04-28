@@ -1,7 +1,7 @@
 import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
 import type { ServiceContext } from "../exporters/types"
-import { SCRAPER_LANGUAGE, SCRAPER_COUNTRY } from "../scraper-defaults"
+import { SCRAPER_LANGUAGE, SCRAPER_COUNTRY } from "../scraper-service/system-config"
 import { httpGet, httpHead } from "./http"
 import { log } from "@cmd-hub/common"
 

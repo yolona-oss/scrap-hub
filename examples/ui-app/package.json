@@ -1,5 +1,5 @@
 {
-    "name": "telegram-ui-app",
+    "name": "ui-app",
     "version": "1.0.0",
     "private": true,
     "main": "./build/index.js",
@@ -9,13 +9,15 @@
         "build": "tsc --build --pretty"
     },
     "license": "ISC",
-    "description": "Example deployable: cmd-hub gateway + Telegram UI plugin",
+    "description": "Example deployable: cmd-hub gateway with a swappable UI plugin (Telegram / CLI / Web)",
     "dependencies": {
         "@cmd-hub/common": "*",
         "@cmd-hub/core": "*",
         "@cmd-hub/storage-mongo": "*",
         "@cmd-hub/transport": "*",
+        "@cmd-hub/ui-cli": "*",
         "@cmd-hub/ui-telegram": "*",
+        "@cmd-hub/ui-web": "*",
         "telegraf": "^4.16.3",
         "mongoose": "^8.9.5",
         "zod": "^3.25.0",

@@ -8,13 +8,14 @@ import { IWebUIPlugin } from './types/plugin'
 import { BaseUI } from '@cmd-hub/core'
 import { CmdDispatcher } from '@cmd-hub/core'
 import { IMarkupOption } from '@cmd-hub/core'
-import { exposeCmdArgumentOptions } from '@cmd-hub/core'
 import { CBDescriptorCompiler } from '@cmd-hub/core'
 import { CmdHubApp } from '@cmd-hub/core'
 import {
     LockManager,
     log,
     registerBuiltinRenderers,
+    walkLeaves,
+    type OptionsTree,
     BUILTIN_COMPAT_PREFIX,
     BUILTIN_VERSION,
     type MessageOptions,
@@ -22,6 +23,35 @@ import {
     type AppLike,
     type UiUiMessageKindPlugin,
 } from '@cmd-hub/common'
+
+/** Serialized leaf descriptor shipped to the browser. Keys are the
+ *  full slash-delimited dot-paths so the browser can ship them straight
+ *  back as form-submission keys. */
+interface SerializedLeaf {
+    path: string
+    type: 'positional' | 'standalone' | 'pair'
+    position?: number
+    required: boolean
+    description: string
+    default?: string
+    options: string[]
+}
+
+function flattenTree(tree: OptionsTree): SerializedLeaf[] {
+    const out: SerializedLeaf[] = []
+    for (const { pathKey, leaf } of walkLeaves(tree)) {
+        out.push({
+            path: pathKey,
+            type: leaf.position > 0 ? 'positional' : leaf.standalone ? 'standalone' : 'pair',
+            position: leaf.position > 0 ? leaf.position : undefined,
+            required: leaf.required,
+            description: leaf.description,
+            default: leaf.default,
+            options: [...leaf.options],
+        })
+    }
+    return out
+}
 import crypto from 'crypto'
 
 /** Web text renderer: emit JSON so the browser can apply CSS classes by
@@ -491,33 +521,11 @@ export class WebUI extends BaseUI<WebContext> {
                     const repos = this.requireRepos('builder:open')
                     const isService = this.dispatcher.isService(data.command)
                     const ctx = this.createContext(socket, data.command)
-                    const compiler = new CBDescriptorCompiler<WebContext>()
+                    const compiler = new CBDescriptorCompiler()
                     const descriptor = await compiler.compile(data.command, userId, this.dispatcher, ctx)
 
-                    interface ArgWithOptions {
-                        name: string
-                        ctx: string
-                        position?: number
-                        standalone?: boolean
-                        required?: boolean
-                        description?: string
-                        defaultValue?: string
-                        pairOptions?: string[]
-                    }
+                    const fields = flattenTree(descriptor.options)
 
-                    // Serialize args for the client
-                    const fields = descriptor.args.map((a: ArgWithOptions) => ({
-                        name: a.name,
-                        ctx: a.ctx,
-                        type: a.position != null ? 'positional' as const : a.standalone ? 'standalone' as const : 'pair' as const,
-                        position: a.position,
-                        required: a.required,
-                        description: a.description,
-                        defaultValue: a.defaultValue,
-                        options: a.pairOptions ?? null,
-                    }))
-
-                    // Load saved config from AccountModule
                     let savedConfig: Record<string, unknown> = {}
                     if (isService) {
                         try {
@@ -583,22 +591,14 @@ export class WebUI extends BaseUI<WebContext> {
         }
     }
 
-    private async serializeCommandsForUser(manager: ManagerRecord) {
+    private async serializeCommandsForUser(_manager: ManagerRecord) {
         const cmds = this.dispatcher.toUICommands()
-        return Promise.all(cmds.map(async c => ({
+        return cmds.map(c => ({
             command: c.command,
             description: c.description,
             isService: this.dispatcher.isService(c.command),
-            args: await Promise.all((c.args ?? []).map(async a => ({
-                name: a.name,
-                type: a.position != null ? 'positional' : a.standalone ? 'standalone' : 'pair',
-                position: a.position,
-                required: a.required,
-                description: a.description,
-                defaultValue: a.defaultValue,
-                options: await exposeCmdArgumentOptions(c.command, a.pairOptions, this.dispatcher, manager) ?? null,
-            }))),
-        })))
+            args: flattenTree(c.options),
+        }))
     }
 
     private async resolveSession(sessionToken: string): Promise<ManagerRecord | null> {

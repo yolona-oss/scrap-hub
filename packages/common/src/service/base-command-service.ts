@@ -43,11 +43,12 @@ function joinFieldPath(slice: string, sub: string): string {
     return sub.length > 0 ? `${slice}.${sub}` : slice
 }
 
-/** Standalone-arg flags arrive as either `true` (when the arg parser
- *  emits a real boolean) or `''` (when the dispatcher records a flag's
- *  presence as an empty value). Treat both as set. */
+/** Standalone-arg flags arrive as `true` after the wire-side bool
+ *  coercion (`unflattenValue` resolves the `'true'` string the parser
+ *  stores) or as the literal string `'true'` when the leaf type stays
+ *  the default `'string'`. Both shapes count as set. */
 function isFlagSet(v: unknown): boolean {
-    return v === true || v === ''
+    return v === true || v === 'true'
 }
 
 /** Merge a global-args class with the user-supplied slice instance into

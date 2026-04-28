@@ -1,4 +1,4 @@
-# Docker compose for the cmd-hub telegram-ui-app + scraper-node example.
+# Docker compose for the cmd-hub ui-app + scraper-node example.
 #
 # Mongo and Ollama run on the host (default ports). Containers reach them
 # via host.docker.internal — on Linux this name resolves through the
@@ -10,11 +10,11 @@ services:
   cmd-hub:
     build:
       context: .
-      dockerfile: examples/telegram-ui-app/Dockerfile
+      dockerfile: examples/ui-app/Dockerfile
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./examples/telegram-ui-app/config.docker.json:/config/config.json:ro
+      - ./examples/ui-app/config.docker.json:/config/config.json:ro
     ports:
       - "50051:50051"
       - "8081:8081"

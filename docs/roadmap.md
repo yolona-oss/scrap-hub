@@ -40,7 +40,7 @@ These are commitments from the v1 design that must land in v2. v1 deliberately s
 
 - Code: `packages/core/src/dispatcher/hub-dispatcher.ts`
 
-**Rich dashboard renderer.** v1's example Telegram UI (`examples/telegram-ui-app/src/telegram-hub-ui.ts`) streams events as flat text. v2 reuses the `ServiceDashboard` still present in `packages/core/src/ui/command-processor/dashboard/` to render progress bars, intercom buttons, and in-place message edits.
+**Rich dashboard renderer.** v1's example Telegram UI (`plugins/ui/telegram/src/telegram-ui.ts`, mounted from `examples/ui-app`) streams events as flat text. v2 reuses the `ServiceDashboard` still present in `packages/core/src/ui/command-processor/dashboard/` to render progress bars, intercom buttons, and in-place message edits.
 
 ## Developer ergonomics
 

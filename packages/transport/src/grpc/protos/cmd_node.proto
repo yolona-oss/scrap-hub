@@ -201,7 +201,26 @@ message InvokeServer {
     Done done = 8;
     UiMessageEnvelope ui_message = 9;
     LiveLog live_log = 11;
+    // Per-leaf validation failure. Terminal: the node aborts the
+    // invocation and the hub re-prompts only the failed leaf via
+    // `CBParser.focusLeaf`. Distinct from `Done` so the dispatcher's
+    // pending-invokes map can re-seed parser state instead of treating
+    // the run as complete.
+    ValidationFailed validation_failed = 12;
   }
+}
+// Authoritative arg-validation failure from the node side. Triggered
+// when a leaf's `LeafValidator` returns false / a string. The hub uses
+// `arg_path` to focus the parser back onto that leaf so the user can
+// fix just that input without rebuilding the rest of the command.
+message ValidationFailed {
+  // Slash-delimited dot-path of the failed leaf (e.g. "config/limit").
+  string arg_path = 1;
+  // Human-readable failure reason; surfaced to the user verbatim.
+  string message = 2;
+  // The raw value the user sent that failed validation. Useful for
+  // pre-filling the input on re-prompt or for log forensics.
+  string raw_value = 3;
 }
 // Generic envelope for any UiMessage kind. `payload_json` carries the
 // kind-specific payload (everything except `kind` and `severity`); the hub

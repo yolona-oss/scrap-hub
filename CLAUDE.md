@@ -28,7 +28,7 @@ npm workspaces. Framework packages under `packages/`, distributed plugins under 
 
 | Path | Role |
 |---|---|
-| `examples/telegram-ui-app/` | Hub gateway: hosts UI plugins, talks to nodes over gRPC |
+| `examples/ui-app/` | Hub gateway with a swappable UI plugin (telegram / cli / web). Edit `src/ui/index.ts` to pick. |
 | `examples/scraper-node/` | cmd-node: registers `OrgScraperService`, sources (Google/Yandex/Avito/cheerio), exporters (CSV, Google Sheets) |
 
 ## Distributed Architecture
@@ -45,7 +45,7 @@ One **cmd-hub** gateway hosts UI plugins and dispatches commands. N **cmd-nodes*
 ```bash
 npm install                       # Install all workspaces
 npm run build                     # Build everything (tsc --build per package)
-npm run start:hub                 # Start the gateway (examples/telegram-ui-app)
+npm run start:hub                 # Start the gateway (examples/ui-app)
 npm run start:node                # Start a node (examples/scraper-node)
 npm run start:docker              # Compose stack
 ```
@@ -56,13 +56,17 @@ Tests live per-package: `cd packages/<name> && npx jest` (or `cd plugins/ui/<nam
 
 Packages reference each other by their npm names (`@cmd-hub/core`, `@cmd-hub/common`, etc.). **No `paths` aliases** — the old `@core/*`/`@utils/*`/`@logger` shims are gone.
 
-## Hub Bootstrap (`examples/telegram-ui-app/src/index.ts`)
+## Hub Bootstrap (`examples/ui-app/src/index.ts`)
+
+The active UI is selected by `src/ui/index.ts`, which re-exports a `uiFactory` from `./telegram`, `./cli`, or `./web`. Swap the import to swap the UI; everything else stays.
 
 ```typescript
+import { uiFactory } from './ui'
+
 const app = new CmdHubApp({ configPath: './config.json', baseSchema })
 app.use(new MongoStorageMiddleware())
 app.use(new GrpcServerMiddleware({ insecure: true }))
-app.useUI(new TelegramUI())
+app.useUI(uiFactory())
 await app.Initialize(); await app.run()
 ```
 
@@ -83,7 +87,7 @@ await app.Initialize(); await app.run()
 
 Each app has a `config.json` at its root. Schemas are zod-validated and merged from middleware/UI `ConfigContributor`s. Namespaces are flat (`storage.*`, `hub.*`, `invokeServer.*`, `scraper.*`, etc.).
 
-- `examples/telegram-ui-app/config.json` — Telegram bot token, MongoDB URI, gRPC bind, hub-CA paths
+- `examples/ui-app/config.json` — Telegram bot token, MongoDB URI, gRPC bind, hub-CA paths (only the slice for the active UI is consumed)
 - `examples/scraper-node/config.json` — Mongo URI, hub address+token+nodeId+cert fingerprint, scraper API keys
 
 Per-user / per-service runtime config is persisted via `MongoServiceStore` (account modules collection).
@@ -98,11 +102,22 @@ npx cmd-hub node-add <name>               # provision a node (issues token + fin
 npx cmd-hub node-list / node-approve / node-remove
 ```
 
+## Command argument model
+
+Commands declare arguments via `@CmdArgument` properties on a data class. The decorator desugars each property into a node of an `OptionsTree`:
+
+- a property whose `design:type` is a constructable class becomes a **branch**, walked recursively;
+- everything else becomes a **leaf** carrying `type` / `required` / `position` / `standalone` / `default` / `options[]` / `validator` / `displayHint`.
+
+The same tree feeds the hub-side builder UI, the wire (`treeToProto` in transport, `protoToTree` on the way back), and node-side `unflattenValue` (which reconstructs the typed nested object from the flat dot-path map). Wire keys are slash-delimited: services use slice prefixes (`config/aiAgent/model`, `params/sessionId`, `messages/...`); one-shots use bare paths.
+
+Static `options: string[]` is the only declarative way to constrain values — runtime resolvers can't ride the wire. Validators run **node-side** after `unflattenValue`; on failure the node emits a `ValidationFailed` envelope and the hub re-prompts only the failed leaf via `CBParser.focusLeaf`.
+
 ## Testing notes
 
 - Test mocks for ESM-only deps live under `packages/common/src/__mocks__/` (e.g. `chalk`).
 - `jest.config.js` in each package wires `moduleNameMapper` for those mocks.
-- 183 unit tests across common (37) + transport (27) + core (74) + node (45).
+- 322 unit tests across common (94) + transport (27) + core (94) + node (54) + storage-mongo (19) + scraper-node (34).
 
 ## Documentation
 

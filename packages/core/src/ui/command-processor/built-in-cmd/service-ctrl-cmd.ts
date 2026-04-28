@@ -2,7 +2,7 @@ import { CmdArgument } from "../../../ui/types/command"
 import { BuiltInServiceCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdDispatcher } from "../dispatcher"
-import { anyToString, branch, CmdArgumentProxy } from "@cmd-hub/common"
+import { anyToString, CmdArgumentProxy } from "@cmd-hub/common"
 import { UiUnicodeSymbols } from "../../../ui"
 
 class ServiceStopArgs {
@@ -57,10 +57,9 @@ const ServiceRunCommand: BuiltInCommand = {
                 await ctx.reply(`${UiUnicodeSymbols.error} No remote invoker attached.`)
                 return
             }
-            const emptyTree = branch({})
             const res = await invoker.invokeLegacy(
                 userId,
-                { command: serviceName, proxy: new CmdArgumentProxy(new Map(), emptyTree), raw: new Map() },
+                { command: serviceName, proxy: CmdArgumentProxy.empty(), raw: new Map() },
                 ctx,
                 uiImpl,
             )

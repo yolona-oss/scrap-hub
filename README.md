@@ -66,7 +66,7 @@ plugins/
   ui/web/          Web UI plugin.
 
 examples/
-  telegram-ui-app/  Deployable: cmd-hub gateway + Telegram UI plugin.
+  ui-app/           Deployable: cmd-hub gateway + swappable UI (telegram/cli/web).
   scraper-node/     Deployable: the org-scraper running as a cmd-node.
 
 docs/
@@ -80,7 +80,7 @@ See [`docs/deploy/README.md`](docs/deploy/README.md) for the full first-run sequ
 
 ```bash
 # Copy the .env templates and fill in your Telegram bot token.
-cp examples/telegram-ui-app/config/hub.env.example examples/telegram-ui-app/config/hub.env
+cp examples/ui-app/config/hub.env.example examples/ui-app/config/hub.env
 cp examples/scraper-node/config/node.env.example   examples/scraper-node/config/node.env
 
 # Build + bring up mongo + hub, provision a node, then bring everything up.

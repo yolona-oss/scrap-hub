@@ -39,7 +39,7 @@ class MyUI implements IHubUIPlugin {
 }
 ```
 
-See [`examples/telegram-ui-app`](../../examples/telegram-ui-app) for a complete UI plugin (Telegraf-backed).
+See [`examples/ui-app`](../../examples/ui-app) for a complete UI-plugin host (Telegraf, CLI, or Web — chosen by `src/ui/index.ts`).
 
 ## Gateway orchestration
 
@@ -59,7 +59,7 @@ import {
 } from '@cmd-hub/core'
 
 // mongoose.connect + connection management is the app's responsibility.
-// See examples/telegram-ui-app/src/index.ts for the canonical composition.
+// See examples/ui-app/src/index.ts for the canonical composition.
 ```
 
 ## Authentication

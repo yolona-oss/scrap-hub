@@ -111,6 +111,10 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
      *  The local registry's tree is immutable post-register, so the count
      *  never changes. Hot-path: `isAllArgsPassed` is called per `/command`. */
     private _localRequiredCount: Map<string, number> = new Map()
+    /** Memoized `protoToTree` results keyed by proto reference. The pool's
+     *  manifest holds proto buffers stably; repeated lookups for the same
+     *  remote command (e.g. CLI tab-complete) reuse the decoded tree. */
+    private _remoteTreeCache = new WeakMap<CmdHubProto.CommandOptionsTree, OptionsTree>()
 
     /** Initialised in done() — see neighbours map validation. */
     private sequenceHandler!: CommandSequenceHandler
@@ -176,9 +180,9 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         return this._repos
     }
 
-    /** Prefer `requireRepos()`. The nullable getter is for autocomplete /
-     *  pairOptions callbacks that run before boot validation and degrade
-     *  silently when repos aren't yet attached. */
+    /** Prefer `requireRepos()`. The nullable getter is for callers that
+     *  run before boot validation and want to degrade silently when
+     *  repos aren't yet attached. */
     get repos(): DispatcherRepos | null { return this._repos }
 
     /** Local commands only; remote commands flow through their own (future
@@ -568,6 +572,22 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             }
         }
         return undefined
+    }
+
+    /** Resolve `command` to its `OptionsTree`, regardless of whether it's
+     *  served locally (registry-cached tree) or remotely (proto-decoded
+     *  from the manifest, memoized per proto reference). Returns
+     *  `undefined` for unknown commands. */
+    getCommandTree(command: string): OptionsTree | undefined {
+        const local = this.cmd_registry.get(command)
+        if (local) return local.options
+        const remote = this.tryGetRemoteCommand(command)
+        if (!remote?.options) return undefined
+        const cached = this._remoteTreeCache.get(remote.options)
+        if (cached) return cached
+        const decoded = protoToTree(remote.options)
+        this._remoteTreeCache.set(remote.options, decoded)
+        return decoded
     }
 
     public getRegistredServiceNames(): string[] {

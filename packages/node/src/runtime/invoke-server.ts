@@ -3,6 +3,7 @@ import type { INodeUiMessageRegistry } from '@cmd-hub/common'
 import { CmdHubProto } from '@cmd-hub/transport'
 import { adaptService } from './event-adapter'
 import { dispatchIntercom } from './intercom-dispatch'
+import { ValidationFailedError } from './validate-args'
 
 /** RPC-level errors (duplicate InvokeStart, invoke handler crash, etc.)
  *  ride the same UiMessageEnvelope channel as service-emitted errors so
@@ -17,6 +18,17 @@ function rpcErrorEnvelope(seq: number, text: string): CmdHubProto.InvokeServer {
             severity: 'error',
             compatibilityId: 'cmd-hub.builtin.text',
             version: '1.0.0',
+        },
+    }
+}
+
+function validationFailedEnvelope(seq: number, err: ValidationFailedError): CmdHubProto.InvokeServer {
+    return {
+        seq,
+        validationFailed: {
+            argPath: err.argPath,
+            message: err.reason,
+            rawValue: err.rawValue,
         },
     }
 }
@@ -96,8 +108,9 @@ export function makeInvokeServerImpl(
             const writer = (msg: InvokeServer) => {
                 if (closed) return
                 try { call.write(msg) } catch { /* stream already dead */ }
-                // If this was a `done` message, end the stream once it's flushed.
-                if (msg.done !== undefined) {
+                // Both `done` and `validationFailed` are terminal — flush
+                // and close the stream so the hub doesn't keep waiting.
+                if (msg.done !== undefined || msg.validationFailed !== undefined) {
                     closeStream()
                 }
             }
@@ -112,7 +125,21 @@ export function makeInvokeServerImpl(
                                 return
                             }
                             started = true
-                            svc = await executor.createService(msg.start)
+                            try {
+                                svc = await executor.createService(msg.start)
+                            } catch (err) {
+                                // Distinguish authoritative arg-validation
+                                // failure from a generic createService crash:
+                                // the hub re-prompts the failed leaf instead
+                                // of treating the run as a hard error.
+                                if (err instanceof ValidationFailedError) {
+                                    writer(validationFailedEnvelope(0, err))
+                                } else {
+                                    writer(rpcErrorEnvelope(0, `service initialization failed: ${(err as Error).message}`))
+                                }
+                                closeStream()
+                                return
+                            }
                             stopAdapter = adaptService(svc, writer, nodeUiMessageRegistry)
                             if (typeof svc.Initialize === 'function') {
                                 try { await svc.Initialize() } catch (err) {

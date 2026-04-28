@@ -17,9 +17,8 @@ import {
     CmdNodeClientMiddleware,
     ConfigBootMiddleware,
     FederationCapsMiddleware,
-    ManagerControlPlugin,
 } from '@cmd-hub/core'
-import { TelegramUI } from '@cmd-hub/ui-telegram'
+import { uiFactory } from './ui'
 
 /**
  * App-specific config slice. Each middleware + UI contributes its own
@@ -45,7 +44,7 @@ async function bootstrap() {
             essential: [CAP_StorageConnection, CAP_ServiceStore],
         }))
         .use(new CmdNodeClientMiddleware())
-        .useUI(new TelegramUI().use(new ManagerControlPlugin()))
+        .useUI(uiFactory())
 
     await app.Initialize()
     await app.run()
@@ -53,6 +52,6 @@ async function bootstrap() {
 }
 
 bootstrap().catch((e) => {
-    console.error('[telegram-ui-app] fatal:', e)
+    console.error('[ui-app] fatal:', e)
     process.exit(1)
 })

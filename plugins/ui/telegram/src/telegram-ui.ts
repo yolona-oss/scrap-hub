@@ -144,11 +144,16 @@ export class TelegramUI extends BaseUI<TgContext> {
         }
         this.publisher = new CommandPublisher<TgContext>(
             this.dispatcher,
-            () => TelegramUI_BuiltIns.map(toRegister).map(r => ({
-                command: r.command.command,
-                description: r.command.description,
-                args: [],
-            })),
+            // Reuse the dispatcher's already-built per-command trees
+            // instead of rebuilding from each registration's `args` class.
+            () => TelegramUI_BuiltIns.map(toRegister).map(r => {
+                const entry = this.dispatcher.tryGetInvokable(r.command.command)
+                return {
+                    command: r.command.command,
+                    description: r.command.description,
+                    options: entry?.options ?? this.dispatcher.getCommandTree(r.command.command)!,
+                }
+            }),
             TELEGRAM_COMMAND_CONSTRAINTS,
         )
         // Plugins register their commands while the dispatcher is still mutable.

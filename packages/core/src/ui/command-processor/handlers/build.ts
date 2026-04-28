@@ -88,7 +88,29 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
                         messageType: 'system' as const,
                     }
                 }
-                return await invoker.invokeLegacy(userId, stepRes.Result, ctx, uiImpl)
+                const compiled = stepRes.Result
+                const invokeRes = await invoker.invokeLegacy(userId, compiled, ctx, uiImpl)
+                if (invokeRes.validationFailed) {
+                    // Re-prompt the failed leaf without losing the rest
+                    // of the user's input. The re-opened build is seeded
+                    // with everything they already committed; the parser
+                    // is parked on the failed leaf so the next TEXT
+                    // commits the corrected value.
+                    const desc = await descCompiler.compile(compiled.command, userId, dispatcher, ctx)
+                    const failedPath = invokeRes.validationFailed.argPath
+                        .split('/')
+                        .filter(s => s.length > 0)
+                    const markup = await builder.restartAtLeaf(
+                        userId, compiled.command, desc,
+                        compiled.raw, failedPath,
+                    )
+                    return {
+                        success: true,
+                        markup,
+                        messageType: 'builder' as const,
+                    }
+                }
+                return invokeRes
             }
 
             if (stepRes.Done) {

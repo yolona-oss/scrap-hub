@@ -1,7 +1,11 @@
 import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from "axios"
 import { log, retrier, SingleThrottler } from "@cmd-hub/common"
-import { DEFAULT_USER_AGENT, getScraperConfig, IScraperConfig } from "../scraper-config"
-import { SCRAPER_ACCEPT_LANGUAGE } from "../scraper-defaults"
+import {
+    DEFAULT_USER_AGENT,
+    getScraperSystemConfig,
+    SCRAPER_ACCEPT_LANGUAGE,
+    type ScraperSystemConfig,
+} from "../scraper-service/system-config"
 
 const DEFAULT_TIMEOUT_MS = 15_000
 const DEFAULT_RETRIES = 3
@@ -34,12 +38,12 @@ export interface HttpRequestOpts {
     signal?: AbortSignal
 }
 
-let _configMemo: { value: IScraperConfig; expiresAt: number } | null = null
+let _configMemo: { value: ScraperSystemConfig; expiresAt: number } | null = null
 
-async function getConfigMemo(): Promise<IScraperConfig> {
+async function getConfigMemo(): Promise<ScraperSystemConfig> {
     const now = Date.now()
     if (_configMemo && _configMemo.expiresAt > now) return _configMemo.value
-    const value = await getScraperConfig()
+    const value = await getScraperSystemConfig()
     _configMemo = { value, expiresAt: now + CONFIG_MEMO_TTL_MS }
     return value
 }

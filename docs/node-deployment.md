@@ -8,7 +8,7 @@ This guide is the operational counterpart to [`cli.md`](./cli.md) (CLI reference
 
 ```
               ┌────────────────────────────┐
-   user ───►  │ cmd-hub  (telegram-ui-app) │
+   user ───►  │ cmd-hub  (ui-app)          │
               │   :50051  gRPC server      │
               │   :8081   GridFS upload    │
               └─────────────┬──────────────┘
@@ -92,7 +92,7 @@ The token is **shown once** — Mongo keeps only the bcrypt hash. If you lose it
 
 ### Hub config
 
-`examples/telegram-ui-app/config.json` already references `mongodb://127.0.0.1:27017/cmd-hub`. The only Telegram-specific edits you need are `botToken`, `botName`, `primaryAdminId`, `adminUserIds`. No node-specific fields go on the hub side; the registry row written by `node-add` is what the hub reads.
+`examples/ui-app/config.json` already references `mongodb://127.0.0.1:27017/cmd-hub`. When the active UI is Telegram, the only Telegram-specific edits you need are `botToken`, `botName`, `primaryAdminId`, `adminUserIds`. No node-specific fields go on the hub side; the registry row written by `node-add` is what the hub reads.
 
 If your network blocks `api.telegram.org`, set `proxy.socks` (or `proxy.https`):
 
@@ -167,7 +167,7 @@ This section catalogs **what protects the deployment, what doesn't, and what's o
 
 ## ⚠️ What the **default example bootstrap** actually does
 
-The current `examples/telegram-ui-app/src/index.ts` and `examples/scraper-node/src/index.ts` are configured for **local development**. They turn off most of the protections above. Don't ship them as-is.
+The current `examples/ui-app/src/index.ts` and `examples/scraper-node/src/index.ts` are configured for **local development**. They turn off most of the protections above. Don't ship them as-is.
 
 ### 🔴 1. gRPC is plaintext
 

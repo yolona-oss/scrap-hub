@@ -2,10 +2,10 @@
 
 Two reference deployables that together exercise the full distributed stack:
 
-- **`telegram-ui-app/`** — a `cmd-hub` gateway running the Telegram UI plugin.
+- **`ui-app/`** — a `cmd-hub` gateway with a swappable UI plugin. `src/ui/index.ts` re-exports the active UI's factory from `./telegram` (Telegraf bot — production default), `./cli` (readline REPL), or `./web` (Express + socket.io). All three plugins ship installed; swap is a single-line edit.
 - **`scraper-node/`** — a `cmd-node` running the org-scraper (Google / Yandex / Avito / cheerio sources, Google Sheets export, AI agent).
 
-The Telegram UI dispatches a `/scraper` invocation over gRPC to the scraper-node, the node streams progress + results back into the Telegram dashboard, and the user can press the dashboard's **Export** button to push results to Google Sheets.
+The active UI dispatches a `/scraper` invocation over gRPC to the scraper-node, the node streams progress + results back into the UI's dashboard, and the user can press the dashboard's **Export** button to push results to Google Sheets.
 
 ## Prerequisites (host-side)
 
@@ -20,11 +20,11 @@ The Telegram UI dispatches a `/scraper` invocation over gRPC to the scraper-node
 ```bash
 npm install
 npm run build
-npm run start:hub      # starts cmd-hub + Telegram UI on 50051 + 8081
+npm run start:hub      # starts cmd-hub + the UI selected in src/ui/index.ts
 npm run start:node     # in another terminal — starts scraper-node on 50061
 ```
 
-Configs: `examples/telegram-ui-app/config.json`, `examples/scraper-node/config.json`.
+Configs: `examples/ui-app/config.json`, `examples/scraper-node/config.json`.
 Both use `127.0.0.1` to reach Mongo + Ollama.
 
 ### 2. Docker

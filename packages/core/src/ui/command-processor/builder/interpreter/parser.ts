@@ -16,43 +16,21 @@ import { CBLexerToken } from './lexer'
 import log from '../../../../application/logger'
 
 /**
- * Tree-native command builder parser.
+ * Tree-native command builder parser. State at any moment:
  *
- * The parser walks an `OptionsTree` (the singular descriptor produced by
- * the hub-side desc-compiler). State at any moment is:
+ *   - `path: string[]` — current branch position. `[]` is root.
+ *   - `pending: { leafPath } | null` — leaf awaiting a value (positional
+ *     or pair). `null` while idle / browsing branches / after a toggle.
+ *   - `values: Map<string,string>` — committed leaves keyed by full
+ *     slash-delimited path. Shipped verbatim as the proto `args` map,
+ *     slice prefixes (`config/`, `params/`, `messages/`) included.
  *
- *   - a `path: string[]` — current branch position. `[]` means the root
- *     branch is being browsed; `['config', 'aiAgent']` means the user
- *     drilled into that branch and is now picking among its children.
- *   - a `pending: { leafPath } | null` — a leaf the user clicked that
- *     awaits a value (positional or pair). `null` while idle, or while
- *     the user is browsing branches, or after a standalone toggle.
- *   - a `values: Map<string,string>` — committed leaves keyed by their
- *     full slash-delimited path. The dispatcher ships this verbatim as
- *     the proto `args` map, slice prefixes (`config/`, `params/`,
- *     `messages/`) included.
+ * Token interpretation (against the tree, one branch level at a time):
  *
- * The lexer emits the same TEXT/SINGLE_DASH/DOUBLE_DASH tokens it always
- * has; the parser interprets them against the tree rather than against
- * a flat descriptor list:
- *
- *   - DOUBLE_DASH `<name>` at any branch: descend into branch child or
- *     click on pair/positional leaf child. The leaf's properties decide
- *     the next step (free-form input, options-list, or immediate commit
- *     for a positional whose token is the value).
- *   - SINGLE_DASH `<name>`: toggle a `standalone:true` leaf at the
- *     current branch.
- *   - TEXT at root with no pending leaf: try to find a child by name and
- *     descend (this is how a non-mandatory single-shot like
- *     `interpreter.step('scraper')` resolves to the position-1 leaf —
- *     the parser auto-binds the first unfilled positional).
- *   - TEXT in a `pending` state: that's the value, commit it and clear
- *     pending.
- *
- * Hierarchical drill-down (formerly handled by `pairOptionsResolver`)
- * collapses to plain branch navigation. Clicking the "model" button
- * inside an `aiAgent` branch button is just `descend(['aiAgent','model'])`
- * — no special prefix, no resolver callback.
+ *   - DOUBLE_DASH `<name>` — descend into branch child or click leaf child.
+ *   - SINGLE_DASH `<name>` — toggle a `standalone:true` leaf at the branch.
+ *   - TEXT — descend into a child branch by name, commit a pending value,
+ *     or auto-bind to the next unfilled positional at root.
  */
 
 /** Discrete actions the parser emits per token. The interpreter base

@@ -25,6 +25,7 @@ import {
 import { CmdHubProto, treeToProto } from '@cmd-hub/transport'
 import { hardwareInfo } from '../manifest/hardware-info'
 import type { IExecutor, RunnableService } from '../runtime/invoke-server'
+import { runLeafValidators } from '../runtime/validate-args'
 import { CAP_NodeManifest, CAP_NodeExecutor } from '../capabilities'
 
 type NodeManifest = CmdHubProto.NodeManifest
@@ -317,6 +318,9 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
             async createService(start: InvokeStart): Promise<RunnableService> {
                 const fnSpec = functionCommands.get(start.commandName)
                 if (fnSpec) {
+                    if (fnSpec.argsClass) {
+                        runLeafValidators(buildTreeFromClass(fnSpec.argsClass), start.args)
+                    }
                     return makeOneShotService(fnSpec, start, app)
                 }
                 const cls = serviceClasses.get(start.commandName)
@@ -328,10 +332,19 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
                 // whole service tree (config.foo, params.bar, messages.baz).
                 // Split by slice prefix, then unflatten each slice's
                 // sub-map against its own tree to produce typed objects.
+                // Validate per slice BEFORE materializing the service so a
+                // bad value is caught before any constructor side effects.
+                const configTree = buildTreeFromClass(meta.config)
+                const paramsTree = buildTreeFromClass(meta.params)
+                const messagesTree = buildTreeFromClass(meta.messages)
+                runLeafValidators(configTree, start.args, 'config/')
+                runLeafValidators(paramsTree, start.args, 'params/')
+                runLeafValidators(messagesTree, start.args, 'messages/')
+
                 const sliced = sliceArgsByPrefix(start.args, ['config', 'params', 'messages'])
-                const config = unflattenValue(buildTreeFromClass(meta.config), sliced.config)
-                const params = unflattenValue(buildTreeFromClass(meta.params), sliced.params)
-                const messages = unflattenValue(buildTreeFromClass(meta.messages), sliced.messages)
+                const config = unflattenValue(configTree, sliced.config)
+                const params = unflattenValue(paramsTree, sliced.params)
+                const messages = unflattenValue(messagesTree, sliced.messages)
                 const input: ServiceConstructorInput = {
                     config, params, messages,
                     sessionId: start.sessionId,

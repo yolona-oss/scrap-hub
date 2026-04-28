@@ -1,6 +1,6 @@
 # `cmd-hub` CLI reference
 
-Operator-level command-line tool for managing a cmd-hub federation: CA setup, node provisioning, registry inspection. The CLI does **not** start the hub — that's app code (`examples/telegram-ui-app`).
+Operator-level command-line tool for managing a cmd-hub federation: CA setup, node provisioning, registry inspection. The CLI does **not** start the hub — that's app code (`examples/ui-app`).
 
 ## Invocation
 

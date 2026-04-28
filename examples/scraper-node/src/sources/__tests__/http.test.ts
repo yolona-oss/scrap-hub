@@ -1,21 +1,21 @@
 import axios from 'axios'
 
 jest.mock('axios')
-jest.mock('../../scraper-config', () => ({
+jest.mock('../../scraper-service/system-config', () => ({
     DEFAULT_USER_AGENT: 'test-ua',
-    getScraperConfig: jest.fn(async () => ({
+    SCRAPER_ACCEPT_LANGUAGE: 'ru-RU,ru;q=0.9',
+    getScraperSystemConfig: jest.fn(async () => ({
         chromePath: '',
         requestDelayMs: 0,
         userAgent: 'test-ua',
     })),
-    IScraperConfig: undefined,
 }))
 
 import { httpGet, httpHead, httpPostForm, isHttpError, clearHttpConfigMemo } from '../http'
-import { getScraperConfig } from '../../scraper-config'
+import { getScraperSystemConfig } from '../../scraper-service/system-config'
 
 const mockedAxios = axios as jest.Mocked<typeof axios>
-const mockedConfig = getScraperConfig as jest.MockedFunction<typeof getScraperConfig>
+const mockedConfig = getScraperSystemConfig as jest.MockedFunction<typeof getScraperSystemConfig>
 
 beforeEach(() => {
     jest.clearAllMocks()
@@ -129,7 +129,7 @@ describe('isHttpError', () => {
 })
 
 describe('clearHttpConfigMemo', () => {
-    it('forces a re-read of getScraperConfig on next request', async () => {
+    it('forces a re-read of getScraperSystemConfig on next request', async () => {
         mockedAxios.request.mockResolvedValue({ status: 200, data: '' } as any)
 
         await httpGet('https://example.com/a')

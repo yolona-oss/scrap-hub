@@ -280,7 +280,35 @@ export interface InvokeServer {
   file?: FileEmitted | undefined;
   done?: Done | undefined;
   uiMessage?: UiMessageEnvelope | undefined;
-  liveLog?: LiveLog | undefined;
+  liveLog?:
+    | LiveLog
+    | undefined;
+  /**
+   * Per-leaf validation failure. Terminal: the node aborts the
+   * invocation and the hub re-prompts only the failed leaf via
+   * `CBParser.focusLeaf`. Distinct from `Done` so the dispatcher's
+   * pending-invokes map can re-seed parser state instead of treating
+   * the run as complete.
+   */
+  validationFailed?: ValidationFailed | undefined;
+}
+
+/**
+ * Authoritative arg-validation failure from the node side. Triggered
+ * when a leaf's `LeafValidator` returns false / a string. The hub uses
+ * `arg_path` to focus the parser back onto that leaf so the user can
+ * fix just that input without rebuilding the rest of the command.
+ */
+export interface ValidationFailed {
+  /** Slash-delimited dot-path of the failed leaf (e.g. "config/limit"). */
+  argPath: string;
+  /** Human-readable failure reason; surfaced to the user verbatim. */
+  message: string;
+  /**
+   * The raw value the user sent that failed validation. Useful for
+   * pre-filling the input on re-prompt or for log forensics.
+   */
+  rawValue: string;
 }
 
 /**
@@ -3247,6 +3275,7 @@ function createBaseInvokeServer(): InvokeServer {
     done: undefined,
     uiMessage: undefined,
     liveLog: undefined,
+    validationFailed: undefined,
   };
 }
 
@@ -3275,6 +3304,9 @@ export const InvokeServer: MessageFns<InvokeServer> = {
     }
     if (message.liveLog !== undefined) {
       LiveLog.encode(message.liveLog, writer.uint32(90).fork()).join();
+    }
+    if (message.validationFailed !== undefined) {
+      ValidationFailed.encode(message.validationFailed, writer.uint32(98).fork()).join();
     }
     return writer;
   },
@@ -3350,6 +3382,14 @@ export const InvokeServer: MessageFns<InvokeServer> = {
           message.liveLog = LiveLog.decode(reader, reader.uint32());
           continue;
         }
+        case 12: {
+          if (tag !== 98) {
+            break;
+          }
+
+          message.validationFailed = ValidationFailed.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3381,6 +3421,11 @@ export const InvokeServer: MessageFns<InvokeServer> = {
         : isSet(object.live_log)
         ? LiveLog.fromJSON(object.live_log)
         : undefined,
+      validationFailed: isSet(object.validationFailed)
+        ? ValidationFailed.fromJSON(object.validationFailed)
+        : isSet(object.validation_failed)
+        ? ValidationFailed.fromJSON(object.validation_failed)
+        : undefined,
     };
   },
 
@@ -3410,6 +3455,9 @@ export const InvokeServer: MessageFns<InvokeServer> = {
     if (message.liveLog !== undefined) {
       obj.liveLog = LiveLog.toJSON(message.liveLog);
     }
+    if (message.validationFailed !== undefined) {
+      obj.validationFailed = ValidationFailed.toJSON(message.validationFailed);
+    }
     return obj;
   },
 
@@ -3438,6 +3486,109 @@ export const InvokeServer: MessageFns<InvokeServer> = {
     message.liveLog = (object.liveLog !== undefined && object.liveLog !== null)
       ? LiveLog.fromPartial(object.liveLog)
       : undefined;
+    message.validationFailed = (object.validationFailed !== undefined && object.validationFailed !== null)
+      ? ValidationFailed.fromPartial(object.validationFailed)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseValidationFailed(): ValidationFailed {
+  return { argPath: "", message: "", rawValue: "" };
+}
+
+export const ValidationFailed: MessageFns<ValidationFailed> = {
+  encode(message: ValidationFailed, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.argPath !== "") {
+      writer.uint32(10).string(message.argPath);
+    }
+    if (message.message !== "") {
+      writer.uint32(18).string(message.message);
+    }
+    if (message.rawValue !== "") {
+      writer.uint32(26).string(message.rawValue);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ValidationFailed {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseValidationFailed();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.argPath = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.message = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.rawValue = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ValidationFailed {
+    return {
+      argPath: isSet(object.argPath)
+        ? globalThis.String(object.argPath)
+        : isSet(object.arg_path)
+        ? globalThis.String(object.arg_path)
+        : "",
+      message: isSet(object.message) ? globalThis.String(object.message) : "",
+      rawValue: isSet(object.rawValue)
+        ? globalThis.String(object.rawValue)
+        : isSet(object.raw_value)
+        ? globalThis.String(object.raw_value)
+        : "",
+    };
+  },
+
+  toJSON(message: ValidationFailed): unknown {
+    const obj: any = {};
+    if (message.argPath !== "") {
+      obj.argPath = message.argPath;
+    }
+    if (message.message !== "") {
+      obj.message = message.message;
+    }
+    if (message.rawValue !== "") {
+      obj.rawValue = message.rawValue;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ValidationFailed>, I>>(base?: I): ValidationFailed {
+    return ValidationFailed.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ValidationFailed>, I>>(object: I): ValidationFailed {
+    const message = createBaseValidationFailed();
+    message.argPath = object.argPath ?? "";
+    message.message = object.message ?? "";
+    message.rawValue = object.rawValue ?? "";
     return message;
   },
 };

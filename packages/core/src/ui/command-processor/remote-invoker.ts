@@ -41,6 +41,10 @@ export interface RemoteInvokeResult {
     success: boolean
     markup: { text: string }
     messageType?: 'system' | 'builder' | 'dashboard' | 'result'
+    /** Set when the node terminated the run with a `validation_failed`
+     *  envelope. The dispatcher uses this to focus the parser back onto
+     *  the failed leaf instead of treating the run as a regular error. */
+    validationFailed?: { argPath: string; message: string; rawValue: string }
 }
 
 export interface DashboardSession {
@@ -158,7 +162,20 @@ export class RemoteCmdInvoker {
         let finalText = ''
         let errored = false
         let sawDone = false
+        let validationFailure: RemoteInvokeResult['validationFailed']
         for await (const e of handle.events()) {
+            // ValidationFailed is terminal AND distinct: surface to caller
+            // verbatim so the dispatcher can re-prompt the failed leaf.
+            // Don't route through the dashboard — the run never started.
+            if (e.validationFailed !== undefined) {
+                validationFailure = {
+                    argPath: e.validationFailed.argPath,
+                    message: e.validationFailed.message,
+                    rawValue: e.validationFailed.rawValue,
+                }
+                continue
+            }
+
             const dashEvent = protoToDashboardEvent(e)
             if (dashEvent) dashboard.onEvent(dashEvent)
 
@@ -201,6 +218,15 @@ export class RemoteCmdInvoker {
             try { await dashboard.detach() } catch { /* ignore */ }
         }
 
+        if (validationFailure) {
+            try { await dashboard.detach() } catch { /* ignore */ }
+            return {
+                success: false,
+                markup: { text: `${validationFailure.argPath}: ${validationFailure.message}` },
+                messageType: 'system',
+                validationFailed: validationFailure,
+            }
+        }
         if (errored) {
             return {
                 success: false,

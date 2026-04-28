@@ -16,6 +16,8 @@ import {
     BUILTIN_COMPAT_PREFIX,
     BUILTIN_VERSION,
     severityIconPrefix,
+    nodeAtPath,
+    type OptionsTree,
     type UiSeverity,
     type UiUiMessageKindPlugin,
 } from '@cmd-hub/common';
@@ -162,12 +164,9 @@ export class CLIUI extends BaseUI<CLIContext> {
             input: process.stdin,
             output: process.stdout,
             historySize: 100,
-            prompt: "[CLI] >",
-            completer: (line: string) => {
-                const matches = completions.filter((c) => c.startsWith(line));
-                return matches
-            }
-        });
+            prompt: '[CLI] >',
+            completer: (line: string): [string[], string] => this._complete(line, completions),
+        })
 
         log.info("Starting CLI...")
 
@@ -213,6 +212,69 @@ export class CLIUI extends BaseUI<CLIContext> {
         });
 
         this.isActive = true
+    }
+
+    /** Tree-aware completer. Three cases, in order:
+     *
+     *   1. Empty / single token: complete command names (plus any
+     *      plugin-supplied extras).
+     *   2. After `/cmd ... --branch --leaf` partials: walk the command's
+     *      `OptionsTree` along the `--name` tokens already on the line
+     *      and suggest the current branch's children (or a pending leaf's
+     *      `options[]`) prefixed with `--` / `-` to match the parser
+     *      grammar.
+     *   3. Anything else: fall back to global startsWith filter (covers
+     *      plugin-extended completions like file paths).
+     */
+    private _complete(line: string, completions: string[]): [string[], string] {
+        const parts = line.split(/\s+/)
+        if (parts.length <= 1) {
+            const matches = completions.filter(c => c.startsWith(line))
+            return [matches, line]
+        }
+        const command = parts[0]
+        const tail = parts[parts.length - 1]
+        const tree = this._treeForCommand(command)
+        if (!tree) {
+            return [completions.filter(c => c.startsWith(line)), line]
+        }
+        // Walk the tree by every `--`/`-` token already on the line.
+        // The walk lands either on a branch (suggest its children) or
+        // on a leaf (suggest its `options[]` as values).
+        const path: string[] = []
+        for (let i = 1; i < parts.length - 1; i++) {
+            const seg = parts[i].replace(/^--?/, '')
+            if (!seg) continue
+            const here = nodeAtPath(tree, path)
+            if (!here || here.node !== 'branch') break
+            const child = here.children.get(seg)
+            if (!child) continue
+            // Pair leaves consume the next token as a value, so skip it.
+            if (child.node === 'leaf' && !child.standalone && child.position === 0) {
+                i++
+                continue
+            }
+            if (child.node === 'branch') path.push(seg)
+        }
+        const here = nodeAtPath(tree, path)
+        if (!here) return [[], tail]
+        if (here.node === 'leaf') {
+            // Suggest options for the pending leaf's value.
+            const matches = here.options.filter(o => o.startsWith(tail))
+            return [matches, tail]
+        }
+        const suggestions: string[] = []
+        for (const [name, child] of here.children) {
+            const prefix = child.node === 'leaf' && child.standalone ? '-' : '--'
+            suggestions.push(`${prefix}${name}`)
+        }
+        const matches = suggestions.filter(s => s.startsWith(tail))
+        return [matches, tail]
+    }
+
+    private _treeForCommand(command: string): OptionsTree | undefined {
+        const stripped = command.startsWith('/') ? command.slice(1) : command
+        return this.dispatcher.getCommandTree(stripped)
     }
 
     async terminate() {

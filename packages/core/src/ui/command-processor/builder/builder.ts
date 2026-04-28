@@ -65,6 +65,34 @@ export class CommandBuilder {
         return BuilderMarkuper.intro(parser, savedData)
     }
 
+    /** Re-open a build with previously-committed values pre-seeded and
+     *  a specific leaf marked as the next prompt. Used by the
+     *  `validation_failed` re-prompt flow: after the node rejects a
+     *  leaf's value, the dispatcher reopens the same builder with the
+     *  rest of the user's input intact and the cursor parked on the
+     *  failed leaf. Returns the rendered markup the UI should present. */
+    async restartAtLeaf(
+        userId: string,
+        command: string,
+        desc: IUICommandDescriptor,
+        seededValues: ReadonlyMap<string, string>,
+        failedLeafPath: readonly string[],
+        mode?: InterpreterMode,
+        savedData?: Record<string, unknown>,
+    ): Promise<IBaseMarkup> {
+        // Drop any leftover build for this user (defensive — the previous
+        // execute() should have cleared it via `handle`'s `Done` branch,
+        // but a torn-down stream could leave one behind).
+        this.usersBuild.delete(userId)
+        const parser = new CBParser({ command, descriptor: desc })
+        parser.SavedData = savedData
+        parser.seedValues(seededValues)
+        parser.focusLeaf(failedLeafPath)
+        const interpreter = new CBInterpreter(parser, mode)
+        this.usersBuild.set(userId, interpreter)
+        return BuilderMarkuper.markup(parser, { text: { info: '' } })
+    }
+
     /** Non-mandatory compilation: try to compile a one-shot command's
      *  arguments from a single line of free-form input. Used by built-in
      *  commands so `/help foo` runs without entering interactive build. */

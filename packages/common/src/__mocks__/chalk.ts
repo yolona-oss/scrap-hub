@@ -1,19 +1,19 @@
-// Test-time chalk shim. The real package is ESM-only; in tests we don't care
-// about ANSI colors, so identity-style passthrough functions are enough.
+// Test-time chalk shim. The real package is ESM-only; in tests we don't
+// care about ANSI colors, so we expose a Proxy that pretends every chain
+// (e.g. `chalk.yellow.bold`) is an identity stylizer.
 
-type Stylizer = (...args: unknown[]) => string
+type Stylizer = ((...args: unknown[]) => string) & { [k: string]: Stylizer }
 
-const identity: Stylizer = (...args) => args.join(' ')
+function makeStylizer(): Stylizer {
+    const fn = ((...args: unknown[]) => args.join(' ')) as Stylizer
+    return new Proxy(fn, {
+        get: (target, prop) => {
+            if (typeof prop === 'string' && !(prop in target)) return makeStylizer()
+            return Reflect.get(target, prop)
+        },
+    })
+}
 
-const colorNames = [
-    'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
-    'gray', 'grey',
-    'blackBright', 'redBright', 'greenBright', 'yellowBright', 'blueBright',
-    'magentaBright', 'cyanBright', 'whiteBright',
-    'bold', 'dim', 'italic', 'underline', 'inverse', 'hidden', 'strikethrough',
-] as const
-
-const stub: Record<string, Stylizer> = { ...Object.fromEntries(colorNames.map(n => [n, identity])) }
-
+const stub = makeStylizer()
 export default stub
 export type ColorName = string

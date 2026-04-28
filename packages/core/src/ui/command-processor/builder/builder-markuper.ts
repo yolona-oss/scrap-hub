@@ -33,15 +33,7 @@ interface IBuilderMarkupOpts {
  *      treats as ascend).
  *
  *   3. **At root, no pending** — same as (2) at the tree root, with
- *      the default aux row (execute / cancel-build / change-context).
- *
- * Compared to the legacy markuper this file dropped:
- *   - the `PAIR_BRANCH_PREFIX` button-data convention (branch buttons
- *     now carry their plain name; the parser distinguishes by tree
- *     node type, not prefix)
- *   - the `pairOptionsResolver`-driven async menu render
- *   - context-switch buttons (`switchCtx`); contexts are top-level
- *     branches and are reached by ordinary descent.
+ *      the default aux row (execute / cancel-build).
  */
 export class BuilderMarkuper {
     private constructor() {}

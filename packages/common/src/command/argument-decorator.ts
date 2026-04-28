@@ -19,9 +19,8 @@ import {
  *   (type / required / position / standalone / default / options /
  *   validator / displayHint / description) populate the leaf.
  *
- * The `pairOptions` / `pairOptionsResolver` / `branched` API is gone —
- * a leaf carrying a static `options: string[]` is the only supported
- * way to constrain values declaratively.
+ * Leaves with a static `options: string[]` are the only declarative way
+ * to constrain values — runtime resolvers can't cross the wire.
  */
 
 export const COMMAND_ARG_DESC_KEY = makeMetaKey('CmdArgument')

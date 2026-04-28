@@ -1,4 +1,4 @@
-import { walkLeaves, type OptionsTree, PAIR_PATH_DELIMITER } from './tree'
+import { walkLeaves, branch, type OptionsTree, PAIR_PATH_DELIMITER } from './tree'
 
 /**
  * Read-only view over a parser's committed leaf values, indexed for the
@@ -24,6 +24,13 @@ import { walkLeaves, type OptionsTree, PAIR_PATH_DELIMITER } from './tree'
 export class CmdArgumentProxy {
     private readonly _byLastSegment: Map<string, string>
     private readonly _byFullPath: ReadonlyMap<string, string>
+
+    /** Construct a no-args proxy. Useful for invoking commands that
+     *  declare no arguments (the dispatcher needs *something* to pass
+     *  to the invokable). */
+    static empty(): CmdArgumentProxy {
+        return new CmdArgumentProxy(new Map(), branch({}))
+    }
 
     constructor(
         values: ReadonlyMap<string, string>,

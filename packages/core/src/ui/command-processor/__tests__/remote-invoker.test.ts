@@ -2,7 +2,7 @@ import { RemoteCmdInvoker } from '../remote-invoker'
 import { ManifestAggregator, type ICmdNodeClient } from '@cmd-hub/transport'
 import type { ISessionLogRepo, SessionLogEntry } from '@cmd-hub/common'
 
-function fakeManifest(nodeId: string, cmd: string) {
+function fakeManifest(nodeId: string, cmd: string): any {
     return {
         nodeId,
         nodeName: nodeId,
@@ -12,13 +12,14 @@ function fakeManifest(nodeId: string, cmd: string) {
             compatibilityId: `com.ex.${cmd}`,
             version: '1.0.0',
             description: '',
-            args: [],
             aliases: [],
+            requires: [],
         }],
         services: [],
         configs: [],
         hardware: {} as any,
         metrics: {} as any,
+        publishedCapabilities: [],
     }
 }
 
@@ -38,7 +39,7 @@ describe('RemoteCmdInvoker', () => {
                 sendIntercom: async () => {},
             } as any),
         })
-        const r = await invoker.invoke({ command: 'missing', args: {}, userId: 'u', uiHandle: null })
+        const r = await invoker.invoke({ command: 'missing', args: {}, userId: 'u', uiHandle: { ctx: {}, uiImpl: {} as any } })
         expect(r.success).toBe(false)
         expect(r.markup.text).toMatch(/no nodes available/)
     })
@@ -82,7 +83,7 @@ describe('RemoteCmdInvoker', () => {
             createDashboard: () => dashboard,
         })
 
-        const r = await invoker.invoke({ command: 'echo', args: {}, userId: 'u', uiHandle: null })
+        const r = await invoker.invoke({ command: 'echo', args: {}, userId: 'u', uiHandle: { ctx: {}, uiImpl: {} as any } })
         expect(r.success).toBe(true)
         expect(r.markup.text).toBe('bye')
         expect(dashEvents.map((e) => e.kind)).toEqual(['uiMessage', 'done'])
@@ -146,7 +147,7 @@ describe('RemoteCmdInvoker', () => {
             command: 'echo',
             args: { s: 'r1' },
             userId: 'u',
-            uiHandle: null,
+            uiHandle: { ctx: {}, uiImpl: {} as any },
         })
         expect(r.success).toBe(true)
         // Dashboard saw the two replayed entries first, then the live one,
@@ -159,5 +160,52 @@ describe('RemoteCmdInvoker', () => {
         expect(appended.length).toBe(1)
         expect(appended[0].seq).toBe(2)
         expect(appended[0].payload).toEqual({ text: 'live-1' })
+    })
+
+    it('surfaces validation_failed envelopes through validationFailed without dashboard error events', async () => {
+        const agg = new ManifestAggregator()
+        agg.attach(fakeManifest('A', 'doit'))
+
+        const dashEvents: any[] = []
+        const dashboard: any = {
+            attach: async () => {},
+            detach: async () => {},
+            onEvent: (e: any) => { dashEvents.push(e) },
+            sendIntercom: async () => {},
+        }
+
+        const client: ICmdNodeClient = {
+            invoke: async () => ({
+                sessionId: 's1',
+                send: async () => {},
+                cancel: async () => {},
+                async *events() {
+                    yield {
+                        seq: 1,
+                        validationFailed: {
+                            argPath: 'config/limit',
+                            message: 'must be a positive integer',
+                            rawValue: '-3',
+                        },
+                    } as any
+                },
+            }),
+        }
+
+        const invoker = new RemoteCmdInvoker({
+            aggregator: agg,
+            client,
+            createDashboard: () => dashboard,
+        })
+
+        const r = await invoker.invoke({ command: 'doit', args: { 'config/limit': '-3' }, userId: 'u', uiHandle: { ctx: {}, uiImpl: {} as any } })
+        expect(r.success).toBe(false)
+        expect(r.validationFailed).toEqual({
+            argPath: 'config/limit',
+            message: 'must be a positive integer',
+            rawValue: '-3',
+        })
+        // The dashboard never sees the validation event — it's terminal-without-run.
+        expect(dashEvents).toHaveLength(0)
     })
 })
