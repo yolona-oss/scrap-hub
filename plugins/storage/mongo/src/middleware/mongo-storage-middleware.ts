@@ -78,6 +78,10 @@ export class MongoStorageMiddleware implements IAppMiddleware, ConfigContributor
         app.provide(CAP_CmdAliasRepo, new MongoCmdAliasRepo())
         app.provide(CAP_PendingDeleteRepo, new MongoPendingDeleteRepo())
         app.provide(CAP_ServiceStore, new MongoServiceStore())
+        // FIXME(storage): MongoSessionLogRepo is currently an in-memory stub
+        // (see ../repos/session-log.repo.ts). Replay across hub restarts and
+        // multi-process deployments is broken until a persistent Mongo model
+        // lands. Track before any production release.
         app.provide(CAP_SessionLogRepo, new MongoSessionLogRepo())
     }
 

@@ -249,10 +249,11 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
 
     async buildManifest(): Promise<NodeManifest> {
         const commands: ProtoCommand[] = []
+        const serviceCommands: ProtoCommand[] = []
         for (const [, cls] of this._serviceClasses) {
             const meta = getCmdServiceMeta(cls)
             if (!meta) continue
-            commands.push({
+            const cmd: ProtoCommand = {
                 name: meta.name,
                 compatibilityId: meta.compatibilityId,
                 version: meta.version,
@@ -260,7 +261,9 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
                 options: treeToProto(buildServiceTree(cls)),
                 aliases: [],
                 requires: (meta.requires ?? []).map(k => k as string),
-            })
+            }
+            commands.push(cmd)
+            serviceCommands.push(cmd)
         }
         for (const [, spec] of this._functionCommands) {
             const tree: OptionsTree = spec.argsClass
@@ -281,7 +284,10 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
             nodeName: this.nodeName,
             version: this.nodeVersion,
             commands,
-            services: commands.map((c) => ({
+            // services[] carries ONLY @CmdService classes — function commands
+            // (one-shots) live in commands[] but not here. The hub uses this
+            // distinction to decide whether to always open the builder.
+            services: serviceCommands.map((c) => ({
                 command: c,
                 intercomActions: [],
                 caps: { supportsPause: false, supportsStop: true },

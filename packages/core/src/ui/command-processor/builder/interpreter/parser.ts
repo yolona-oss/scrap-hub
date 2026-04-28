@@ -370,13 +370,29 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
     /** Compile-time view: user-committed values overlaid with saved
      *  values for any leaf the user did not commit. Used by the
      *  interpreter's compile path so saved values fill gaps without
-     *  appearing as user input in the markup. */
+     *  appearing as user input in the markup.
+     *
+     *  Insertion order: user values FIRST so `CmdArgumentProxy._byLastSegment`
+     *  resolves bare names to user input on collision (Map preserves insertion
+     *  order, the proxy's last-segment index uses first-write-wins).
+     *
+     *  `params/now` is the hub-side "skip the builder" flag — it must never
+     *  ride the wire (the dispatcher already stripped the `-now` token
+     *  pre-build, but a builder-side toggle could still commit it). Drop
+     *  it here so neither the proxy nor the wire `args` map sees it. */
     effectiveValues(): Map<string, string> {
         const out = new Map<string, string>()
-        if (this._savedSources) {
-            for (const [k, entry] of this._savedSources) out.set(k, entry.value)
+        for (const [k, v] of this._values) {
+            if (k === 'params/now') continue
+            out.set(k, v)
         }
-        for (const [k, v] of this._values) out.set(k, v)
+        if (this._savedSources) {
+            for (const [k, entry] of this._savedSources) {
+                if (k === 'params/now') continue
+                if (out.has(k)) continue
+                out.set(k, entry.value)
+            }
+        }
         return out
     }
 
