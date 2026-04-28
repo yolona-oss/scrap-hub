@@ -1,7 +1,9 @@
 import { CommandPool, PoolJoinResult } from '../command-pool'
+import { branch } from '@cmd-hub/common'
 
 const cmd = (n: string, cid: string, v: string) => ({
-    name: n, compatibilityId: cid, version: v, description: '', args: [], aliases: [],
+    name: n, compatibilityId: cid, version: v, description: '',
+    options: branch({}), aliases: [],
 })
 
 describe('CommandPool', () => {

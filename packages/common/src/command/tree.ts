@@ -17,7 +17,11 @@
  *    fall back to "shape + leaf-type" defaults)
  */
 
-import { PAIR_PATH_DELIMITER } from './argument-option-types'
+/** Default delimiter for hierarchical paths, both in flatten/unflatten and
+ *  in dot-path completion (CLI). `/` is preferred over `.` because realistic
+ *  config values frequently contain dots (model names like `qwen2.5:7b`,
+ *  version strings, API URLs). */
+export const PAIR_PATH_DELIMITER = '/'
 
 export type LeafType = 'string' | 'number' | 'bool'
 

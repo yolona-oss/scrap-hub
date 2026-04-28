@@ -10,25 +10,25 @@ import {
     CommandRegistration,
     Phase,
     log,
-    buildCommandFromDecorator,
-    buildProtoArgsFromDataClass,
     getCmdServiceMeta,
     getCmdOneShotMeta,
     bindArgsForSpec,
     makeCmdOneShotContext,
-    CommandArgumentHolder,
+    buildTreeFromClass,
+    branch,
+    unflattenValue,
     CmdOneShotSpec,
     uiMessageKindCap,
-    type BranchedOptionsTree,
+    type OptionsTree,
+    type BranchSpec,
 } from '@cmd-hub/common'
-import { CmdHubProto } from '@cmd-hub/transport'
+import { CmdHubProto, treeToProto } from '@cmd-hub/transport'
 import { hardwareInfo } from '../manifest/hardware-info'
 import type { IExecutor, RunnableService } from '../runtime/invoke-server'
 import { CAP_NodeManifest, CAP_NodeExecutor } from '../capabilities'
 
 type NodeManifest = CmdHubProto.NodeManifest
 type ProtoCommand = CmdHubProto.Command
-type ProtoArgSpec = CmdHubProto.ArgSpec
 type InvokeStart = CmdHubProto.InvokeStart
 
 interface HubConfigFragment {
@@ -61,37 +61,49 @@ export interface CmdNodeAppOptions<Cfg>
     version?: string
 }
 
-/** Drop the `standalone` field so the result lines up with `CmdHubProto.ArgSpec`,
- *  and translate the in-memory `branchedOptions` tree into the proto's
- *  `BranchedOptions` recursive shape. */
-function toProtoArgs(args: ReadonlyArray<{
-    name: string
-    position: number
-    required: boolean
-    type: string
-    description: string
-    enumValues: string[]
-    defaultValue: string
-    branchedOptions?: BranchedOptionsTree
-}>): ProtoArgSpec[] {
-    return args.map((a) => ({
-        name: a.name,
-        position: a.position,
-        required: a.required,
-        type: a.type,
-        description: a.description,
-        enumValues: a.enumValues,
-        defaultValue: a.defaultValue,
-        branchedOptions: a.branchedOptions ? treeToProto(a.branchedOptions) : undefined,
-    }))
+/** Build the merged config+params+messages tree for a `@CmdService`-decorated
+ *  class. Each slice contributes a top-level branch (`config` / `params` /
+ *  `messages`); the global slice classes are merged in via the prototype-walk
+ *  done by `buildTreeFromClass` against an instance whose constructor is the
+ *  user's slice class. */
+/** Split a flat dot-path-keyed wire-args map by top-level slice prefix.
+ *  Keys not matching any prefix land in a `_unprefixed` bucket the caller
+ *  ignores. Used to feed `unflattenValue` per-slice with the right sub-map. */
+function sliceArgsByPrefix<P extends string>(
+    args: { [k: string]: string },
+    prefixes: readonly P[],
+): Record<P, Map<string, string>> {
+    const out = {} as Record<P, Map<string, string>>
+    for (const p of prefixes) out[p] = new Map<string, string>()
+    for (const [k, v] of Object.entries(args)) {
+        for (const p of prefixes) {
+            const head = `${p}/`
+            if (k.startsWith(head)) {
+                out[p].set(k.slice(head.length), v)
+                break
+            }
+            if (k === p) {
+                // root-leaf at the slice level — single-key entry
+                out[p].set('', v)
+                break
+            }
+        }
+    }
+    return out
 }
 
-function treeToProto(tree: BranchedOptionsTree): CmdHubProto.BranchedOptions {
-    const branches: { [key: string]: CmdHubProto.BranchedOptions } = {}
-    for (const [name, child] of Object.entries(tree.branches)) {
-        branches[name] = treeToProto(child)
+function buildServiceTree(cls: unknown): OptionsTree {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const meta = getCmdServiceMeta(cls as any)
+    if (!meta) {
+        throw new Error(`buildServiceTree: class is not decorated with @CmdService`)
     }
-    return { leaves: tree.leaves, branches }
+    const slices: Record<string, OptionsTree> = {
+        config: buildTreeFromClass(meta.config),
+        params: buildTreeFromClass(meta.params),
+        messages: buildTreeFromClass(meta.messages),
+    }
+    return branch(slices, { description: meta.description }) as BranchSpec
 }
 
 /** Wraps a `CmdOneShotSpec` as a `RunnableService` so the
@@ -237,28 +249,28 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
     async buildManifest(): Promise<NodeManifest> {
         const commands: ProtoCommand[] = []
         for (const [, cls] of this._serviceClasses) {
-            const cmd = await buildCommandFromDecorator(cls)
             const meta = getCmdServiceMeta(cls)
+            if (!meta) continue
             commands.push({
-                name: cmd.name,
-                compatibilityId: cmd.compatibilityId,
-                version: cmd.version,
-                description: cmd.description,
-                args: toProtoArgs(cmd.args),
-                aliases: cmd.aliases,
-                requires: (meta?.requires ?? []).map(k => k as string),
+                name: meta.name,
+                compatibilityId: meta.compatibilityId,
+                version: meta.version,
+                description: meta.description,
+                options: treeToProto(buildServiceTree(cls)),
+                aliases: [],
+                requires: (meta.requires ?? []).map(k => k as string),
             })
         }
         for (const [, spec] of this._functionCommands) {
-            const args = spec.argsClass
-                ? toProtoArgs(await buildProtoArgsFromDataClass(spec.argsClass, spec.name))
-                : []
+            const tree: OptionsTree = spec.argsClass
+                ? buildTreeFromClass(spec.argsClass)
+                : branch({})
             commands.push({
                 name: spec.name,
                 compatibilityId: spec.compatibilityId,
                 version: spec.version,
                 description: spec.description,
-                args,
+                options: treeToProto(tree),
                 aliases: [],
                 requires: (spec.requires ?? []).map(k => k as string),
             })
@@ -312,9 +324,14 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
                     throw new Error(`no service registered for command "${start.commandName}"`)
                 }
                 const meta = getCmdServiceMeta(cls)!
-                const config = CommandArgumentHolder.fromMap(meta.config, start.args)
-                const params = CommandArgumentHolder.fromMap(meta.params, start.args)
-                const messages = CommandArgumentHolder.fromMap(meta.messages, start.args)
+                // `start.args` is a flat dot-path-keyed map across the
+                // whole service tree (config.foo, params.bar, messages.baz).
+                // Split by slice prefix, then unflatten each slice's
+                // sub-map against its own tree to produce typed objects.
+                const sliced = sliceArgsByPrefix(start.args, ['config', 'params', 'messages'])
+                const config = unflattenValue(buildTreeFromClass(meta.config), sliced.config)
+                const params = unflattenValue(buildTreeFromClass(meta.params), sliced.params)
+                const messages = unflattenValue(buildTreeFromClass(meta.messages), sliced.messages)
                 const input: ServiceConstructorInput = {
                     config, params, messages,
                     sessionId: start.sessionId,

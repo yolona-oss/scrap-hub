@@ -11,7 +11,7 @@ import { CmdNodeApp } from '../cmd-node-app'
 const CAP_GREETER = defineCapability<string>('test.greeter')
 
 class GreetArgs {
-    @CmdArgument({ required: false, position: 1, description: 'name', defaultValue: 'world' })
+    @CmdArgument({ required: false, position: 1, description: 'name', default: 'world' })
     name?: string
 }
 
@@ -67,7 +67,11 @@ describe('CmdNodeApp + CmdOneShot function commands', () => {
         expect(greet.compatibilityId).toBe('com.example.greet')
         expect(greet.version).toBe('1.0.0')
         expect(greet.description).toBe('emit a greeting')
-        expect(greet.args.length).toBeGreaterThan(0)
+        // The new manifest carries one tree per command; for a one-shot
+        // with `argsClass`, the root is a branch with one child per arg.
+        expect(greet.options).toBeDefined()
+        expect(greet.options!.branch).toBeDefined()
+        expect(Object.keys(greet.options!.branch!.children)).toContain('name')
     })
 
     it('rejects duplicate command names across function commands and services', async () => {
@@ -96,7 +100,7 @@ describe('CmdNodeApp + CmdOneShot function commands', () => {
         let done = false
         await runViaExecutor(app, {
             commandName: 'greet',
-            args: { 'positional-1-name': 'Alice' },
+            args: { name: 'Alice' },
             userId: 'u-1',
             sessionId: 's-1',
         }, (kind, text) => {

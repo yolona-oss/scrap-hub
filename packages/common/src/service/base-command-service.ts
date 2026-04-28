@@ -18,18 +18,17 @@ import {
     GlobalServiceMessages,
     GlobalServiceParam,
     CmdServiceData,
-    toDescriptor
 } from "./service-data"
 
 import type { UiMessage } from "../ui-message/types"
 import {
     COMMAND_ARG_DESC_KEY,
-    CommandMetadata,
-    decodePositionalName,
-    isEncodedPositionalName,
+    buildTreeFromClass,
     defineDecoratorMeta,
     readDecoratorMeta,
 } from "../command"
+import type { OptionsTree, BranchSpec } from "../command/tree"
+import { branch } from "../command/tree"
 
 /** Keys under `sessionLayer.data` for the two parallel slices the
  *  layered model writes to: per-session config overlay and resumable
@@ -49,6 +48,24 @@ function joinFieldPath(slice: string, sub: string): string {
  *  presence as an empty value). Treat both as set. */
 function isFlagSet(v: unknown): boolean {
     return v === true || v === ''
+}
+
+/** Merge a global-args class with the user-supplied slice instance into
+ *  a single root branch. User-specific keys win on collision. The slice
+ *  is read off the instance's constructor so the prototype chain walk
+ *  in `buildTreeFromClass` includes its decorator-bag. */
+function mergeTrees(globalCls: new () => object, userInstance: object): BranchSpec {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const userCls: (new () => object) | undefined = (userInstance as any)?.constructor
+    const globalTree = buildTreeFromClass(globalCls)
+    const userTree = userCls ? buildTreeFromClass(userCls) : branch({})
+    if (globalTree.node !== 'branch' || userTree.node !== 'branch') {
+        throw new Error('mergeTrees: both classes must produce branch roots')
+    }
+    const merged: Record<string, OptionsTree> = {}
+    for (const [k, v] of globalTree.children) merged[k] = v
+    for (const [k, v] of userTree.children) merged[k] = v
+    return branch(merged) as BranchSpec
 }
 
 export interface IntercomAction {
@@ -81,20 +98,26 @@ export interface IBaseCmdService_EvMap extends EventMap {
     uiMessage: (msg: UiMessage) => void,
 }
 
+/** Shape-agnostic decorator-meta bag. The new `@CmdArgument` stores
+ *  per-property entries that describe leaf or branch nodes; `merge()`
+ *  doesn't care about the shape, it just unions the keys so the merged
+ *  instance still answers `buildTreeFromClass`. */
+type DecoratorMetaBag = Record<string, unknown>
+
 function merge<T extends Object>(dst: T, src: T): T {
     const merged = Object.create(Object.getPrototypeOf(dst));
 
     Object.assign(merged, dst, src);
 
-    const dst_meta = readDecoratorMeta<CommandMetadata>(COMMAND_ARG_DESC_KEY, dst);
+    const dst_meta = readDecoratorMeta<DecoratorMetaBag>(COMMAND_ARG_DESC_KEY, dst);
     if (dst_meta) {
         defineDecoratorMeta(COMMAND_ARG_DESC_KEY, merged, dst_meta);
     }
 
-    const src_meta = readDecoratorMeta<CommandMetadata>(COMMAND_ARG_DESC_KEY, src);
+    const src_meta = readDecoratorMeta<DecoratorMetaBag>(COMMAND_ARG_DESC_KEY, src);
     if (src_meta) {
-        const existingMetadata = readDecoratorMeta<CommandMetadata>(COMMAND_ARG_DESC_KEY, merged) ?? {};
-        defineDecoratorMeta(COMMAND_ARG_DESC_KEY, merged, { ...existingMetadata, ...src_meta });
+        const existing = readDecoratorMeta<DecoratorMetaBag>(COMMAND_ARG_DESC_KEY, merged) ?? {};
+        defineDecoratorMeta(COMMAND_ARG_DESC_KEY, merged, { ...existing, ...src_meta });
     }
 
     return merged;
@@ -227,25 +250,18 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
         return this._isRunning
     }
 
-    configDescriptor(): CommandMetadata {
-        return {
-            ...toDescriptor(new GlobalServiceConfig),
-            ...toDescriptor(this.data.config)
-        }
+    /** Tree of config arguments (global ⊕ service-specific). Branch
+     *  descendants in the service-specific class win on key collision. */
+    configTree(): OptionsTree {
+        return mergeTrees(GlobalServiceConfig, this.data.config)
     }
 
-    paramsDescriptor(): CommandMetadata {
-        return {
-            ...toDescriptor(new GlobalServiceParam),
-            ...toDescriptor(this.data.params)
-        }
+    paramsTree(): OptionsTree {
+        return mergeTrees(GlobalServiceParam, this.data.params)
     }
 
-    receiveMsgDescriptor(): CommandMetadata {
-        return {
-            ...toDescriptor(new GlobalServiceMessages),
-            ...toDescriptor(this.data.messages)
-        }
+    messagesTree(): OptionsTree {
+        return mergeTrees(GlobalServiceMessages, this.data.messages)
     }
 
     toString() {
@@ -315,28 +331,19 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
         // values), so the flag never lands in the merged effective config.
         const noCache = isFlagSet((inputData.params as Record<string, unknown> | undefined)?.['noCache'])
 
-        // Decode positional args (positional-1-query → query)
-        const decodedInputConfig: Record<string, unknown> = {}
-        if (inputData.config) {
-            const configBag = inputData.config as Record<string, unknown>
-            for (const key of Object.keys(configBag)) {
-                if (isEncodedPositionalName(key)) {
-                    const { name } = decodePositionalName(key)
-                    decodedInputConfig[name] = configBag[key]
-                } else {
-                    decodedInputConfig[key] = configBag[key]
-                }
-            }
-        }
-
-        const accountConfig = noCache ? {} : (accountLayerData.config ?? {}) as Record<string, unknown>
+        // Wire args arrive nested-keyed under the new tree-native API,
+        // so the input config is a typed object (or absent). No more
+        // positional-prefix decoding — the dispatcher unflattens at the
+        // wire boundary.
+        const inputConfig = (inputData.config ?? {}) as Record<string, unknown>
+        const accountConfig = noCache ? {} : ((accountLayerData.config ?? {}) as Record<string, unknown>)
         const sessionConfig = noCache ? {} : ((sessionLayerData.config ?? {}) as Record<string, unknown>)
 
         const aConfig = {
             ...defaultData.config,
             ...accountConfig,
             ...sessionConfig,
-            ...decodedInputConfig,
+            ...inputConfig,
         }
 
         const existingRuntimeState = (sessionLayerData.runtimeState ?? {}) as Record<string, unknown>

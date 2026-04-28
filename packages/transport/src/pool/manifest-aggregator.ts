@@ -1,8 +1,10 @@
-import { log, BaseCommandIdentity } from '@cmd-hub/common'
+import { log, BaseCommandIdentity, type OptionsTree } from '@cmd-hub/common'
 import { CommandPool } from './command-pool'
 
 export interface AggregatedCommand extends BaseCommandIdentity {
-    args: unknown[]
+    /** Single root tree describing the command's options. May be a leaf
+     *  (single-arg command) or a branch (multiple options). */
+    options: OptionsTree
     aliases: string[]
     requires?: readonly string[]
 }

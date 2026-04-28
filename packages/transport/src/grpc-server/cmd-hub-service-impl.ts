@@ -12,6 +12,7 @@ import type {
 } from '../grpc/generated/cmd_node'
 import type { CmdNodeRegistry } from '../registry/cmd-node-registry'
 import type { ManifestAggregator, AggregatedManifest } from '../pool/manifest-aggregator'
+import { protoToTree } from '../options-tree-codec'
 import type { FileService } from '../files/file-service'
 import type { MetricStore } from '../metrics/metric-store'
 
@@ -51,8 +52,9 @@ function toAggregated(m: NodeManifest): AggregatedManifest {
             compatibilityId: c.compatibilityId,
             version: c.version,
             description: c.description,
-            args: c.args,
+            options: protoToTree(c.options),
             aliases: c.aliases,
+            requires: c.requires,
         })),
         services: m.services,
         configs: m.configs.map((c) => ({ name: c.name, scope: c.scope, fields: c.fields })),

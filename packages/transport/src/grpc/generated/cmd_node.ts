@@ -107,7 +107,12 @@ export interface Command {
   compatibilityId: string;
   version: string;
   description: string;
-  args: ArgSpec[];
+  /**
+   * Single root tree describing every option this command accepts.
+   * The root may be a leaf (single-arg commands like `/log <sessionId>`)
+   * or a branch (commands with multiple options).
+   */
+  options?: CommandOptionsTree | undefined;
   aliases: string[];
   /**
    * Capability keys this command needs at run time. Populated from the
@@ -119,42 +124,40 @@ export interface Command {
   requires: string[];
 }
 
-export interface ArgSpec {
-  name: string;
-  position: number;
-  required: boolean;
+export interface CommandOptionsTree {
+  leaf?: LeafNode | undefined;
+  branch?: BranchNode | undefined;
+}
+
+export interface LeafNode {
+  /** 'string' | 'number' | 'bool' */
   type: string;
+  required: boolean;
+  /** 1-based positional index, or 0 for non-positional (pair / standalone). */
+  position: number;
+  standalone: boolean;
+  default: string;
+  /** Static option list. Empty means free-form input. */
+  options: string[];
   description: string;
-  /**
-   * Flat enum mirror of the root-level leaves. Kept for back-compat with
-   * consumers that don't speak `branched_options`. When `branched_options`
-   * is non-empty, prefer it.
-   */
-  enumValues: string[];
-  defaultValue: string;
-  /**
-   * Eager snapshot of a function-form `pairOptions` resolver, walked at
-   * manifest-build time. Empty for args with `pairOptions: string[]` or
-   * no `pairOptions`. The hub's builder rebuilds an offline resolver from
-   * this so users get the full menu without per-click RPCs.
-   */
-  branchedOptions?: BranchedOptions | undefined;
+  /** Author-supplied UI hint; UIs MAY ignore it. */
+  displayHint: string;
 }
 
-export interface BranchedOptions {
-  /** Terminal values at this path — clicking commits the value. */
-  leaves: string[];
+export interface BranchNode {
   /**
-   * Sub-trees keyed by branch label; clicking a branch drills deeper.
-   * proto3 map values must be messages (BranchedOptions itself is fine —
-   * recursion terminates when both `leaves` and `branches` are empty).
+   * Map of child name → child tree. Order is not guaranteed in proto3 maps;
+   * the hub-side desc-compiler doesn't rely on iteration order for
+   * correctness.
    */
-  branches: { [key: string]: BranchedOptions };
+  children: { [key: string]: CommandOptionsTree };
+  description: string;
+  displayHint: string;
 }
 
-export interface BranchedOptions_BranchesEntry {
+export interface BranchNode_ChildrenEntry {
   key: string;
-  value?: BranchedOptions | undefined;
+  value?: CommandOptionsTree | undefined;
 }
 
 export interface Service {
@@ -794,7 +797,7 @@ export const NodeManifest: MessageFns<NodeManifest> = {
 };
 
 function createBaseCommand(): Command {
-  return { name: "", compatibilityId: "", version: "", description: "", args: [], aliases: [], requires: [] };
+  return { name: "", compatibilityId: "", version: "", description: "", options: undefined, aliases: [], requires: [] };
 }
 
 export const Command: MessageFns<Command> = {
@@ -811,8 +814,8 @@ export const Command: MessageFns<Command> = {
     if (message.description !== "") {
       writer.uint32(34).string(message.description);
     }
-    for (const v of message.args) {
-      ArgSpec.encode(v!, writer.uint32(42).fork()).join();
+    if (message.options !== undefined) {
+      CommandOptionsTree.encode(message.options, writer.uint32(42).fork()).join();
     }
     for (const v of message.aliases) {
       writer.uint32(50).string(v!);
@@ -867,7 +870,7 @@ export const Command: MessageFns<Command> = {
             break;
           }
 
-          message.args.push(ArgSpec.decode(reader, reader.uint32()));
+          message.options = CommandOptionsTree.decode(reader, reader.uint32());
           continue;
         }
         case 6: {
@@ -905,7 +908,7 @@ export const Command: MessageFns<Command> = {
         : "",
       version: isSet(object.version) ? globalThis.String(object.version) : "",
       description: isSet(object.description) ? globalThis.String(object.description) : "",
-      args: globalThis.Array.isArray(object?.args) ? object.args.map((e: any) => ArgSpec.fromJSON(e)) : [],
+      options: isSet(object.options) ? CommandOptionsTree.fromJSON(object.options) : undefined,
       aliases: globalThis.Array.isArray(object?.aliases) ? object.aliases.map((e: any) => globalThis.String(e)) : [],
       requires: globalThis.Array.isArray(object?.requires) ? object.requires.map((e: any) => globalThis.String(e)) : [],
     };
@@ -925,8 +928,8 @@ export const Command: MessageFns<Command> = {
     if (message.description !== "") {
       obj.description = message.description;
     }
-    if (message.args?.length) {
-      obj.args = message.args.map((e) => ArgSpec.toJSON(e));
+    if (message.options !== undefined) {
+      obj.options = CommandOptionsTree.toJSON(message.options);
     }
     if (message.aliases?.length) {
       obj.aliases = message.aliases;
@@ -946,59 +949,34 @@ export const Command: MessageFns<Command> = {
     message.compatibilityId = object.compatibilityId ?? "";
     message.version = object.version ?? "";
     message.description = object.description ?? "";
-    message.args = object.args?.map((e) => ArgSpec.fromPartial(e)) || [];
+    message.options = (object.options !== undefined && object.options !== null)
+      ? CommandOptionsTree.fromPartial(object.options)
+      : undefined;
     message.aliases = object.aliases?.map((e) => e) || [];
     message.requires = object.requires?.map((e) => e) || [];
     return message;
   },
 };
 
-function createBaseArgSpec(): ArgSpec {
-  return {
-    name: "",
-    position: 0,
-    required: false,
-    type: "",
-    description: "",
-    enumValues: [],
-    defaultValue: "",
-    branchedOptions: undefined,
-  };
+function createBaseCommandOptionsTree(): CommandOptionsTree {
+  return { leaf: undefined, branch: undefined };
 }
 
-export const ArgSpec: MessageFns<ArgSpec> = {
-  encode(message: ArgSpec, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.name !== "") {
-      writer.uint32(10).string(message.name);
+export const CommandOptionsTree: MessageFns<CommandOptionsTree> = {
+  encode(message: CommandOptionsTree, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.leaf !== undefined) {
+      LeafNode.encode(message.leaf, writer.uint32(10).fork()).join();
     }
-    if (message.position !== 0) {
-      writer.uint32(16).uint32(message.position);
-    }
-    if (message.required !== false) {
-      writer.uint32(24).bool(message.required);
-    }
-    if (message.type !== "") {
-      writer.uint32(34).string(message.type);
-    }
-    if (message.description !== "") {
-      writer.uint32(42).string(message.description);
-    }
-    for (const v of message.enumValues) {
-      writer.uint32(50).string(v!);
-    }
-    if (message.defaultValue !== "") {
-      writer.uint32(58).string(message.defaultValue);
-    }
-    if (message.branchedOptions !== undefined) {
-      BranchedOptions.encode(message.branchedOptions, writer.uint32(66).fork()).join();
+    if (message.branch !== undefined) {
+      BranchNode.encode(message.branch, writer.uint32(18).fork()).join();
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): ArgSpec {
+  decode(input: BinaryReader | Uint8Array, length?: number): CommandOptionsTree {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseArgSpec();
+    const message = createBaseCommandOptionsTree();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1007,175 +985,7 @@ export const ArgSpec: MessageFns<ArgSpec> = {
             break;
           }
 
-          message.name = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 16) {
-            break;
-          }
-
-          message.position = reader.uint32();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.required = reader.bool();
-          continue;
-        }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.type = reader.string();
-          continue;
-        }
-        case 5: {
-          if (tag !== 42) {
-            break;
-          }
-
-          message.description = reader.string();
-          continue;
-        }
-        case 6: {
-          if (tag !== 50) {
-            break;
-          }
-
-          message.enumValues.push(reader.string());
-          continue;
-        }
-        case 7: {
-          if (tag !== 58) {
-            break;
-          }
-
-          message.defaultValue = reader.string();
-          continue;
-        }
-        case 8: {
-          if (tag !== 66) {
-            break;
-          }
-
-          message.branchedOptions = BranchedOptions.decode(reader, reader.uint32());
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): ArgSpec {
-    return {
-      name: isSet(object.name) ? globalThis.String(object.name) : "",
-      position: isSet(object.position) ? globalThis.Number(object.position) : 0,
-      required: isSet(object.required) ? globalThis.Boolean(object.required) : false,
-      type: isSet(object.type) ? globalThis.String(object.type) : "",
-      description: isSet(object.description) ? globalThis.String(object.description) : "",
-      enumValues: globalThis.Array.isArray(object?.enumValues)
-        ? object.enumValues.map((e: any) => globalThis.String(e))
-        : globalThis.Array.isArray(object?.enum_values)
-        ? object.enum_values.map((e: any) => globalThis.String(e))
-        : [],
-      defaultValue: isSet(object.defaultValue)
-        ? globalThis.String(object.defaultValue)
-        : isSet(object.default_value)
-        ? globalThis.String(object.default_value)
-        : "",
-      branchedOptions: isSet(object.branchedOptions)
-        ? BranchedOptions.fromJSON(object.branchedOptions)
-        : isSet(object.branched_options)
-        ? BranchedOptions.fromJSON(object.branched_options)
-        : undefined,
-    };
-  },
-
-  toJSON(message: ArgSpec): unknown {
-    const obj: any = {};
-    if (message.name !== "") {
-      obj.name = message.name;
-    }
-    if (message.position !== 0) {
-      obj.position = Math.round(message.position);
-    }
-    if (message.required !== false) {
-      obj.required = message.required;
-    }
-    if (message.type !== "") {
-      obj.type = message.type;
-    }
-    if (message.description !== "") {
-      obj.description = message.description;
-    }
-    if (message.enumValues?.length) {
-      obj.enumValues = message.enumValues;
-    }
-    if (message.defaultValue !== "") {
-      obj.defaultValue = message.defaultValue;
-    }
-    if (message.branchedOptions !== undefined) {
-      obj.branchedOptions = BranchedOptions.toJSON(message.branchedOptions);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<ArgSpec>, I>>(base?: I): ArgSpec {
-    return ArgSpec.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<ArgSpec>, I>>(object: I): ArgSpec {
-    const message = createBaseArgSpec();
-    message.name = object.name ?? "";
-    message.position = object.position ?? 0;
-    message.required = object.required ?? false;
-    message.type = object.type ?? "";
-    message.description = object.description ?? "";
-    message.enumValues = object.enumValues?.map((e) => e) || [];
-    message.defaultValue = object.defaultValue ?? "";
-    message.branchedOptions = (object.branchedOptions !== undefined && object.branchedOptions !== null)
-      ? BranchedOptions.fromPartial(object.branchedOptions)
-      : undefined;
-    return message;
-  },
-};
-
-function createBaseBranchedOptions(): BranchedOptions {
-  return { leaves: [], branches: {} };
-}
-
-export const BranchedOptions: MessageFns<BranchedOptions> = {
-  encode(message: BranchedOptions, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    for (const v of message.leaves) {
-      writer.uint32(10).string(v!);
-    }
-    globalThis.Object.entries(message.branches).forEach(([key, value]: [string, BranchedOptions]) => {
-      BranchedOptions_BranchesEntry.encode({ key: key as any, value }, writer.uint32(18).fork()).join();
-    });
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): BranchedOptions {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseBranchedOptions();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.leaves.push(reader.string());
+          message.leaf = LeafNode.decode(reader, reader.uint32());
           continue;
         }
         case 2: {
@@ -1183,10 +993,7 @@ export const BranchedOptions: MessageFns<BranchedOptions> = {
             break;
           }
 
-          const entry2 = BranchedOptions_BranchesEntry.decode(reader, reader.uint32());
-          if (entry2.value !== undefined) {
-            message.branches[entry2.key] = entry2.value;
-          }
+          message.branch = BranchNode.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -1198,76 +1005,362 @@ export const BranchedOptions: MessageFns<BranchedOptions> = {
     return message;
   },
 
-  fromJSON(object: any): BranchedOptions {
+  fromJSON(object: any): CommandOptionsTree {
     return {
-      leaves: globalThis.Array.isArray(object?.leaves) ? object.leaves.map((e: any) => globalThis.String(e)) : [],
-      branches: isObject(object.branches)
-        ? (globalThis.Object.entries(object.branches) as [string, any][]).reduce(
-          (acc: { [key: string]: BranchedOptions }, [key, value]: [string, any]) => {
-            acc[key] = BranchedOptions.fromJSON(value);
+      leaf: isSet(object.leaf) ? LeafNode.fromJSON(object.leaf) : undefined,
+      branch: isSet(object.branch) ? BranchNode.fromJSON(object.branch) : undefined,
+    };
+  },
+
+  toJSON(message: CommandOptionsTree): unknown {
+    const obj: any = {};
+    if (message.leaf !== undefined) {
+      obj.leaf = LeafNode.toJSON(message.leaf);
+    }
+    if (message.branch !== undefined) {
+      obj.branch = BranchNode.toJSON(message.branch);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<CommandOptionsTree>, I>>(base?: I): CommandOptionsTree {
+    return CommandOptionsTree.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CommandOptionsTree>, I>>(object: I): CommandOptionsTree {
+    const message = createBaseCommandOptionsTree();
+    message.leaf = (object.leaf !== undefined && object.leaf !== null) ? LeafNode.fromPartial(object.leaf) : undefined;
+    message.branch = (object.branch !== undefined && object.branch !== null)
+      ? BranchNode.fromPartial(object.branch)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseLeafNode(): LeafNode {
+  return {
+    type: "",
+    required: false,
+    position: 0,
+    standalone: false,
+    default: "",
+    options: [],
+    description: "",
+    displayHint: "",
+  };
+}
+
+export const LeafNode: MessageFns<LeafNode> = {
+  encode(message: LeafNode, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.type !== "") {
+      writer.uint32(10).string(message.type);
+    }
+    if (message.required !== false) {
+      writer.uint32(16).bool(message.required);
+    }
+    if (message.position !== 0) {
+      writer.uint32(24).uint32(message.position);
+    }
+    if (message.standalone !== false) {
+      writer.uint32(32).bool(message.standalone);
+    }
+    if (message.default !== "") {
+      writer.uint32(42).string(message.default);
+    }
+    for (const v of message.options) {
+      writer.uint32(50).string(v!);
+    }
+    if (message.description !== "") {
+      writer.uint32(58).string(message.description);
+    }
+    if (message.displayHint !== "") {
+      writer.uint32(66).string(message.displayHint);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): LeafNode {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseLeafNode();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.type = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.required = reader.bool();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.position = reader.uint32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.standalone = reader.bool();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.default = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.options.push(reader.string());
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.description = reader.string();
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.displayHint = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): LeafNode {
+    return {
+      type: isSet(object.type) ? globalThis.String(object.type) : "",
+      required: isSet(object.required) ? globalThis.Boolean(object.required) : false,
+      position: isSet(object.position) ? globalThis.Number(object.position) : 0,
+      standalone: isSet(object.standalone) ? globalThis.Boolean(object.standalone) : false,
+      default: isSet(object.default) ? globalThis.String(object.default) : "",
+      options: globalThis.Array.isArray(object?.options) ? object.options.map((e: any) => globalThis.String(e)) : [],
+      description: isSet(object.description) ? globalThis.String(object.description) : "",
+      displayHint: isSet(object.displayHint)
+        ? globalThis.String(object.displayHint)
+        : isSet(object.display_hint)
+        ? globalThis.String(object.display_hint)
+        : "",
+    };
+  },
+
+  toJSON(message: LeafNode): unknown {
+    const obj: any = {};
+    if (message.type !== "") {
+      obj.type = message.type;
+    }
+    if (message.required !== false) {
+      obj.required = message.required;
+    }
+    if (message.position !== 0) {
+      obj.position = Math.round(message.position);
+    }
+    if (message.standalone !== false) {
+      obj.standalone = message.standalone;
+    }
+    if (message.default !== "") {
+      obj.default = message.default;
+    }
+    if (message.options?.length) {
+      obj.options = message.options;
+    }
+    if (message.description !== "") {
+      obj.description = message.description;
+    }
+    if (message.displayHint !== "") {
+      obj.displayHint = message.displayHint;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<LeafNode>, I>>(base?: I): LeafNode {
+    return LeafNode.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<LeafNode>, I>>(object: I): LeafNode {
+    const message = createBaseLeafNode();
+    message.type = object.type ?? "";
+    message.required = object.required ?? false;
+    message.position = object.position ?? 0;
+    message.standalone = object.standalone ?? false;
+    message.default = object.default ?? "";
+    message.options = object.options?.map((e) => e) || [];
+    message.description = object.description ?? "";
+    message.displayHint = object.displayHint ?? "";
+    return message;
+  },
+};
+
+function createBaseBranchNode(): BranchNode {
+  return { children: {}, description: "", displayHint: "" };
+}
+
+export const BranchNode: MessageFns<BranchNode> = {
+  encode(message: BranchNode, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    globalThis.Object.entries(message.children).forEach(([key, value]: [string, CommandOptionsTree]) => {
+      BranchNode_ChildrenEntry.encode({ key: key as any, value }, writer.uint32(10).fork()).join();
+    });
+    if (message.description !== "") {
+      writer.uint32(18).string(message.description);
+    }
+    if (message.displayHint !== "") {
+      writer.uint32(26).string(message.displayHint);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BranchNode {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBranchNode();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          const entry1 = BranchNode_ChildrenEntry.decode(reader, reader.uint32());
+          if (entry1.value !== undefined) {
+            message.children[entry1.key] = entry1.value;
+          }
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.description = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.displayHint = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BranchNode {
+    return {
+      children: isObject(object.children)
+        ? (globalThis.Object.entries(object.children) as [string, any][]).reduce(
+          (acc: { [key: string]: CommandOptionsTree }, [key, value]: [string, any]) => {
+            acc[key] = CommandOptionsTree.fromJSON(value);
             return acc;
           },
           {},
         )
         : {},
+      description: isSet(object.description) ? globalThis.String(object.description) : "",
+      displayHint: isSet(object.displayHint)
+        ? globalThis.String(object.displayHint)
+        : isSet(object.display_hint)
+        ? globalThis.String(object.display_hint)
+        : "",
     };
   },
 
-  toJSON(message: BranchedOptions): unknown {
+  toJSON(message: BranchNode): unknown {
     const obj: any = {};
-    if (message.leaves?.length) {
-      obj.leaves = message.leaves;
-    }
-    if (message.branches) {
-      const entries = globalThis.Object.entries(message.branches) as [string, BranchedOptions][];
+    if (message.children) {
+      const entries = globalThis.Object.entries(message.children) as [string, CommandOptionsTree][];
       if (entries.length > 0) {
-        obj.branches = {};
+        obj.children = {};
         entries.forEach(([k, v]) => {
-          obj.branches[k] = BranchedOptions.toJSON(v);
+          obj.children[k] = CommandOptionsTree.toJSON(v);
         });
       }
+    }
+    if (message.description !== "") {
+      obj.description = message.description;
+    }
+    if (message.displayHint !== "") {
+      obj.displayHint = message.displayHint;
     }
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<BranchedOptions>, I>>(base?: I): BranchedOptions {
-    return BranchedOptions.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<BranchNode>, I>>(base?: I): BranchNode {
+    return BranchNode.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<BranchedOptions>, I>>(object: I): BranchedOptions {
-    const message = createBaseBranchedOptions();
-    message.leaves = object.leaves?.map((e) => e) || [];
-    message.branches = (globalThis.Object.entries(object.branches ?? {}) as [string, BranchedOptions][]).reduce(
-      (acc: { [key: string]: BranchedOptions }, [key, value]: [string, BranchedOptions]) => {
+  fromPartial<I extends Exact<DeepPartial<BranchNode>, I>>(object: I): BranchNode {
+    const message = createBaseBranchNode();
+    message.children = (globalThis.Object.entries(object.children ?? {}) as [string, CommandOptionsTree][]).reduce(
+      (acc: { [key: string]: CommandOptionsTree }, [key, value]: [string, CommandOptionsTree]) => {
         if (value !== undefined) {
-          acc[key] = BranchedOptions.fromPartial(value);
+          acc[key] = CommandOptionsTree.fromPartial(value);
         }
         return acc;
       },
       {},
     );
+    message.description = object.description ?? "";
+    message.displayHint = object.displayHint ?? "";
     return message;
   },
 };
 
-function createBaseBranchedOptions_BranchesEntry(): BranchedOptions_BranchesEntry {
+function createBaseBranchNode_ChildrenEntry(): BranchNode_ChildrenEntry {
   return { key: "", value: undefined };
 }
 
-export const BranchedOptions_BranchesEntry: MessageFns<BranchedOptions_BranchesEntry> = {
-  encode(message: BranchedOptions_BranchesEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const BranchNode_ChildrenEntry: MessageFns<BranchNode_ChildrenEntry> = {
+  encode(message: BranchNode_ChildrenEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.key !== "") {
       writer.uint32(10).string(message.key);
     }
     if (message.value !== undefined) {
-      BranchedOptions.encode(message.value, writer.uint32(18).fork()).join();
+      CommandOptionsTree.encode(message.value, writer.uint32(18).fork()).join();
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): BranchedOptions_BranchesEntry {
+  decode(input: BinaryReader | Uint8Array, length?: number): BranchNode_ChildrenEntry {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseBranchedOptions_BranchesEntry();
+    const message = createBaseBranchNode_ChildrenEntry();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1284,7 +1377,7 @@ export const BranchedOptions_BranchesEntry: MessageFns<BranchedOptions_BranchesE
             break;
           }
 
-          message.value = BranchedOptions.decode(reader, reader.uint32());
+          message.value = CommandOptionsTree.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -1296,34 +1389,32 @@ export const BranchedOptions_BranchesEntry: MessageFns<BranchedOptions_BranchesE
     return message;
   },
 
-  fromJSON(object: any): BranchedOptions_BranchesEntry {
+  fromJSON(object: any): BranchNode_ChildrenEntry {
     return {
       key: isSet(object.key) ? globalThis.String(object.key) : "",
-      value: isSet(object.value) ? BranchedOptions.fromJSON(object.value) : undefined,
+      value: isSet(object.value) ? CommandOptionsTree.fromJSON(object.value) : undefined,
     };
   },
 
-  toJSON(message: BranchedOptions_BranchesEntry): unknown {
+  toJSON(message: BranchNode_ChildrenEntry): unknown {
     const obj: any = {};
     if (message.key !== "") {
       obj.key = message.key;
     }
     if (message.value !== undefined) {
-      obj.value = BranchedOptions.toJSON(message.value);
+      obj.value = CommandOptionsTree.toJSON(message.value);
     }
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<BranchedOptions_BranchesEntry>, I>>(base?: I): BranchedOptions_BranchesEntry {
-    return BranchedOptions_BranchesEntry.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<BranchNode_ChildrenEntry>, I>>(base?: I): BranchNode_ChildrenEntry {
+    return BranchNode_ChildrenEntry.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<BranchedOptions_BranchesEntry>, I>>(
-    object: I,
-  ): BranchedOptions_BranchesEntry {
-    const message = createBaseBranchedOptions_BranchesEntry();
+  fromPartial<I extends Exact<DeepPartial<BranchNode_ChildrenEntry>, I>>(object: I): BranchNode_ChildrenEntry {
+    const message = createBaseBranchNode_ChildrenEntry();
     message.key = object.key ?? "";
     message.value = (object.value !== undefined && object.value !== null)
-      ? BranchedOptions.fromPartial(object.value)
+      ? CommandOptionsTree.fromPartial(object.value)
       : undefined;
     return message;
   },

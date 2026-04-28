@@ -178,10 +178,5 @@ function inferLeafType(reflected: unknown): LeafType | undefined {
     return undefined
 }
 
-/* -- legacy aliases (not deleted because internal callers still import) - */
-
-export type CommandMetadata = Record<string, DecoratorEntry>
-export type CommandArgumentKeyHolder = Record<string, unknown>
-
 /** Re-export the validator type so consumers don't have to dig into tree.ts. */
 export type { LeafValidator }

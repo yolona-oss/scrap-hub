@@ -1,13 +1,13 @@
 import type { CapabilityKey, ICapabilityRegistry } from '../application/capability'
 import type { CmdDataClass } from './service-decorator'
-import { CommandArgumentHolder } from './argument-holder'
-import { decodePositionalName, isEncodedPositionalName } from './positional'
 import {
     BaseCommandIdentityWithRequires,
     assertCommandIdentity,
     assertRequires,
 } from './identity'
 import { defineDecoratorMeta, readDecoratorMeta, makeMetaKey } from './metadata'
+import { buildTreeFromClass } from './argument-decorator'
+import { unflattenValue, type OptionsTree } from './tree'
 
 const META_KEY = makeMetaKey('CmdOneShot')
 
@@ -21,15 +21,13 @@ export interface CmdOneShotContext<TArgs = Record<string, string>> {
     emit(event: { kind: 'message'; text: string } | { kind: 'error'; text: string }): void
 }
 
-/** Node-side wire/exec callback for a one-shot. Distinct from the hub-side
- *  `ICmdOneShot<Ctx>` (in @cmd-hub/core) — that one runs against the UI
- *  dispatcher with `(args, ctx, uiImpl)`; this one runs on the node with a
- *  thin emit-based context. */
+/** Node-side wire/exec callback for a one-shot. */
 export type CmdOneShotInvokable<TArgs = Record<string, string>> =
     (ctx: CmdOneShotContext<TArgs>) => Promise<void>
 
 export interface CmdOneShotMeta extends BaseCommandIdentityWithRequires {
-    /** Zero-arg `@CmdArgument`-decorated data class. */
+    /** `@CmdArgument`-decorated data class. Optional: a one-shot with no
+     *  arguments at all simply omits this. */
     argsClass?: CmdDataClass
 }
 
@@ -57,8 +55,6 @@ function makeSpec<TArgs>(
     }
 }
 
-/** Dual-form: call with `{...meta, invokable}` for an inline spec, or with
- *  `meta` only as a class decorator (class must expose `static invokable`). */
 export function CmdOneShot<TArgs>(
     spec: CmdOneShotMeta & { invokable: CmdOneShotInvokable<TArgs> },
 ): CmdOneShotSpec<TArgs>
@@ -88,8 +84,6 @@ export function CmdOneShot<TArgs>(
     }
 }
 
-/** Reads CmdOneShot meta from a decorated class, an inline-factory spec, or
- *  a stamped invokable. Returns null otherwise. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function getCmdOneShotMeta(target: any): CmdOneShotSpec | null {
     if (target == null) return null
@@ -106,34 +100,21 @@ export function getCmdOneShotMeta(target: any): CmdOneShotSpec | null {
     return readDecoratorMeta<CmdOneShotSpec>(META_KEY, target)
 }
 
-/** Decode wire-format args, collapsing `positional-N-name` → `name`. */
-export function decodeArgsMap(args: Record<string, string>): Record<string, string> {
-    const out: Record<string, string> = {}
-    for (const key of Object.keys(args)) {
-        if (isEncodedPositionalName(key)) {
-            const { name } = decodePositionalName(key)
-            out[name] = args[key]
-        } else {
-            out[key] = args[key]
-        }
-    }
-    return out
-}
-
-/** Bind raw args to a populated `argsClass` instance, or return the decoded
- *  raw map when `argsClass` is undefined. */
+/** Bind a flat dot-path-keyed wire-args map to a typed nested object,
+ *  using the spec's `argsClass` (if any) as the schema. Falls back to
+ *  the raw map when the spec declares no `argsClass`. */
 export function bindArgsForSpec<TArgs>(
     spec: CmdOneShotSpec<TArgs>,
     rawArgs: Record<string, string>,
 ): TArgs {
-    const decoded = decodeArgsMap(rawArgs)
-    if (spec.argsClass) {
-        return CommandArgumentHolder.fromMap(spec.argsClass, decoded) as unknown as TArgs
+    if (!spec.argsClass) {
+        return rawArgs as unknown as TArgs
     }
-    return decoded as unknown as TArgs
+    const tree: OptionsTree = buildTreeFromClass(spec.argsClass)
+    const flat = new Map(Object.entries(rawArgs))
+    return unflattenValue(tree, flat) as TArgs
 }
 
-/** Build a synthetic ctx for a one-shot command. */
 export function makeCmdOneShotContext<TArgs>(opts: {
     args: TArgs
     userId: string
