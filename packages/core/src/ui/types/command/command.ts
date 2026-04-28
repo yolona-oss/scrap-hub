@@ -1,7 +1,11 @@
-import { WithNeighbors } from "@cmd-hub/common"
-import { ICmdArgumentDefinition, IArgumentDescriptor, IArgumentCompiled, CmdArgumentMetadataRaw } from "./argument"
+import { WithNeighbors, type OptionsTree, CmdArgumentProxy } from "@cmd-hub/common"
 import { BaseCommandService } from './service'
 import { BaseUIContext, IUI } from "../../../ui"
+
+/** Constructable data class decorated with `@CmdArgument` properties.
+ *  Built-ins reference one of these on `CommandSklet.args` so the
+ *  desc-compiler can synthesize an `OptionsTree` via `buildTreeFromClass`. */
+export type CmdArgsClass = new () => object
 
 /** Hub UI routing metadata. Intentionally NOT extending
  *  `BaseCommandIdentity` from `@cmd-hub/common` — built-ins don't carry
@@ -11,36 +15,38 @@ import { BaseUIContext, IUI } from "../../../ui"
 interface CommandSklet extends Partial<WithNeighbors> {
     readonly command: string
     readonly description: string
-    args?: ICmdArgumentDefinition
+    args?: CmdArgsClass
 }
 
 /** @description Describes the UI bound command base definition */
 export type IUICommand = CommandSklet
 
-/** @description IUICommand with arguments read metadata */
+/** @description IUICommand with the parsed options tree attached. The
+ *  tree is the canonical source of truth for what arguments the command
+ *  accepts; UIs render it directly. */
 export interface IUICommandProcessed extends IUICommand {
-    readonly args: (CmdArgumentMetadataRaw & {name: string})[]
+    readonly options: OptionsTree
 }
-
-import { CmdArgumentProxy } from "../../../ui/command-processor/arg-proxy"
 
 export interface ICommandCompiled {
     readonly command: string
     readonly proxy: CmdArgumentProxy
-    readonly raw: IArgumentCompiled[]
+    /** Flat slash-delimited dot-path → string-value map. The dispatcher
+     *  ships this verbatim as the proto `args` map. */
+    readonly raw: ReadonlyMap<string, string>
 }
 
-/** Single-line summary of a compiled command's effective arguments — every
- *  declared argument with the value the dispatcher will actually pass to the
- *  invokable, including empties for unset/default args. Used at the
- *  build-and-interpret → execute boundary so an operator can see exactly
- *  what got applied. */
+/** Single-line summary of a compiled command's effective arguments —
+ *  every committed leaf with the value the dispatcher will actually pass
+ *  to the invokable. Used at the build-and-interpret → execute boundary
+ *  so an operator can see exactly what got applied. */
 export function formatEffectiveArgs(compiled: ICommandCompiled): string {
-    if (compiled.raw.length === 0) return `/${compiled.command} (no args)`
-    const parts = compiled.raw.map(a => {
-        const v = a.value === '' || a.value == null ? '∅' : a.value
-        return `${a.name}=${v}`
-    })
+    if (compiled.raw.size === 0) return `/${compiled.command} (no args)`
+    const parts: string[] = []
+    for (const [path, value] of compiled.raw) {
+        const v = value === '' || value == null ? '∅' : value
+        parts.push(`${path}=${v}`)
+    }
     return `/${compiled.command} ${parts.join(' ')}`
 }
 
@@ -70,7 +76,11 @@ export interface IUI_InvokableCommand<Ctx extends BaseUIContext> extends IUIComm
     readonly invokable: IvokeableType<Ctx>
 }
 
-/** @description Describes the UI commands mapping to parse from */
+/** @description Describes the option tree the parser walks for one
+ *  command. The root is whatever the desc-compiler synthesized: a
+ *  branch with `config` / `params` / `messages` children for services,
+ *  the args-class tree for one-shots and built-ins, or a single leaf
+ *  for argless commands. */
 export interface IUICommandDescriptor {
-    args: IArgumentDescriptor[]
+    options: OptionsTree
 }

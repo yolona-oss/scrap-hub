@@ -1,762 +1,449 @@
-import { deepClone } from "@cmd-hub/common"
-import { IArgumentCompiled, IUICommandDescriptor } from '../../../../ui/types'
-import { CmdArgumentContextType, IArgumentDescriptor } from "../../../../ui/types/command";
-import { decodePositionalName, isEncodedPositionalName, PAIR_PATH_DELIMITER, PAIR_BRANCH_PREFIX } from "../../../../ui/types/command";
-import { StateSnaper } from "./state-span";
-import { CBLexerToken } from "./lexer";
-
-import log from "../../../../application/logger";
-import { Chain, createChainFallbackHandler, chainHandlerFactory, IChainHandler } from "@cmd-hub/common";
-import { removeObjectByFieldsMutate } from "@cmd-hub/common";
-import { getArgumentDescType, isArgumentDescPair, isArgumentDescPositional, isArgumentDescStandalone, compileArgumentFromDesc } from "../../../../ui/types/command/argument/descriptor-helpers";
-
-/**
- * @see ParserStateType to get more info
- */
-export type ParserStateType =
-  'PAIR'        // --pair_option
-| 'STAND_ALONE' // -o or -option_without_pair
-| 'POSITIONAL'  // simple text
-| 'ARG_CTX_SEL' // context name from avaliable
-| 'PAIR_VALUE'  // value for PAIR
-| 'IDLE'        // idle state, waits for pair, standalone, positional or ctx
-| 'WAIT_NEXT_V' // waiting for next value
-
-const stateTransiteMap: Record<ParserStateType, ParserStateType[]> = {
-    'IDLE': ['ARG_CTX_SEL', 'STAND_ALONE', 'POSITIONAL', 'PAIR', 'PAIR_VALUE', 'WAIT_NEXT_V', 'IDLE'],
-    'ARG_CTX_SEL': ['IDLE'],
-    'PAIR_VALUE': ['IDLE'],
-    'STAND_ALONE': ['IDLE'],
-    'POSITIONAL': ['IDLE'],
-    'PAIR': ['PAIR_VALUE'],
-    'WAIT_NEXT_V': ['IDLE', 'STAND_ALONE', 'POSITIONAL', 'PAIR']
-}
+import {
+    Chain,
+    chainHandlerFactory,
+    createChainFallbackHandler,
+    nodeAtPath,
+    walkLeaves,
+    PAIR_PATH_DELIMITER,
+    type IChainHandler,
+    type LeafSpec,
+    type BranchSpec,
+    type OptionsTree,
+} from '@cmd-hub/common'
+import { IUICommandDescriptor } from '../../../../ui/types'
+import { StateSnaper, type StateSnap } from './state-span'
+import { CBLexerToken } from './lexer'
+import log from '../../../../application/logger'
 
 /**
- * @see ParserPerformedAction
+ * Tree-native command builder parser.
+ *
+ * The parser walks an `OptionsTree` (the singular descriptor produced by
+ * the hub-side desc-compiler). State at any moment is:
+ *
+ *   - a `path: string[]` — current branch position. `[]` means the root
+ *     branch is being browsed; `['config', 'aiAgent']` means the user
+ *     drilled into that branch and is now picking among its children.
+ *   - a `pending: { leafPath } | null` — a leaf the user clicked that
+ *     awaits a value (positional or pair). `null` while idle, or while
+ *     the user is browsing branches, or after a standalone toggle.
+ *   - a `values: Map<string,string>` — committed leaves keyed by their
+ *     full slash-delimited path. The dispatcher ships this verbatim as
+ *     the proto `args` map, slice prefixes (`config/`, `params/`,
+ *     `messages/`) included.
+ *
+ * The lexer emits the same TEXT/SINGLE_DASH/DOUBLE_DASH tokens it always
+ * has; the parser interprets them against the tree rather than against
+ * a flat descriptor list:
+ *
+ *   - DOUBLE_DASH `<name>` at any branch: descend into branch child or
+ *     click on pair/positional leaf child. The leaf's properties decide
+ *     the next step (free-form input, options-list, or immediate commit
+ *     for a positional whose token is the value).
+ *   - SINGLE_DASH `<name>`: toggle a `standalone:true` leaf at the
+ *     current branch.
+ *   - TEXT at root with no pending leaf: try to find a child by name and
+ *     descend (this is how a non-mandatory single-shot like
+ *     `interpreter.step('scraper')` resolves to the position-1 leaf —
+ *     the parser auto-binds the first unfilled positional).
+ *   - TEXT in a `pending` state: that's the value, commit it and clear
+ *     pending.
+ *
+ * Hierarchical drill-down (formerly handled by `pairOptionsResolver`)
+ * collapses to plain branch navigation. Clicking the "model" button
+ * inside an `aiAgent` branch button is just `descend(['aiAgent','model'])`
+ * — no special prefix, no resolver callback.
  */
+
+/** Discrete actions the parser emits per token. The interpreter base
+ *  layer maps these to user-visible status messages and to the
+ *  `done`/`compiled` resolution.
+ *
+ *  Vocabulary is intentionally small; legacy strings (`set-pair-name`,
+ *  `ctx-switch`, `wait-next-inited`, etc.) are gone — the new model
+ *  doesn't need them. */
 export type ParserPerformedAction =
-'none' // no action
+    | 'none'
+    /** User stepped into a branch (descend) or up out of one (ascend).
+     *  `pair-descend` is preserved as the spelling because the
+     *  interpreter's "no-op markup refresh" reaction is identical. */
+    | 'pair-descend'
+    /** User clicked a leaf that needs a value; parser is now in
+     *  `pending` and awaits the next TEXT token. */
+    | 'await-value'
+    /** A leaf value was committed (positional or pair). */
+    | 'commit-leaf'
+    /** A standalone leaf toggled on. */
+    | 'toggle-on'
+    /** A standalone leaf toggled off. */
+    | 'toggle-off'
 
-| 'set-pair'       // set pair name and value
-| 'set-pair-name'  // set only pair name
-| 'set-pair-value' // set only pair value after pair name setted
-| 'set-standalone'   // set standalone option
-| 'unset-standalone' // unset standalone option (toggle off)
-| 'set-positional' // set positional argument
-
-| 'ctx-switch'    // reading context switched to new
-| 'ctx-selection' // state switched to context selection
-
-| 'removed-pair'       // pair was removed
-| 'removed-standalone' // standalone was removed
-| 'removed-positional' // positional was removed
-
-| 'wait-next-inited'   // waiting for next value setted
-
-| 'pair-descend'       // user drilled into a hierarchical pair-options branch
-
-| 'value-validation-failed' // value validation failed
+export type Pending = { readonly leafPath: readonly string[] } | null
 
 export interface ICBParserStateRaw {
+    readonly command: string
+    readonly tree: OptionsTree
+    readonly path: readonly string[]
+    readonly pending: Pending
+    /** Snapshot copy of committed values (slash-delimited path → string). */
+    readonly values: ReadonlyMap<string, string>
+}
+
+export interface PChainReq {
+    readonly tkn: CBLexerToken
+}
+
+export interface CBParserConfig {
     command: string
-    avaliableCtxs: CmdArgumentContextType[]
     descriptor: IUICommandDescriptor
-    currentCtx: CmdArgumentContextType
-    state: ParserStateType
-    arguments: IArgumentCompiled[]
 }
 
-export type PChainReq = {
-    tkn: CBLexerToken
-    desc?: IArgumentDescriptor
-}
-
-export type PChainReqValidated = {
-    tkn: Required<CBLexerToken>
-    desc: IArgumentDescriptor
-}
-
-interface CBParserConfig {
-    command: string,
-    avaliableArgCtxs: CmdArgumentContextType[],
-    descriptor: IUICommandDescriptor,
-    switchArgCtxKeyword: string,
-    initialArgCtx?: CmdArgumentContextType
-}
-
-export class CBParser<PChainResGType extends ParserPerformedAction|string = ParserPerformedAction> {
-    private readonly command!: string
-    private readonly switchArgCtxKeyword!: string
-    private readonly avaliableArgCtxs!: CmdArgumentContextType[]
-    private currentArgCtx!: CmdArgumentContextType
-    private readonly descriptor!: IUICommandDescriptor
-    private state!: ParserStateType
-    private _prevState!: ParserStateType
-    private arguments!: IArgumentCompiled[]
-    private _savedData?: Record<string, any>
-    /** Path of branch labels the user has drilled into while in
-     *  `PAIR_VALUE`. Empty at the root level; one entry per descent.
-     *  Reset on transit-out of `PAIR_VALUE`. */
-    private pairPath: string[] = []
+export class CBParser<PChainResGType extends ParserPerformedAction | string = ParserPerformedAction> {
+    private readonly _command: string
+    private readonly _tree: OptionsTree
+    private _path: string[] = []
+    private _pending: Pending = null
+    private _values = new Map<string, string>()
+    private _savedData?: Record<string, unknown>
 
     private snaper = new StateSnaper()
-
-    private tknParseChain: Chain<PChainReq, PChainResGType>
+    private tknParseChain = new Chain<PChainReq, PChainResGType>()
     private chainDirty = true
 
+    /** Cached completion flags for `isRequiredArgumentsRead` /
+     *  `isEveryArgumentsRead`. Recomputed lazily; invalidated whenever
+     *  `_values` mutates (commit, toggle, focus, seed, restore). */
+    private _readFlags?: { required: boolean; every: boolean }
+
     constructor(config: CBParserConfig) {
-        log.trace(`Parser created for command: ${config.command}\nDescriptor: ${JSON.stringify(config.descriptor, null, 4)}`)
-
-        this.switchArgCtxKeyword = config.switchArgCtxKeyword
-        this.snaper = new StateSnaper()
-        this.command = config.command
-        config.avaliableArgCtxs.forEach(ctx => this.validateContext(ctx))
-        this.avaliableArgCtxs = config.avaliableArgCtxs
-
-        config.descriptor.args.forEach(v => {
-            if (v.name.trim() == '') {
-                throw new Error(`Descriptor Argument name can't be empty`)
-            }
-        })
-        this.descriptor = config.descriptor
-
-        this.currentArgCtx = config.initialArgCtx ? config.initialArgCtx : this.avaliableArgCtxs[0]
-        this.state = 'IDLE'
-        this._prevState = this.state
-        this.arguments = []
-        this.tknParseChain = new Chain<PChainReq, PChainResGType>()
+        this._command = config.command
+        this._tree = config.descriptor.options
+        log.trace(`Parser created for command: ${this._command}`)
     }
 
-    private _appliedHandlers = new Array<IChainHandler<PChainReq, PChainResGType>>()
-    public applyHandler(handler: IChainHandler<PChainReq, PChainResGType>) {
+    /* -- chain composition: custom handlers fire BEFORE the built-in ones */
+
+    private readonly _appliedHandlers: IChainHandler<PChainReq, PChainResGType>[] = []
+    public applyHandler(handler: IChainHandler<PChainReq, PChainResGType>): void {
         this._appliedHandlers.push(handler)
         this.chainDirty = true
-    }
-
-    /* -------------------- *
-     * 'TEXT', 'SINGLE_DASH', 'DOUBLE_DASH'
-     * 'IDLE', 'CTX', 'POSITIONAL', 'PAIR', 'PAIR_VALUE'
-     *
-     * State changes
-     * TEXT -> CTX: IDLE
-     * TEXT -> POSITIONAL: IDLE
-     *
-     * SINGLE_DASH -> STAND_ALONE: IDLE
-     * DOUBLE_DASH -> PAIR -> PAIR_VALUE: IDLE
-     * -------------------- */
-
-    private waitNextBuf?: { type: 'standalone'|'positional'|'pair', value: string, tokenType?: string }
-    get NextValueSetType() {
-        return this.waitNextBuf?.type
-    }
-    get NextValueSetValue() {
-        return this.waitNextBuf?.value
     }
 
     private buildChain(): void {
         this.tknParseChain = new Chain<PChainReq, PChainResGType>()
 
-        const switchArgCtx = chainHandlerFactory<PChainReq, PChainResGType>((req) => {
-            const { tkn } = req
-            if (
-                this.state === 'ARG_CTX_SEL' &&
-                    tkn.type == 'TEXT' &&
-                    tkn.value &&
-                    this.IsContextInAvaliable(tkn.value)
-            ) {
-                this.currentArgCtx = tkn.value as CmdArgumentContextType
-                this.transitState('IDLE')
-                return 'ctx-switch' as PChainResGType
-            }
-            return
-        })
-
-        const switchToArgCtxSelection = chainHandlerFactory<PChainReq, PChainResGType>((req) => {
-            const { tkn } = req
-            if (
-                this.state == 'IDLE' &&
-                    tkn.type == 'TEXT' &&
-                    tkn.value &&
-                    tkn.value === this.switchArgCtxKeyword
-            ) {
-                this.transitState('ARG_CTX_SEL')
-                return 'ctx-selection' as PChainResGType
-            }
-            return
-        })
-
-        const validateRequest = chainHandlerFactory<PChainReq, PChainResGType>((req) => {
+        // Empty-token guard.
+        const guardEmpty = chainHandlerFactory<PChainReq, PChainResGType>((req) => {
             if (req.tkn.value === undefined || req.tkn.value === null) {
                 return 'none' as PChainResGType
             }
+            return
+        })
 
-            // When in POSITIONAL state and token is plain TEXT, it's the value — use buffered descriptor
-            // DOUBLE_DASH/SINGLE_DASH tokens mean the user selected a different argument
-            if (this.state === 'POSITIONAL' && this.waitNextBuf && req.tkn.type === 'TEXT') {
-                const bufDesc = this.findDescriptorByName(this.waitNextBuf.value)
-                if (bufDesc) {
-                    req.desc = bufDesc
-                    return
-                }
+        // If we're awaiting a value (positional or pair), any TEXT token
+        // commits as that value. DOUBLE_DASH/SINGLE_DASH while pending
+        // means the user changed their mind — drop the pending and let
+        // later handlers re-interpret the token as a fresh navigation.
+        const handlePending = chainHandlerFactory<PChainReq, PChainResGType>((req) => {
+            if (!this._pending) return
+            const { tkn } = req
+            if (tkn.type === 'TEXT') {
+                this.commitLeaf(this._pending.leafPath, tkn.value!)
+                this._pending = null
+                return 'commit-leaf' as PChainResGType
             }
+            // User pivoted — abandon pending and fall through.
+            this._pending = null
+            return
+        })
 
-            // If in POSITIONAL state but user clicked a different argument (-- or -), reset to IDLE
-            if (this.state === 'POSITIONAL' && (req.tkn.type === 'DOUBLE_DASH' || req.tkn.type === 'SINGLE_DASH')) {
-                this.waitNextBuf = undefined
-                this.transitState('IDLE')
-            }
-
-            // If in PAIR_VALUE state but user clicked a different argument, abort current pair and reset
-            if (this.state === 'PAIR_VALUE' && (req.tkn.type === 'DOUBLE_DASH' || req.tkn.type === 'SINGLE_DASH')) {
-                // Remove the incomplete pair entry (name set, no value yet)
-                const lastArg = this.arguments[this.arguments.length - 1]
-                if (lastArg && (!lastArg.value || lastArg.value === '')) {
-                    this.arguments.pop()
-                }
-                this.transitState('IDLE')
-            }
-
-            let desired_name
-            if (this.state === 'PAIR_VALUE') {
-                desired_name = this.arguments[this.arguments.length - 1].name
-            } else if (this.state == 'WAIT_NEXT_V') {
-                desired_name = this.waitNextBuf!.value
-            } else if (req.tkn.type == 'DOUBLE_DASH' || req.tkn.type == 'SINGLE_DASH') {
-                desired_name = req.tkn.value
-            }
-            let desc = this.findDescriptorByName(desired_name ?? '')
-
-            // preserve positional without passing its name before
-            if (!desc && !(req.tkn.type == 'DOUBLE_DASH' || req.tkn.type == 'SINGLE_DASH')) {
-                if (this.NextPositionalInd <= this.MaxPositionalInd) {
-                    desc = this.descriptor.args.find(arg => arg.position === this.NextPositionalInd)
-                }
-            }
-
-            if (!desc) {
-                log.debug(`Descriptor for ${desired_name ?? `positional(${this.NextPositionalInd})`} not found`)
+        // SINGLE_DASH always means "toggle a standalone leaf at the
+        // current branch."
+        const handleStandalone = chainHandlerFactory<PChainReq, PChainResGType>((req) => {
+            const { tkn } = req
+            if (tkn.type !== 'SINGLE_DASH') return
+            const node = this.childOfCurrentBranch(tkn.value!)
+            if (!node || node.node !== 'leaf' || !node.standalone) {
+                log.debug(`SINGLE_DASH "${tkn.value}" — child is not a standalone leaf`)
                 return 'none' as PChainResGType
             }
-
-            req.desc = desc
-
-            return
+            return this.toggleStandalone(tkn.value!) as PChainResGType
         })
 
-        const setWaitNextBuf = chainHandlerFactory<PChainReqValidated, PChainResGType>((req) => {
-            const { tkn, desc } = req
-            if (this.state == 'IDLE') {
-                const type = getArgumentDescType(desc)
-                this.waitNextBuf = {
-                    type,
-                    value: tkn.value,
-                    tokenType: tkn.type
-                }
-                this.transitState('WAIT_NEXT_V')
-
-                switch (type) {
-                    case 'positional':
-                        // Don't return early — let transitByBuf run to enter POSITIONAL state
-                        break
-                    case 'pair':
-                        if (tkn.type !== 'DOUBLE_DASH') {
-                            log.debug(`DOUBLE_DASH token expected for descriptor but got ${tkn.type}`)
-                            this.state = this._prevState
-                        }
-                        break
-                    case 'standalone':
-                        break
-                }
-            }
-            return
-        })
-
-        const transitByBuf = chainHandlerFactory<PChainReqValidated, PChainResGType>(() => {
-            if (this.state == 'WAIT_NEXT_V') {
-                if (this.waitNextBuf === undefined) {
-                    throw new Error(`Can't set value from undefined next value setting`)
-                }
-
-                // Read buf BEFORE transitState (which clears waitNextBuf)
-                const bufType = this.waitNextBuf.type
-                const bufTokenType = this.waitNextBuf.tokenType
-
-                log.trace(`transitByBuf: ${JSON.stringify(this.waitNextBuf)}`)
-                if (bufType === 'standalone') {
-                    this.transitState('STAND_ALONE')
-                } else if (bufType === 'positional') {
-                    this.transitState('POSITIONAL')
-                    // Only wait for next step if this was a button click (DOUBLE_DASH token)
-                    // For direct TEXT input (non-mandatory mode), the token IS the value — continue chain
-                    if (bufTokenType === 'DOUBLE_DASH' || bufTokenType === 'SINGLE_DASH') {
-                        return 'wait-next-inited' as PChainResGType
-                    }
-                } else if (bufType === 'pair') {
-                    this.transitState('PAIR')
-                } else {
-                    throw new Error(`Can't set value from undefined next value setting`)
-                }
-            }
-            return
-        })
-
-        const expectUniqExistance = chainHandlerFactory<PChainReqValidated, PChainResGType>((req) => {
-            const { tkn, desc } = req
-
-            if (this.state === 'POSITIONAL') {
-                // Use descriptor position, not token value (token may be plain text, not encoded)
-                const pos = desc?.position ?? (isEncodedPositionalName(tkn.value) ? decodePositionalName(tkn.value).position : undefined)
-                if (pos !== undefined) {
-                    removeObjectByFieldsMutate(this.arguments, { position: pos, ctx: this.currentArgCtx })
-                }
-            } else if (this.state === 'PAIR') {
-                removeObjectByFieldsMutate(this.arguments, { name: tkn.value, ctx: this.currentArgCtx })
-            }
-        })
-
-        const setPairName = chainHandlerFactory<PChainReqValidated, PChainResGType>((req) => {
-            const { tkn, desc } = req
-            if (this.state === 'PAIR') {
-                if (!isArgumentDescPair(desc)) {
-                    throw new Error(`Argument descriptor is not pair: ${tkn.value}`)
-                }
-                this.arguments.push(compileArgumentFromDesc(desc, ''))
-
-                this.transitState('PAIR_VALUE')
-                return 'set-pair-name' as PChainResGType
-            }
-            return
-        })
-
-        const validateArgumentValue = chainHandlerFactory<PChainReqValidated, PChainResGType>((req) => {
-            const { tkn, desc } = req
-            if (
-                this.state === 'STAND_ALONE' ||
-                    this.state === 'POSITIONAL' ||
-                    this.state === 'PAIR_VALUE'
-            ) {
-                if (!desc.validator(tkn.value)) {
-                    return 'value-validation-failed' as PChainResGType
-                }
-            }
-            return
-        })
-
-        const descendPairBranch = chainHandlerFactory<PChainReqValidated, PChainResGType>((req) => {
+        // DOUBLE_DASH at the current branch level: descend into a child
+        // branch, toggle a child standalone, or click a child pair-leaf
+        // (enter `pending`).
+        const handleDoubleDash = chainHandlerFactory<PChainReq, PChainResGType>((req) => {
             const { tkn } = req
-            if (
-                tkn.type === 'TEXT' &&
-                    this.state === 'PAIR_VALUE' &&
-                    this.arguments.length !== 0 &&
-                    typeof tkn.value === 'string' &&
-                    tkn.value.startsWith(PAIR_BRANCH_PREFIX)
-            ) {
-                const desc = this.findDescriptorByName(this.LastReadArg.name)
-                if (!desc?.pairOptionsResolver) {
-                    // No tree resolver — strip the prefix and fall through;
-                    // the literal label was emitted by the markuper for a
-                    // flat-options descriptor and must commit as a leaf.
-                    req.tkn = { ...tkn, value: tkn.value.slice(PAIR_BRANCH_PREFIX.length) }
-                    return
-                }
-                const label = tkn.value.slice(PAIR_BRANCH_PREFIX.length)
-                this.pairPath.push(label)
-                return 'pair-descend' as PChainResGType
-            }
-            return
+            if (tkn.type !== 'DOUBLE_DASH') return
+            return this.handleNavigationToken(tkn.value!) as PChainResGType
         })
 
-        const setPairValue = chainHandlerFactory<PChainReqValidated, PChainResGType>((req) => {
+        // Plain TEXT navigation:
+        //   1. names a child of the current branch — descend / toggle /
+        //      enter pending, same as DOUBLE_DASH.
+        //   2. otherwise — only when the user is at root — auto-bind to
+        //      the next unfilled positional leaf. This is what makes
+        //      `interpreter.step('scraper')` (non-mandatory mode) bind
+        //      a bare argument to its positional slot. Mid-branch we
+        //      don't want to silently steal a positional from elsewhere
+        //      in the tree, so the auto-bind only fires at the root.
+        //   3. otherwise: nothing to do.
+        const handleText = chainHandlerFactory<PChainReq, PChainResGType>((req) => {
             const { tkn } = req
-            if (
-                tkn.type == 'TEXT' &&
-                    this.state == 'PAIR_VALUE' &&
-                    this.arguments.length !== 0
-            ) {
-                if (this.LastReadArg.value != '') {
-                    throw new Error(`Pair value already set`)
-                }
-                const desc = this.findDescriptorByName(this.LastReadArg.name)
-                const sep = desc?.pairOptionsSeparator ?? PAIR_PATH_DELIMITER
-                this.LastReadArg.value = this.pairPath.length > 0
-                    ? [...this.pairPath, tkn.value].join(sep)
-                    : tkn.value
-                this.pairPath = []
+            if (tkn.type !== 'TEXT') return
+            const navResult = this.handleNavigationToken(tkn.value!)
+            if (navResult !== null) return navResult as PChainResGType
 
-                this.transitState('IDLE')
-
-                return 'set-pair-value' as PChainResGType
-            }
-            return
-        })
-
-        const setPositional = chainHandlerFactory<PChainReqValidated, PChainResGType>((req) => {
-            const { tkn } = req
-            if (this.state == 'POSITIONAL') {
-                // For button clicks (DOUBLE_DASH): waitNextBuf has the arg name, use it to find descriptor
-                // For direct text (TEXT): req.desc was already resolved by validateRequest
-                let desc = req.desc
-                if (this.waitNextBuf && this.waitNextBuf.tokenType !== 'TEXT') {
-                    const bufDesc = this.findDescriptorByName(this.waitNextBuf.value)
-                    if (bufDesc) desc = bufDesc
-                }
-
-                if (!desc || !isArgumentDescPositional(desc)) {
-                    throw new Error(`Argument descriptor is not positional for: ${tkn.value}`)
-                }
-
-                // Remove old value if updating
-                removeObjectByFieldsMutate(this.arguments, { position: desc.position, ctx: desc.ctx })
-
-                this.arguments.push(compileArgumentFromDesc(desc, tkn.value))
-                this.waitNextBuf = undefined
-
-                this.transitState('IDLE')
-                return 'set-positional' as PChainResGType
-            }
-            return
-        })
-
-        const setStandalone = chainHandlerFactory<PChainReqValidated, PChainResGType>((req) => {
-            const { tkn, desc } = req
-            if (this.state == 'STAND_ALONE') {
-                if (!isArgumentDescStandalone(desc)) {
-                    throw new Error(`Argument descriptor is not standalone: ${tkn.value}`)
-                }
-                const wasAlreadySet = this.isArgumentStandaloneRead(tkn.value)
-                // Remove previous entry so we can toggle or replace
-                removeObjectByFieldsMutate(this.arguments, { name: tkn.value, standalone: true, ctx: this.currentArgCtx })
-                // Toggle: if was already set, removal is the toggle-off
-                if (wasAlreadySet) {
-                    this.transitState('IDLE')
-                    return 'unset-standalone' as PChainResGType
-                }
-                if (desc.validator(tkn.value)) {
-                    this.arguments.push(compileArgumentFromDesc(desc, tkn.value))
-                    this.transitState('IDLE')
-                    return 'set-standalone' as PChainResGType
-                } else {
-                    this.back()
+            if (this._path.length === 0) {
+                const positional = this.nextUnfilledPositional()
+                if (positional) {
+                    this.commitLeaf(positional.path, tkn.value!)
+                    return 'commit-leaf' as PChainResGType
                 }
             }
-            return
+            return 'none' as PChainResGType
         })
 
-        // custom handlers phase
-        for (const hndl of this._appliedHandlers) {
-            this.tknParseChain.use(hndl)
-        }
-
-        // change arg ctx phase
-        this.tknParseChain.use(switchToArgCtxSelection)
-        this.tknParseChain.use(switchArgCtx)
-
-        // applying and transforming needed data phase
-        this.tknParseChain.use(validateRequest)
-        this.tknParseChain.use(setWaitNextBuf)
-        this.tknParseChain.use(transitByBuf)
-
-        // applying data to arguments
-        this.tknParseChain.use(expectUniqExistance)
-        this.tknParseChain.use(setPairName)
-        this.tknParseChain.use(validateArgumentValue)
-        this.tknParseChain.use(descendPairBranch)
-        this.tknParseChain.use(setPairValue)
-        this.tknParseChain.use(setPositional)
-        this.tknParseChain.use(setStandalone)
-
-        // fallback
+        for (const hndl of this._appliedHandlers) this.tknParseChain.use(hndl)
+        this.tknParseChain.use(guardEmpty)
+        this.tknParseChain.use(handlePending)
+        this.tknParseChain.use(handleStandalone)
+        this.tknParseChain.use(handleDoubleDash)
+        this.tknParseChain.use(handleText)
         this.tknParseChain.use(createChainFallbackHandler<PChainReq, PChainResGType>('none' as PChainResGType))
     }
 
-    private validateContext(ctx: CmdArgumentContextType) {
-        if (ctx.length == 0) {
-            throw new Error(`Invalid context name "${ctx}"`)
+    /* -- value commit ----------------------------------------------- */
+
+    private commitLeaf(leafPath: readonly string[], rawValue: string): void {
+        const key = leafPath.join(PAIR_PATH_DELIMITER)
+        this._values.set(key, rawValue)
+        this._readFlags = undefined
+    }
+
+    /** Resolve a navigation token (TEXT or DOUBLE_DASH naming a child of
+     *  the current branch) to its action. Returns `null` when the token
+     *  doesn't name a child — TEXT callers fall back to positional
+     *  auto-bind, DOUBLE_DASH callers report `'none'`. */
+    private handleNavigationToken(name: string): ParserPerformedAction | null {
+        const node = this.childOfCurrentBranch(name)
+        if (!node) {
+            log.debug(`navigation "${name}" — no matching child of branch [${this._path.join('/')}]`)
+            return null
         }
-        if (/[^a-zA-Z0-9_]/.test(ctx)) {
-            throw new Error(`Invalid context name "${ctx}"`)
+        if (node.node === 'branch') {
+            this._path.push(name)
+            return 'pair-descend'
         }
-    }
-
-    /**
-     * @returns deep clone of current state
-     */
-    toRawState(): ICBParserStateRaw {
-        return deepClone({
-            command: this.command,
-            avaliableCtxs: this.avaliableArgCtxs,
-            descriptor: this.descriptor,
-            currentCtx: this.currentArgCtx,
-            state: this.state,
-            arguments: this.arguments,
-        })
-    }
-
-    private snap() {
-        this.snaper.memorize({
-            currentCtx: this.currentArgCtx,
-            state: this.state,
-            _prevState: this._prevState,
-            args: deepClone(this.arguments),
-            waitNextBuf: deepClone(this.waitNextBuf),
-            pairPath: [...this.pairPath],
-        })
-    }
-
-    public back() {
-        const snap = this.snaper.back
-        if (snap) {
-            this.currentArgCtx = snap.currentCtx
-            this.state = snap.state
-            this.arguments = snap.args
-            this._prevState = snap._prevState
-            this.waitNextBuf = snap.waitNextBuf
-            this.pairPath = snap.pairPath ? [...snap.pairPath] : []
-        } else {
-            throw new Error('Can\'t back parser state')
+        if (node.standalone) {
+            return this.toggleStandalone(name)
         }
+        this._pending = { leafPath: [...this._path, name] }
+        return 'await-value'
     }
 
-    //region Getters
-
-    get State() {
-        return this.state
+    /** Toggle a `standalone:true` leaf at the current branch level.
+     *  Stored as `'true'` so `unflattenValue(type:'bool')` coerces to
+     *  `true` and `proxy.has()` reports the flag as set. */
+    private toggleStandalone(name: string): ParserPerformedAction {
+        const key = [...this._path, name].join(PAIR_PATH_DELIMITER)
+        this._readFlags = undefined
+        if (this._values.has(key)) {
+            this._values.delete(key)
+            return 'toggle-off'
+        }
+        this._values.set(key, 'true')
+        return 'toggle-on'
     }
 
-    get CurrentContext() {
-        return this.currentArgCtx
+    /* -- tree lookups ------------------------------------------------ */
+
+    /** Read-only view of the tree node at the parser's current path.
+     *  Markupers render this node's children (for branches) or its
+     *  options/prompt (for leaves on a focused re-prompt). */
+    nodeAtCurrent(): OptionsTree | undefined {
+        return nodeAtPath(this._tree, this._path)
     }
 
-    get AvaliableContexts() {
-        return this.avaliableArgCtxs
+    private currentBranch(): BranchSpec | undefined {
+        const node = nodeAtPath(this._tree, this._path)
+        if (!node || node.node !== 'branch') return undefined
+        return node
     }
 
-    IsContextInAvaliable(ctx: string) {
-        return this.avaliableArgCtxs.includes(ctx as CmdArgumentContextType)
+    private childOfCurrentBranch(name: string): OptionsTree | undefined {
+        const branch = this.currentBranch()
+        if (!branch) return undefined
+        return branch.children.get(name)
     }
 
-    get ReadArgs() {
-        return this.arguments
+    /* -- re-prompt support (ValidationFailed flow) ------------------- */
+
+    /** Replace the committed values map. Used by the dispatcher when a
+     *  node-side `ValidationFailed` event arrives: the dispatcher restores
+     *  the previously parsed values and then `focusLeaf`s the failed leaf
+     *  so the markuper renders only that leaf's prompt. */
+    seedValues(values: ReadonlyMap<string, string>): void {
+        this._values = new Map(values)
+        this._pending = null
+        this._path = []
+        this._readFlags = undefined
+        // Discard undo history — the seeded state is the new baseline.
+        this.snaper = new StateSnaper()
     }
 
-    get LastReadArg() {
-        return this.arguments[this.arguments.length - 1]
-    }
-
-    /** Snapshot of the current branch path. Empty when not drilled into a
-     *  hierarchical pair-options tree. The markuper consults this to know
-     *  which level to render. */
-    get PairPath(): string[] {
-        return [...this.pairPath]
-    }
-
-    /** Pop one branch from the current pair-path. Used by the interpreter
-     *  on `cancel-op` so the user can step back one level instead of
-     *  exiting the build entirely. Returns true if a level was popped. */
-    popPairPath(): boolean {
-        if (this.pairPath.length === 0) return false
-        this.pairPath.pop()
+    /** Position the parser as if the user just clicked the leaf at
+     *  `leafPath`. The path drills to the leaf's parent branch and
+     *  pending is set to the leaf, so the next TEXT token commits.
+     *  No-op when `leafPath` doesn't resolve to a leaf in the tree. */
+    focusLeaf(leafPath: readonly string[]): boolean {
+        if (leafPath.length === 0) return false
+        const target = nodeAtPath(this._tree, leafPath)
+        if (!target || target.node !== 'leaf') return false
+        this._path = leafPath.slice(0, -1)
+        // Drop any in-progress committed value for that leaf so the
+        // user's next input replaces it; pending is a re-prompt marker.
+        this._values.delete(leafPath.join(PAIR_PATH_DELIMITER))
+        this._pending = { leafPath: [...leafPath] }
+        this._readFlags = undefined
         return true
     }
 
-    /** Wipe the pair-path. Used on `cancel-build` and other hard exits. */
-    clearPairPath(): void {
-        this.pairPath = []
+    /** Walk every leaf and return the lowest-position positional whose
+     *  value isn't yet committed. Used by non-mandatory mode to bind a
+     *  bare TEXT token to "the next positional." */
+    private nextUnfilledPositional(): { path: string[]; leaf: LeafSpec } | undefined {
+        let best: { path: string[]; leaf: LeafSpec } | undefined
+        for (const { path, pathKey, leaf } of walkLeaves(this._tree)) {
+            if (leaf.position <= 0) continue
+            if (this._values.has(pathKey)) continue
+            if (!best || leaf.position < best.leaf.position) {
+                best = { path, leaf }
+            }
+        }
+        return best
     }
 
-    get Descriptor() {
-        return this.descriptor
+    /* -- snapshot ---------------------------------------------------- */
+
+    private snap(): void {
+        this.snaper.memorize({
+            path: [...this._path],
+            pending: this._pending ? { leafPath: [...this._pending.leafPath] } : null,
+            values: new Map(this._values),
+        })
     }
 
-    get Command() {
-        return this.command
+    private restore(snap: StateSnap): void {
+        this._path = [...snap.path]
+        this._pending = snap.pending ? { leafPath: [...snap.pending.leafPath] } : null
+        this._values = new Map(snap.values)
+        this._readFlags = undefined
     }
 
-    get SavedData(): Record<string, any> | undefined {
+    /** Step back one parsed token. Returns `false` when no prior state
+     *  is available (interpreter falls back to a hard cancel-op). */
+    public back(): boolean {
+        const prev = this.snaper.back
+        if (!prev) return false
+        this.restore(prev)
+        return true
+    }
+
+    /** Step up one branch level. Used by the interpreter's cancel-op
+     *  reaction so the user can back out of a branch they've drilled
+     *  into without bailing the whole build. Returns `false` at root. */
+    public ascend(): boolean {
+        if (this._path.length === 0) return false
+        this._path.pop()
+        return true
+    }
+
+    /* -- public read API --------------------------------------------- */
+
+    get Command(): string {
+        return this._command
+    }
+    get Tree(): OptionsTree {
+        return this._tree
+    }
+    get Path(): readonly string[] {
+        return this._path
+    }
+    get Pending(): Pending {
+        return this._pending
+    }
+    /** Read-only view of committed values. Markuper / interpreter use
+     *  this to render checkmarks beside already-set leaves and to
+     *  decide when "all required filled" goals are reached. */
+    get Values(): ReadonlyMap<string, string> {
+        return this._values
+    }
+
+    get SavedData(): Record<string, unknown> | undefined {
         return this._savedData
     }
-
-    set SavedData(data: Record<string, any> | undefined) {
+    set SavedData(data: Record<string, unknown> | undefined) {
         this._savedData = data
     }
 
-    get DescriptorPosArgs() {
-        return this.descriptor.args.filter(arg => isArgumentDescPositional(arg))
+    /** A flat snapshot of internal state. Markuper uses this to render
+     *  text + buttons, and the interpreter passes it to `EvaluationResult`. */
+    toRawState(): ICBParserStateRaw {
+        return {
+            command: this._command,
+            tree: this._tree,
+            path: [...this._path],
+            pending: this._pending ? { leafPath: [...this._pending.leafPath] } : null,
+            values: new Map(this._values),
+        }
     }
 
-    get DescriptorPairArgs() {
-        return this.descriptor.args.filter(arg => isArgumentDescPair(arg))
+    /* -- "is X read" helpers (interpreter modes consume these) ------ */
+
+    /** True when every `required:true` leaf has a committed value.
+     *  Required-mode interpreters compile as soon as this trips. */
+    isRequiredArgumentsRead(): boolean {
+        return this._readFlagsCached().required
     }
 
-    get ReadPositionals() {
-        return this.arguments
-            .filter(arg => arg.position !== undefined)
-            .sort((arg1, arg2) => arg1.position! - arg2.position!)
+    /** True when every leaf has a committed value. Comprehensive-mode
+     *  interpreters compile when this trips. */
+    isEveryArgumentsRead(): boolean {
+        return this._readFlagsCached().every
     }
 
-    get IsDescriptorEmpty() {
-        return this.descriptor.args.length === 0
-    }
-
-    get IsDescriptorRequiredEmpty() {
-        return this.descriptor.args.filter(arg => arg.required).length === 0
-    }
-
-    get NextPositionalInd() {
-        return this.ReadPositionals.length + 1
-    }
-
-    get MaxPositionalInd() {
-        return this.DescriptorPosArgs.length
-    }
-
-    /**
-    * @returns current context if passed, otherwise current
-    */
-    private ctxOrCurrent(ctx?: CmdArgumentContextType): CmdArgumentContextType {
-        return ctx ? ctx : this.currentArgCtx
-    }
-
-    private isAllArgumentRead_fromDescriptorSlice(descSlice: IUICommandDescriptor) {
-        for (const argDesc of descSlice.args) {
-            switch (getArgumentDescType(argDesc)) {
-                case 'standalone':
-                    if (!this.isArgumentStandaloneRead(argDesc.name)) {
-                        return false
-                    }
-                    break;
-                case 'positional':
-                    if (!this.isArgumentPositionalRead(argDesc.position!)) {
-                        return false
-                    }
-                    break;
-                case 'pair':
-                    if (!this.isArgumentNameRead(argDesc.name)) {
-                        return false
-                    }
-                    break;
-                default:
-                    throw new Error(`Invalid argument descriptor type: ${JSON.stringify(argDesc, null, 2)}`)
+    private _readFlagsCached(): { required: boolean; every: boolean } {
+        if (this._readFlags) return this._readFlags
+        let required = true
+        let every = true
+        for (const { pathKey, leaf } of walkLeaves(this._tree)) {
+            const v = this._values.get(pathKey)
+            const set = v !== undefined && v !== ''
+            if (!set) {
+                every = false
+                if (leaf.required) required = false
             }
         }
-
-        return true
+        this._readFlags = { required, every }
+        return this._readFlags
     }
 
-    isEveryArgumentsRead() {
-        return this.isAllArgumentRead_fromDescriptorSlice(this.descriptor)
+    get IsTreeEmpty(): boolean {
+        if (this._tree.node === 'leaf') return false
+        return this._tree.children.size === 0
     }
 
-    isRequiredArgumentsRead() {
-        const requiredOnly = deepClone(this.descriptor)
-        requiredOnly.args = requiredOnly.args.filter(arg => arg.required)
-        return this.isAllArgumentRead_fromDescriptorSlice(requiredOnly)
-    }
+    /* -- entry point ------------------------------------------------- */
 
-    /**
-     * @returns true if argument name is read and value is empty or ''
-     */
-    isArgumentNameRead(input: string, ctx?: CmdArgumentContextType) {
-        ctx = this.ctxOrCurrent(ctx)
-        const searchArray = this.arguments.filter(arg => arg.ctx === (ctx))
-        for (const read of searchArray) {
-            if (read.name === input && read.value != '') {
-                return true
-            } else if (isEncodedPositionalName(read.name) && read.value != '') {
-                const { name } = decodePositionalName(read.name)
-                if (name === input) {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    isArgumentRead(input: string, ctx?: CmdArgumentContextType): boolean {
-        ctx = this.ctxOrCurrent(ctx)
-        const searchArray = this.arguments.filter(arg => arg.ctx === (ctx))
-        for (const read of searchArray) {
-            if (read.name === input) {
-                return true
-            } else if (isEncodedPositionalName(read.name) && read.value != '') {
-                const { name } = decodePositionalName(read.name)
-                if (name === input) {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    isArgumentStandaloneRead(input: string, ctx?: CmdArgumentContextType): boolean {
-        ctx = this.ctxOrCurrent(ctx)
-        return this.arguments.some(arg => arg.name === input && arg.ctx === ctx && arg.standalone === true)
-    }
-
-    isArgumentPositionalRead(pos: number, ctx?: CmdArgumentContextType): boolean {
-        ctx = this.ctxOrCurrent(ctx)
-        return this.arguments.some(arg => arg.position === pos && arg.ctx === ctx && arg.value != '')
-    }
-
-    findDescriptorByName(name: string, ctx?: CmdArgumentContextType): IArgumentDescriptor | undefined {
-        // Try current context first
-        const inCurrent = this.descriptor.args.find(arg => arg.name === name && arg.ctx === (ctx ?? this.currentArgCtx))
-        if (inCurrent) return inCurrent
-
-        // If not found, search all contexts and auto-switch
-        if (!ctx) {
-            const inAny = this.descriptor.args.find(arg => arg.name === name)
-            if (inAny) {
-                this.currentArgCtx = inAny.ctx
-            }
-            return inAny
-        }
-        return undefined
-    }
-
-    findReadArgumentByDescritor(desc: IArgumentDescriptor): IArgumentCompiled | undefined {
-        return this.arguments.find(arg => arg.name === desc.name && arg.ctx === desc.ctx)
-    }
-
-    isDescriptorExists(name: string, ctx?: CmdArgumentContextType) {
-        return this.findDescriptorByName(name, ctx) !== undefined
-    }
-
-    /**
-     * @description Transits parser state by transit map and autocleans state resources
-     */
-    private transitState(to: ParserStateType): void {
-        log.trace(`Transiting from ${this.state} to ${to}`)
-        if (to === this.state) {
-            return
-        }
-
-        if (stateTransiteMap[this.state].includes(to)) {
-            this._prevState = this.state
-            this.state = to
-            // waitNextBuf is cleared explicitly by handlers that consume it
-            // (setPositional, setStandalone, validateRequest state resets)
-            // Pair-path is only meaningful while in PAIR_VALUE; clear on
-            // every transit out (commit, cancel, or arg switch).
-            if (to !== 'PAIR_VALUE') {
-                this.pairPath = []
-            }
-            return
-        }
-
-        throw new Error(`Can't transite from ${this.state} to ${to}. Invalid state transition`)
-    }
-
-    /**
-    * @description Parser entry point
-    */
     parseNextToken(tkn: CBLexerToken): PChainResGType {
         if (this.chainDirty) {
             this.buildChain()
             this.chainDirty = false
         }
         this.snap()
-        return this.tknParseChain.handle({tkn})
+        return this.tknParseChain.handle({ tkn })
     }
 }
+

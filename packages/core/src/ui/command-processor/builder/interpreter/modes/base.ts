@@ -1,22 +1,26 @@
-import { CBLexerToken, Lexer } from "./../lexer";
-import { UiUnicodeSymbols } from "../../../../../ui";
-import { BuilderActionSigns } from "./../../default-callbacks";
-import { ICommandCompiled } from '../../../../../ui/types/command';
-import { AbstractState } from "@cmd-hub/common";
-import { CBInterpreter } from "../interpreter";
-import { CBParser, ParserPerformedAction, PChainReq } from "../parser";
-import { EvaluationResult } from "../../ev-result";
-import log from "../../../../../application/logger";
-import { chainHandlerFactory } from "@cmd-hub/common";
-import { CmdArgumentProxy } from "../../../../../ui/command-processor/arg-proxy";
+import { AbstractState, CmdArgumentProxy, chainHandlerFactory } from '@cmd-hub/common'
+import { CBLexerToken, Lexer } from '../lexer'
+import { UiUnicodeSymbols } from '../../../../../ui'
+import { BuilderActionSigns } from '../../default-callbacks'
+import { ICommandCompiled } from '../../../../../ui/types/command'
+import { CBInterpreter } from '../interpreter'
+import { CBParser, ParserPerformedAction, PChainReq } from '../parser'
+import { EvaluationResult } from '../../ev-result'
 
-type ExtendedCBChainRes = ParserPerformedAction | 'cancel' | 'cancel-op' | 'execute' | 'pair-pop'
+type ExtendedCBChainRes =
+    | ParserPerformedAction
+    | 'cancel'
+    | 'cancel-op'
+    | 'execute'
+    | 'ascend'
 
 /**
- * Base component that contain main interpritation logic for command builder
- * @description Implements base incremental reading. Stop will be triggered by default invokables "execute"
- *
- * @extends AbstractState to manage state
+ * Base interpreter component. Owns the lexer, registers the universal
+ * action handlers (cancel-build, execute, cancel-op-with-ascent), and
+ * maps every parser action to an `EvaluationResult`. Subclasses
+ * (`InterpreterModeRequired`, `InterpreterModeNonMandatory`,
+ * `InterpreterModeComprehensive`) override `step()` to add a
+ * goal-reached compile check.
  */
 export class BaseInterpreterComponent extends AbstractState<CBInterpreter> {
     private lexer: Lexer
@@ -24,37 +28,36 @@ export class BaseInterpreterComponent extends AbstractState<CBInterpreter> {
 
     constructor(parser: CBParser) {
         super()
-        this.parser = parser
+        this.parser = parser as unknown as CBParser<ExtendedCBChainRes>
         this.lexer = new Lexer()
 
-        this.parser.applyHandler(chainHandlerFactory<PChainReq, ExtendedCBChainRes>(function(this: BaseInterpreterComponent, req) {
+        // cancel-build: hard exit. Markuper renders end state.
+        this.parser.applyHandler(chainHandlerFactory<PChainReq, ExtendedCBChainRes>(function (this: BaseInterpreterComponent, req) {
             const { tkn } = req
-            if (tkn.type == 'TEXT' && tkn.value && tkn.value === BuilderActionSigns.cancelBuild) {
+            if (tkn.type === 'TEXT' && tkn.value && tkn.value === BuilderActionSigns.cancelBuild) {
                 return 'cancel'
             }
             return
         }, this))
 
-        this.parser.applyHandler(chainHandlerFactory<PChainReq, ExtendedCBChainRes>(function(this: BaseInterpreterComponent, req) {
+        // execute: only valid when not waiting for a leaf value and not
+        // mid-branch (the user must back out before executing). The
+        // interpreter resolves the parsed tree to a CmdArgumentProxy.
+        this.parser.applyHandler(chainHandlerFactory<PChainReq, ExtendedCBChainRes>(function (this: BaseInterpreterComponent, req) {
             const { tkn } = req
-            if (tkn.type == 'TEXT' && this.parser.State === 'IDLE' && tkn.value && tkn.value === BuilderActionSigns.execute) {
+            if (tkn.type === 'TEXT' && tkn.value === BuilderActionSigns.execute && this.parser.Pending == null) {
                 return 'execute'
             }
             return
         }, this))
 
-        this.parser.applyHandler(chainHandlerFactory<PChainReq, ExtendedCBChainRes>(function(this: BaseInterpreterComponent, req) {
+        // cancel-op: when inside a branch, ascend one level (acts as
+        // "back" button). At root, fall through to a real cancel-op
+        // (interpreter undoes the last token via parser.back()).
+        this.parser.applyHandler(chainHandlerFactory<PChainReq, ExtendedCBChainRes>(function (this: BaseInterpreterComponent, req) {
             const { tkn } = req
-            if (tkn.type == 'TEXT' && tkn.value && tkn.value === BuilderActionSigns.cancelOp) {
-                // When the user is mid-tree in a hierarchical pair-options
-                // selector, the visible aux button reads "Back" and steps
-                // up one branch. The parser stays in PAIR_VALUE so the
-                // markuper re-renders the parent level. When at the root
-                // (or in any other state), fall through to the original
-                // cancel-op behavior.
-                if (this.parser.popPairPath()) {
-                    return 'pair-pop'
-                }
+            if (tkn.type === 'TEXT' && tkn.value === BuilderActionSigns.cancelOp) {
+                if (this.parser.ascend()) return 'ascend'
                 return 'cancel-op'
             }
             return
@@ -80,149 +83,70 @@ export class BaseInterpreterComponent extends AbstractState<CBInterpreter> {
     protected processAction(action: ExtendedCBChainRes, token: CBLexerToken): EvaluationResult {
         switch (action) {
             case 'none':
-                return new EvaluationResult(
-                    this.parser,
-                    'nothing to do',
-                    { done: false }
-                )
+                return new EvaluationResult(this.parser, 'nothing to do', { done: false })
 
-            case 'cancel': 
-                return new EvaluationResult(
-                    this.parser,
-                    `Build canceled by user`,
-                    { done: true, addTo: 'end' }
-                )
+            case 'cancel':
+                return new EvaluationResult(this.parser, 'Build canceled by user', { done: true, addTo: 'end' })
 
             case 'cancel-op':
                 this.parser.back()
                 return new EvaluationResult(
                     this.parser,
                     `${UiUnicodeSymbols.cross} Operation canceled by user`,
-                    { done: false, addTo: 'end' }
+                    { done: false, addTo: 'end' },
                 )
 
-            case 'pair-pop':
+            case 'ascend':
                 return new EvaluationResult(
                     this.parser,
                     `${UiUnicodeSymbols.arrowLeft} Back`,
-                    { done: false, addTo: 'end' }
+                    { done: false, addTo: 'end' },
                 )
 
             case 'pair-descend':
-                return new EvaluationResult(
-                    this.parser,
-                    ``,
-                    { done: false }
-                )
+                // No-op evaluation; the markuper re-renders the new branch level.
+                return new EvaluationResult(this.parser, '', { done: false })
 
-            case 'execute':
+            case 'await-value':
+                return new EvaluationResult(this.parser, 'Awaiting value.', { done: false })
+
+            case 'commit-leaf':
+                return new EvaluationResult(this.parser, 'Argument set.')
+
+            case 'toggle-on':
+                return new EvaluationResult(this.parser, 'Standalone option toggled on.')
+
+            case 'toggle-off':
+                return new EvaluationResult(this.parser, 'Standalone option toggled off.')
+
+            case 'execute': {
                 const compiled = this.compile()
                 return new EvaluationResult(
                     this.parser,
-                    `${UiUnicodeSymbols.success} Build success`
-                    , { compiled: compiled, addTo: 'end' }
+                    `${UiUnicodeSymbols.success} Build success`,
+                    { compiled: compiled, addTo: 'end' },
                 )
-
-            case 'set-pair':
-                return new EvaluationResult(
-                    this.parser,
-                    `Pair name and value was set.`,
-                )
-
-            case 'set-pair-name':
-                return new EvaluationResult(
-                    this.parser,
-                    `Pair name was set.`
-                )
-
-            case 'set-pair-value':
-                return new EvaluationResult(
-                    this.parser,
-                    `Pair value was set.`
-                )
-
-            case 'set-standalone':
-                return new EvaluationResult(
-                    this.parser,
-                    `Standalone option was set.`
-                )
-
-            case 'unset-standalone':
-                return new EvaluationResult(
-                    this.parser,
-                    `Standalone option was unset.`
-                )
-
-            case 'set-positional':
-                return new EvaluationResult(
-                    this.parser,
-                    `Positional argument was set.`,
-                )
-
-            case 'ctx-switch':
-                return new EvaluationResult(
-                    this.parser,
-                    `Reading context switched to new.`,
-                )
-
-            case 'ctx-selection':
-                return new EvaluationResult(
-                    this.parser,
-                    `Context selection started.`,
-                )
-
-            case 'removed-pair':
-                return new EvaluationResult(
-                    this.parser,
-                    `Pair was removed.`,
-                )
-
-            case 'removed-standalone':
-                return new EvaluationResult(
-                    this.parser,
-                    `Standalone was removed.`,
-                )
-
-            case 'removed-positional':
-                return new EvaluationResult(
-                    this.parser,
-                    `Positional was removed.`,
-                )
-
-            case 'value-validation-failed':
-                return new EvaluationResult(
-                    this.parser,
-                    `${UiUnicodeSymbols.error} - Value "${token.value}" validation failed.`
-                )
-
-            case 'wait-next-inited':
-                return new EvaluationResult(
-                    this.parser,
-                    `Waiting for next value.`,
-                )
+            }
 
             default:
                 return new EvaluationResult(
                     this.parser,
                     `${UiUnicodeSymbols.error} - Unexpected action: "${action}" on token "${JSON.stringify(token)}"`,
-                    { done: true, error: `Unexpected action: ${action}`, addTo: 'end' }
+                    { done: true, error: `Unexpected action: ${action}`, addTo: 'end' },
                 )
         }
     }
 
-    protected end() {
-        return new EvaluationResult(
-            this.parser,
-            '',
-            {done: true}
-        )
+    protected end(): EvaluationResult {
+        return new EvaluationResult(this.parser, '', { done: true })
     }
 
     protected compile(): ICommandCompiled {
+        const values = this.parser.Values
         return {
             command: this.parser.Command,
-            proxy: new CmdArgumentProxy(this.parser.ReadArgs),
-            raw: this.parser.ReadArgs
+            proxy: new CmdArgumentProxy(values, this.parser.Tree),
+            raw: new Map(values),
         }
     }
 }

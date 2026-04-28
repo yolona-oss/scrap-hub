@@ -1,16 +1,19 @@
-import { CmdArgumentContextType, IArgumentCompiled } from "../../../../ui/types"
-import { Stack } from "@cmd-hub/common"
-import { ParserStateType } from "./parser"
+import { Stack } from '@cmd-hub/common'
 
-export class StateSnap {
-    constructor(
-        public readonly currentCtx: CmdArgumentContextType,
-        public readonly state: ParserStateType,
-        public readonly _prevState: ParserStateType,
-        public readonly waitNextBuf: { type: 'standalone'|'positional'|'pair', value: string }|undefined,
-        public readonly args: IArgumentCompiled[],
-        public readonly pairPath: string[] = [],
-    ) {}
+/**
+ * Snapshot of the parser's mutable state, taken at every token. The
+ * undo stack lets the interpreter step back one parse on `cancel-op`
+ * (the user's "Back" button). Everything is value-cloned at memorize
+ * time — `path`/`pending`/`values` are mutable inside the parser, so
+ * the snapshot must own copies.
+ */
+export interface StateSnap {
+    /** Current branch path inside the tree. Empty = at root. */
+    readonly path: readonly string[]
+    /** A leaf the parser is awaiting a value for, or `null`. */
+    readonly pending: { readonly leafPath: readonly string[] } | null
+    /** Committed leaf values keyed by full slash-delimited path. */
+    readonly values: ReadonlyMap<string, string>
 }
 
 export class StateSnaper {
@@ -18,27 +21,28 @@ export class StateSnaper {
 
     constructor(
         private maxSnaps = 15,
-        private batchClean = 5
+        private batchClean = 5,
     ) {
         this.snaps = new Stack(maxSnaps)
         if (batchClean > maxSnaps) {
-            throw new Error(`StateSnaper:: BatchClean must be less than maxSnaps`)
+            throw new Error('StateSnaper: batchClean must be <= maxSnaps')
         }
     }
 
-    memorize(snap: StateSnap) {
+    memorize(snap: StateSnap): void {
         this.snaps.push(snap)
         if (this.snaps.size() > this.maxSnaps) {
             this.snaps.pop(this.batchClean)
         }
     }
 
-    get back() {
+    /** Pop the previous snapshot (skipping the current one). Returns
+     *  `undefined` when there's no prior state to step back to. */
+    get back(): StateSnap | undefined {
         return this.snaps.pop(2)
     }
 
-    get latest() {
+    get latest(): StateSnap | undefined {
         return this.snaps.peek()
     }
 }
-

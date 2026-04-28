@@ -1,47 +1,29 @@
-// Argument authoring primitives live in @cmd-hub/common. This barrel stays as
-// a compatibility shim so existing `@core/ui/types/command/argument` imports
-// keep resolving. `option` keeps its own runtime helper (`exposeCmdArgumentOptions`)
-// locally, so re-export it explicitly to preserve name-shadowing over the
-// common re-exports.
+// Argument authoring primitives live in @cmd-hub/common. This barrel
+// re-exports the new tree-native API that the hub-side parser, builder,
+// and built-ins consume. The old descriptor/positional/branched-options
+// surface is gone — leaves carry their own static `options[]`.
 
-// Values (functions, const symbols).
 export {
-    encodePositionalName,
-    decodePositionalName,
-    isEncodedPositionalName,
-    validateArgumentDescriptor,
-    getArgumentDescType,
-    isArgumentDescStandalone,
-    isArgumentDescPositional,
-    isArgumentDescPair,
-    compileArgumentFromDesc,
     CmdArgument,
-    getCmdArgMetadata,
-    COMMAND_ARG_DESC_KEY,
+    buildTreeFromClass,
+    branch,
+    leaf,
+    walkLeaves,
+    flattenValue,
+    unflattenValue,
+    nodeAtPath,
+    CmdArgumentProxy,
     PAIR_PATH_DELIMITER,
-    PAIR_BRANCH_PREFIX,
 } from '@cmd-hub/common'
 
-// Types. `isolatedModules` requires `export type` for type-only re-exports.
 export type {
-    CmdArgumentContextType,
-    ArgumentDescriptorType,
-    IArgumentDescriptor,
-    IArgumentCompiled,
-    IArgumentIdent,
-    CmdArgumentMetadataRaw,
-    CmdArgumentMetadataDef,
-    CommandMetadata,
-    CommandArgumentKeyHolder,
-    ICmdArgumentDefinition,
-    ICmdArgumentDefenition,
-    BranchedPairOptions,
-    CompiledPairOptionsResolver,
+    OptionsTree,
+    LeafSpec,
+    BranchSpec,
+    LeafType,
+    LeafOptions,
+    BranchOptions,
+    LeafValidator,
+    DisplayHint,
+    CmdArgumentDef,
 } from '@cmd-hub/common'
-
-// `./option` re-exports the option TYPES (`CmdArgumentOptionSetter`,
-// `CmdArgumentPairOptionsType`) along with the runtime `exposeCmdArgumentOptions`
-// and type guards (`isOptionSetterFunc`, `isOptionSetterString`). Using the
-// namespace barrel keeps the argument package's public surface identical to
-// the old monolith.
-export * from './option'

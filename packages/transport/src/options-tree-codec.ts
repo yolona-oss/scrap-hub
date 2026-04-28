@@ -1,6 +1,4 @@
 /**
- * Translate `OptionsTree` (the canonical in-memory shape from
- * `@cmd-hub/common/command/tree`) ↔ the proto `CommandOptionsTree`
  * recursive shape. Lives in transport because the proto types live here;
  * `@cmd-hub/common` doesn't import any transport-side types.
  *
@@ -9,8 +7,14 @@
  * (`buildManifest`) calls `treeToProto`; descriptor compile
  * (`configureRemoteDesc`) calls `protoToTree`. Validators are dropped at
  * this boundary — they live only on the side where they were declared
- * (node-side), since functions can't cross the wire.
+ * (node-side), since functions can't cross the wire
  */
+
+
+
+
+
+
 
 import type {
     OptionsTree,
@@ -65,8 +69,8 @@ export function protoToTree(proto: CmdHubProto.CommandOptionsTree | undefined): 
 function protoToLeaf(p: CmdHubProto.LeafNode): LeafSpec {
     const type: LeafType =
         p.type === 'number' ? 'number'
-        : p.type === 'bool' ? 'bool'
-        : 'string'
+            : p.type === 'bool' ? 'bool'
+                : 'string'
     return leaf({
         type,
         required: p.required,

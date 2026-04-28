@@ -27,14 +27,6 @@ import {
 export const COMMAND_ARG_DESC_KEY = makeMetaKey('CmdArgument')
 const DESIGN_TYPE_KEY = 'design:type'
 
-/** What the decorator stores per property. The desugarer reads this and
- *  produces an `OptionsTree`. The two shapes are mutually exclusive but
- *  carried in one bag for storage simplicity. */
-export interface CmdArgumentMetadataRaw {
-    readonly leaf?: LeafOptions & { type: LeafType }
-    readonly branch?: BranchOptions
-}
-
 /** Public input shape. Everything is optional; the desugarer fills defaults
  *  per `tree.ts:leaf()` / `tree.ts:branch()`. Provide `branch: true` (or
  *  `branch: { ... }`) only when the property's design-time type is a class

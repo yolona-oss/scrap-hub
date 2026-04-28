@@ -1,4 +1,4 @@
-export * from './argument-context'
+export * from './arg-proxy'
 export * from './argument-decorator'
 export * from './identity'
 export * from './metadata'
