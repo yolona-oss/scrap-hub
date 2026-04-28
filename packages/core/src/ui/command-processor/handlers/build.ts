@@ -105,11 +105,16 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
         log.trace(`Checking for availability to start build: ${command}`)
         log.trace(`Command: ${command}\nArgs: ${args}`)
         const known = dispatcher.tryGetInvokable(command) || dispatcher.tryGetRemoteCommand(command)
-        if (!known) return
+        if (!known) {
+            log.debug(`startNewBuild: command "${command}" unknown — falling through`)
+            return
+        }
+        log.debug(`startNewBuild: ${command} local=${!!dispatcher.tryGetInvokable(command)} remote=${!!dispatcher.tryGetRemoteCommand(command)} isService=${dispatcher.isService(command)} isAllArgsPassed=${dispatcher.isAllArgsPassed(command, args)}`)
 
         const { rest: argsNoFlag, nowSet } = extractNowFlag(args)
 
         const savedSources = await this.loadSaved(command, ctx, dispatcher)
+        log.debug(`startNewBuild: ${command} savedSources.size=${savedSources.size} nowSet=${nowSet}`)
 
         if (nowSet && dispatcher.isService(command)) {
             const tree = dispatcher.getCommandTree(command)
@@ -135,6 +140,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
         }
 
         if (!dispatcher.isAllArgsPassed(command, argsNoFlag)) {
+            log.debug(`startNewBuild: opening builder for ${command}`)
             const desc: IUICommandDescriptor = await descCompiler.compile(command, userId, dispatcher, ctx)
             const res = await builder.startBuild(userId, command, desc, undefined, savedSources)
             return {
@@ -143,6 +149,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
                 messageType: 'builder' as const,
             }
         }
+        log.debug(`startNewBuild: isAllArgsPassed=true for ${command} — falling through to invocation`)
         return
     }
 

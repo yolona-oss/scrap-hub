@@ -1,15 +1,15 @@
 import { WithInit } from "@cmd-hub/common";
 import { validateWithNeighborsMap } from "@cmd-hub/common";
-import type { CmdHubProto } from "@cmd-hub/transport";
 import { BaseUIContext } from "../../ui/types";
 
-/** Hub-side view of one cmd-node command. Carries the proto
- *  `CommandOptionsTree` straight through; consumers (desc-compiler,
- *  remote-invoker) decode to the in-memory `OptionsTree` themselves. */
+/** Hub-side view of one cmd-node command. The aggregator decodes
+ *  the proto on `attach` (see cmd-hub-service-impl.ts toAggregated),
+ *  so consumers receive an already-decoded `OptionsTree` — no
+ *  further proto decoding needed. */
 export interface RemoteCommandSpec {
     name: string
     description: string
-    options?: CmdHubProto.CommandOptionsTree
+    options?: OptionsTree
 }
 
 import log from '../../application/logger';
@@ -43,7 +43,6 @@ import type {
 } from "@cmd-hub/common";
 import { isOneShot, isService, IUICommandProcessed } from "../../ui/types/command";
 import { branch, buildTreeFromClass, walkLeaves, type OptionsTree } from "@cmd-hub/common";
-import { protoToTree } from "@cmd-hub/transport";
 
 export interface DispatcherRepos {
     readonly manager: IManagerRepo
@@ -111,10 +110,6 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
      *  The local registry's tree is immutable post-register, so the count
      *  never changes. Hot-path: `isAllArgsPassed` is called per `/command`. */
     private _localRequiredCount: Map<string, number> = new Map()
-    /** Memoized `protoToTree` results keyed by proto reference. The pool's
-     *  manifest holds proto buffers stably; repeated lookups for the same
-     *  remote command (e.g. CLI tab-complete) reuse the decoded tree. */
-    private _remoteTreeCache = new WeakMap<CmdHubProto.CommandOptionsTree, OptionsTree>()
 
     /** Initialised in done() — see neighbours map validation. */
     private sequenceHandler!: CommandSequenceHandler
@@ -126,14 +121,14 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             commands: Array<{
                 name: string
                 description: string
-                options?: CmdHubProto.CommandOptionsTree
+                options?: OptionsTree
             }>
             services?: Array<{ command?: { name?: string } }>
         }>
         findCommand?(name: string): {
             name: string
             description: string
-            options?: CmdHubProto.CommandOptionsTree
+            options?: OptionsTree
         } | undefined
         configModuleOwners(module: string): string[]
     } | null = null
@@ -419,9 +414,9 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             // builder so the user can review hydrated saved data and
             // toggle `-now` to skip it explicitly.
             if (this._isRemoteService(command)) return false
-            // Remote command trees aren't cached on the hub — the manifest
-            // can change as cmd-nodes attach/detach. Recompute per call.
-            return passedArgs.length >= countRequiredLeaves(protoToTree(remote.options))
+            // Aggregator already decoded the proto on attach; remote.options
+            // is an OptionsTree. Empty/undefined → no required leaves → 0 ≥ 0.
+            return passedArgs.length >= countRequiredLeaves(remote.options ?? branch({}))
         }
 
         log.error(`While processing command "${command}" with passed arguments "${passedArgs.join(", ")}", command not found`)
@@ -596,19 +591,14 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
     }
 
     /** Resolve `command` to its `OptionsTree`, regardless of whether it's
-     *  served locally (registry-cached tree) or remotely (proto-decoded
-     *  from the manifest, memoized per proto reference). Returns
-     *  `undefined` for unknown commands. */
+     *  served locally (registry-cached tree) or remotely. The aggregator
+     *  decodes remote proto trees once on attach, so this is a plain
+     *  pass-through for both. Returns `undefined` for unknown commands. */
     getCommandTree(command: string): OptionsTree | undefined {
         const local = this.cmd_registry.get(command)
         if (local) return local.options
         const remote = this.tryGetRemoteCommand(command)
-        if (!remote?.options) return undefined
-        const cached = this._remoteTreeCache.get(remote.options)
-        if (cached) return cached
-        const decoded = protoToTree(remote.options)
-        this._remoteTreeCache.set(remote.options, decoded)
-        return decoded
+        return remote?.options
     }
 
     public getRegistredServiceNames(): string[] {
@@ -650,7 +640,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
                     out.push({
                         command: c.name,
                         description: c.description,
-                        options: protoToTree(c.options),
+                        options: c.options ?? branch({}),
                     })
                     localNames.add(c.name)
                 }

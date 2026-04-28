@@ -1,6 +1,7 @@
 node_modules/
 build/
 /storage/
+examples/*/storage/
 .env
 *.log
 .log/

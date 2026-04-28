@@ -7,7 +7,6 @@ jest.mock('../../../config-registry', () => ({ ConfigRegistry: { register: jest.
 import { HandleCmdBuilder } from '../handlers/build'
 import { CmdDispatcher } from '../dispatcher'
 import { branch, leaf, type OptionsTree } from '@cmd-hub/common'
-import { treeToProto } from '@cmd-hub/transport'
 
 function makeDispatcher(opts: {
     commandTree: OptionsTree
@@ -17,20 +16,17 @@ function makeDispatcher(opts: {
 }) {
     const dispatcher = new CmdDispatcher() as any
     const command = 'svc'
-    // The descriptor compiler decodes a remote command's `options`
-    // through `protoToTree`, so the manifest-side tree must be in the
-    // proto shape. Encode our raw tree once and reuse it.
-    const protoOptions = treeToProto(opts.commandTree)
-    // Pretend the command is remote: install a minimal aggregator.
+    // The aggregator decodes proto on attach, so the dispatcher
+    // receives the OptionsTree directly — pass it through unchanged.
     dispatcher.attachManifestAggregator({
         listManifests: () => [{
             nodeId: 'n1', nodeName: 'n', version: '1.0.0',
-            commands: [{ name: command, options: protoOptions, description: '' }],
+            commands: [{ name: command, options: opts.commandTree, description: '' }],
             services: opts.isService === false ? [] : [{ command: { name: command }, intercomActions: [], caps: {} }],
             configs: [], hardware: {}, metrics: {},
         }],
         findCommand: (n: string) => n === command
-            ? { name: command, options: protoOptions, description: '' }
+            ? { name: command, options: opts.commandTree, description: '' }
             : undefined,
         configModuleOwners: () => [],
     })

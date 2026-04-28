@@ -2,7 +2,6 @@ import {
     branch,
     type OptionsTree,
 } from '@cmd-hub/common'
-import { protoToTree } from '@cmd-hub/transport'
 import { BaseUIContext } from '../../../ui'
 import { IUICommandDescriptor } from '../../../ui/types'
 import { ICmdService } from '../../../ui/types/command'
@@ -81,6 +80,10 @@ export class CBDescriptorCompiler {
     }
 
     private buildRemoteOptions(remote: RemoteCommandSpec): OptionsTree {
-        return protoToTree(remote.options)
+        // The aggregator already decoded the proto on attach
+        // (see cmd-hub-service-impl.ts toAggregated); options is an
+        // OptionsTree, not the proto shape. Decoding again would yield
+        // an empty branch and the builder would refuse to open.
+        return remote.options ?? branch({})
     }
 }
