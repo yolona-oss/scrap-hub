@@ -1,48 +1,33 @@
-import { IUICommandDescriptor } from "../../../ui/types"
-import { BaseUIContext, UiUnicodeSymbols } from "../../../ui"
-import { CBDescriptorCompiler } from "./desc-compiler"
-import { CmdDispatcher } from "./../dispatcher"
-import { CBInterpreter } from "./interpreter"
-import { BuilderMarkuper } from "./builder-markuper"
-import { IBaseMarkup } from "../types/markup"
-import { CBParser } from "./interpreter/parser"
-import { CmdArgumentContextType } from "../../../ui/types/command";
-import { EvaluationResult } from "./ev-result"
-import { unique } from "@cmd-hub/common"
-import { anyToString } from "@cmd-hub/common"
-import { InterpreterMode } from "./interpreter/interpreter"
-import { BuilderActionSigns } from "./default-callbacks"
-import log from "../../../application/logger"
+import { IUICommandDescriptor } from '../../../ui/types'
+import { BaseUIContext, UiUnicodeSymbols } from '../../../ui'
+import { CBDescriptorCompiler } from './desc-compiler'
+import { CmdDispatcher } from './../dispatcher'
+import { CBInterpreter } from './interpreter'
+import { BuilderMarkuper } from './builder-markuper'
+import { IBaseMarkup } from '../types/markup'
+import { CBParser } from './interpreter/parser'
+import { EvaluationResult } from './ev-result'
+import { anyToString } from '@cmd-hub/common'
+import { InterpreterMode } from './interpreter/interpreter'
+import log from '../../../application/logger'
 
-// TODO mark readed args with * start line marker to make it easier to read
+/**
+ * Per-user command-builder session manager. Each user has at most one
+ * active build at a time, keyed by `userId`. The dispatcher hands an
+ * `IUICommandDescriptor` (a tree built by `CBDescriptorCompiler`) to
+ * `startBuild`; subsequent user input flows through `handle()` which
+ * forwards to the parser/interpreter via the user's `CBInterpreter`.
+ */
 export class CommandBuilder {
     private usersBuild: Map<string, CBInterpreter> = new Map()
 
-    constructor() { }
+    constructor() {}
 
-    static selectReadingContexts<UICtx extends BaseUIContext>(
-        command: string,
-        userId: string,
-        dispatcher: CmdDispatcher<UICtx>
-    ): CmdArgumentContextType[] {
-        const isService = dispatcher.isService(command)
-        const isActive = dispatcher.isServiceActive(userId, command)
-
-        return isService ?
-            isActive ?
-                ['message'] :
-                ['params', 'config'] :
-            ['args']
+    isUserOnBuild(userId: string): boolean {
+        return this.usersBuild.has(userId)
     }
 
-    isUserOnBuild(userId: string) {
-        if (this.usersBuild.has(userId)) {
-            return true
-        }
-        return false
-    }
-
-    private stopBuild(userId: string) {
+    private stopBuild(userId: string): void {
         this.usersBuild.delete(userId)
     }
 
@@ -62,74 +47,52 @@ export class CommandBuilder {
         userId: string,
         command: string,
         desc: IUICommandDescriptor,
-        contexts: CmdArgumentContextType[],
         mode?: InterpreterMode,
-        savedData?: Record<string, any>
+        savedData?: Record<string, unknown>,
     ): Promise<IBaseMarkup> {
         if (this.usersBuild.has(userId)) {
-            throw new Error("User already has active build.")
+            throw new Error('User already has active build.')
+        }
+        if (desc.options.node === 'branch' && desc.options.children.size === 0) {
+            throw new Error('No arguments in descriptor. Nothing to build.')
         }
 
-        const uniqCtxs = unique(contexts)
-        if (uniqCtxs.length === 0) {
-            throw new Error("No avalible contexts.")
-        }
-
-        if (desc.args.length === 0) {
-            throw new Error("No arguments in descriptor. Nothing to build.")
-        }
-
-        // Pick context with required args first, then config, then first available
-        const ctxWithRequired = uniqCtxs.find(ctx => desc.args.some(a => a.ctx === ctx && a.required))
-        const initialCtx = ctxWithRequired ?? uniqCtxs.find(c => c === 'config') ?? uniqCtxs[0]
-
-        const state = new CBParser({
-            command,
-            descriptor: desc,
-            avaliableArgCtxs: uniqCtxs,
-            switchArgCtxKeyword: BuilderActionSigns.switchCtx,
-            initialArgCtx: initialCtx
-        })
-        state.SavedData = savedData
-        const interpreter = new CBInterpreter(state, mode)
+        const parser = new CBParser({ command, descriptor: desc })
+        parser.SavedData = savedData
+        const interpreter = new CBInterpreter(parser, mode)
         this.usersBuild.set(userId, interpreter)
 
-        return await BuilderMarkuper.__tmpMarkup(state, savedData)
+        return BuilderMarkuper.intro(parser, savedData)
     }
 
-    /**
-     * Compile command non-mandatory
-     */
+    /** Non-mandatory compilation: try to compile a one-shot command's
+     *  arguments from a single line of free-form input. Used by built-in
+     *  commands so `/help foo` runs without entering interactive build. */
     public async compile<UICtx extends BaseUIContext>(
         userId: string,
         command: string,
         input: string,
         ctx: UICtx,
-        dispatcher: CmdDispatcher<UICtx>
+        dispatcher: CmdDispatcher<UICtx>,
     ): Promise<EvaluationResult> {
-        log.trace(`CommandBuilder: Starting non-mandatory compilation for command: ${command}`)
-        const desc_compiler = new CBDescriptorCompiler<UICtx>()
-        const descriptor = await desc_compiler.compile(command, userId, dispatcher, ctx)
-
-        const argContexts = CommandBuilder.selectReadingContexts(command, userId, dispatcher)
-        const parser = new CBParser({
-            command,
-            avaliableArgCtxs: argContexts,
-            descriptor,
-            switchArgCtxKeyword: BuilderActionSigns.switchCtx,
-            initialArgCtx: 'args'
-        })
+        log.trace(`CommandBuilder: starting non-mandatory compilation for ${command}`)
+        const descriptor = await descCompiler.compile(command, userId, dispatcher, ctx)
+        const parser = new CBParser({ command, descriptor })
         const interpreter = new CBInterpreter(parser, 'non-mandatory')
 
         try {
-            const compiled = interpreter.step(input)
-            return compiled
-        } catch(e) {
-            throw new Error(`${UiUnicodeSymbols.cross} Non crendary compilation failed.\n
--- ${UiUnicodeSymbols.magnifierGlass} Input: ${UiUnicodeSymbols.arrowRight} "${input}".\n
--- ${UiUnicodeSymbols.magnifierGlass} Error: ${UiUnicodeSymbols.arrowRight} "${anyToString(e) || "Unknown error"}"`)
-
+            return interpreter.step(input)
+        } catch (e) {
+            throw new Error(
+                `${UiUnicodeSymbols.cross} Non-mandatory compilation failed.\n` +
+                `-- ${UiUnicodeSymbols.magnifierGlass} Input: ${UiUnicodeSymbols.arrowRight} "${input}"\n` +
+                `-- ${UiUnicodeSymbols.magnifierGlass} Error: ${UiUnicodeSymbols.arrowRight} "${anyToString(e) || 'Unknown error'}"`,
+            )
         }
     }
 }
 
+/** Shared `CBDescriptorCompiler` instance — the compiler is stateless,
+ *  so reusing one avoids the per-call allocation in both the
+ *  non-mandatory compile path and `handlers/build.ts`. */
+export const descCompiler = new CBDescriptorCompiler()

@@ -1,21 +1,13 @@
-// Session-autocomplete helpers consumed by `HubGlobalServiceParam`
-// (see ../hub-service-data.ts). `sessionOpts` reads the manager's active
-// session ids via the dispatcher; `sessionOptsWithRand` appends a handful
-// of random ids as "start a new session" shortcuts; `sessionIdValidator`
-// keeps session names alphanumeric-only.
-import type { ManagerRecord } from "@cmd-hub/common"
-import { ArgOptionValidator, CmdDispatcher } from "../../../../../ui/command-processor"
-import { genRandomString } from "@cmd-hub/common"
-import { CmdArgumentOptionSetter } from "../../../../../ui/types/command"
+/**
+ * Session-id helpers used by `HubGlobalServiceParam`.
+ *
+ * `sessionIdValidator` keeps user-supplied session names alphanumeric only —
+ * mongo-safe and URL-safe. The function-form options resolvers
+ * (`sessionOpts` / `sessionOptsWithRand`) that previously fed Telegram
+ * autocomplete are gone: the new tree-native arg model only ships static
+ * option lists over the wire, and "list this user's active sessions" is a
+ * runtime query that doesn't fit. UIs that want session autocompletion
+ * should surface it through their own affordances.
+ */
 
-export const sessionOpts: CmdArgumentOptionSetter = async (servName: string, o: CmdDispatcher<any>, manager: ManagerRecord) => {
-    return await o.UserServiceSessions(String(manager.userId), servName)
-}
-
-export const sessionOptsWithRand: CmdArgumentOptionSetter = async (servName: string, o: CmdDispatcher<any>, manager: ManagerRecord) => {
-    const avliableSessions = await o.UserServiceSessions(String(manager.userId), servName)
-    const randIds = new Array<string>(4).fill('').map(() => genRandomString(8))
-    return [...avliableSessions, ...randIds]
-}
-
-export const sessionIdValidator: ArgOptionValidator = (v: string) => Boolean(v.match(/^[0-9a-zA-Z]+$/))
+export const sessionIdValidator = (v: string) => Boolean(v.match(/^[0-9a-zA-Z]+$/))

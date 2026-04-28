@@ -4,16 +4,12 @@ import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
 import { CmdArgument } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
-import type { ManagerRecord } from "@cmd-hub/common"
 
 class DashboardArgs {
     @CmdArgument({
         required: false,
         position: 1,
         description: "Service name to show dashboard for",
-        pairOptions: async (_: string, handler: CmdDispatcher<any>, owner: ManagerRecord) => {
-            return handler.UserActiveServices(String(owner.userId)).map(s => s.name)
-        }
     })
     service?: string
 }
@@ -21,7 +17,7 @@ class DashboardArgs {
 export const DashboardCommand: BuiltInCommand = {
     command: BuiltInUiCommandsEnum.DASHBOARD,
     description: "Show, foreground, or close a service dashboard",
-    args: new DashboardArgs,
+    args: DashboardArgs,
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
         const userId = String(ctx.manager!.userId)
         const serviceName = args.getPos(1)

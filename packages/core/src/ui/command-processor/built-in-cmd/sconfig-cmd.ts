@@ -12,29 +12,28 @@ class SConfigArgs {
     @CmdArgument({
         required: false,
         position: 1,
-        description: "Service name",
-        pairOptions: async (_, handler) => handler.getRegistredServiceNames()
+        description: 'Service name',
     })
     service?: string
 
     @CmdArgument({
         required: false,
         position: 2,
-        description: "Config key to set"
+        description: 'Config key to set',
     })
     key?: string
 
     @CmdArgument({
         required: false,
         position: 3,
-        description: "New value"
+        description: 'New value',
     })
     value?: string
 
     @CmdArgument({
         required: false,
         standalone: true,
-        description: "Clear all saved config for the service"
+        description: 'Clear all saved config for the service',
     })
     clear?: string
 }
@@ -66,7 +65,7 @@ function maskSensitive(key: string, value: unknown): string {
 export const SConfigCommand: BuiltInCommand = {
     command: BuiltInUiCommandsEnum.SCONFIG,
     description: "View or edit the account-layer baseline config (session overlays still take precedence at runtime)",
-    args: new SConfigArgs,
+    args: SConfigArgs,
     requires: [CAP_ManagerRepo, CAP_AccountRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
         const repos = this.requireRepos('sconfig')

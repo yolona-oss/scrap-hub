@@ -1,10 +1,9 @@
 import { AbstractCmdHandler, ICmdHandlerRequest, ICmdHandlerResponce } from "./abstract-handler"
 import { BaseUIContext } from "../../../ui/types"
 import { BaseUI } from "../../../ui/base-ui"
-import { CommandBuilder } from "../builder"
+import { CommandBuilder, descCompiler } from "../builder"
 import { CmdDispatcher } from "../dispatcher"
 import log from '../../../application/logger'
-import { CBDescriptorCompiler } from "../builder/desc-compiler"
 import { IUICommandDescriptor, IUI } from "../../../ui/types"
 import { isOneShot, formatEffectiveArgs } from "../../types/command"
 
@@ -24,15 +23,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
             return
         }
         if (!dispatcher.isAllArgsPassed(command, args)) {
-            const avalibleCtxs = CommandBuilder.selectReadingContexts(command, userId, dispatcher)
-
-            const descCompiler = new CBDescriptorCompiler<UICtx>()
-            let desc: IUICommandDescriptor = await descCompiler.compile(
-                command,
-                userId,
-                dispatcher,
-                ctx
-            )
+            const desc: IUICommandDescriptor = await descCompiler.compile(command, userId, dispatcher, ctx)
 
             // Fetch saved data for services to show in builder
             let savedData: Record<string, unknown> | undefined
@@ -52,7 +43,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
                 } catch (_) {}
             }
 
-            const res = await builder.startBuild(userId, command, desc, avalibleCtxs, undefined, savedData)
+            const res = await builder.startBuild(userId, command, desc, undefined, savedData)
 
             return {
                 success: true,

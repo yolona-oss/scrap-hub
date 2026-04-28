@@ -53,11 +53,7 @@ export {
 } from './ui/types/command/service'
 export type { ServiceContext } from './ui/types/command/service'
 export { HubGlobalServiceParam } from './ui/types/command/service/hub-service-data'
-export {
-    sessionOpts,
-    sessionOptsWithRand,
-    sessionIdValidator,
-} from './ui/types/command/service/utils/session-id-generator'
+export { sessionIdValidator } from './ui/types/command/service/utils/session-id-generator'
 
 // Constants (cmd-hub-private app branding)
 export * from './constants'

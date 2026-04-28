@@ -18,14 +18,14 @@ class AliasArgs {
         position: 1,
         description: "Alias name",
     })
-    alias!: String
+    alias?: string
 
     @CmdArgument({
         required: true,
         position: 2,
         description: "Command to alias",
     })
-    command!: String
+    command?: string
 }
 
 const AliasCommand: BuiltInCommand = {
@@ -61,7 +61,7 @@ class UnAliasArgs {
         position: 1,
         description: "Alias name to remove",
     })
-    alias!: String
+    alias?: string
 }
 
 const UnaliasCommand: BuiltInCommand = {
@@ -85,7 +85,6 @@ const UnaliasCommand: BuiltInCommand = {
 const ListAliases: BuiltInCommand = {
     command: BuiltInAliasCommandsEnum.LIST_ALIASES_COMMAND,
     description: "Show all user aliases",
-    args: [],
     requires: [CAP_CmdAliasRepo],
     invokable: async function(this: CmdDispatcher<any>, _, ctx) {
         const ownerId = ctx.manager!.id

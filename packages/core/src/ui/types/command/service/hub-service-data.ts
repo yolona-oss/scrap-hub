@@ -1,27 +1,22 @@
 import { CmdArgument, GlobalServiceParam as BaseGlobalServiceParam } from '@cmd-hub/common'
-import {
-    sessionOptsWithRand,
-    sessionIdValidator,
-} from './utils/session-id-generator'
+import { sessionIdValidator } from './utils/session-id-generator'
 
 /**
  * Hub-side `GlobalServiceParam` that re-decorates the `sessionId` / `s` fields
- * with Telegram-autocomplete pairOptions + validator. The common base version
- * intentionally carries bare decorators (no dispatcher/manager coupling); hub
- * apps that want the richer prompt behavior subclass this instead.
- *
- * Usage in a service's params data class:
+ * with a session-id validator. The common base version carries bare decorators
+ * (no validator); hub apps that want input validation subclass this instead.
  *
  *     import { HubGlobalServiceParam } from '@cmd-hub/core'
  *     class ScraperParamsData extends HubGlobalServiceParam { ... }
  *
- * `getCmdArgMetadata` walks the prototype chain with child-wins semantics,
- * so the annotations here override the base class's.
+ * Function-form `pairOptions` autocompletion (live session ids from the
+ * dispatcher) was dropped along with runtime resolvers — the wire only
+ * carries static option lists. UIs that want session autocompletion can
+ * surface it through their own affordances (CLI tab-complete, etc.).
  */
 export class HubGlobalServiceParam extends BaseGlobalServiceParam {
     @CmdArgument({
         required: false,
-        pairOptions: sessionOptsWithRand,
         validator: sessionIdValidator,
         description: 'Session id to restore state from.',
     })
@@ -29,9 +24,8 @@ export class HubGlobalServiceParam extends BaseGlobalServiceParam {
 
     @CmdArgument({
         required: false,
-        pairOptions: sessionOptsWithRand,
         validator: sessionIdValidator,
-        description: 'Session id to restore state from.',
+        description: 'Session id to restore state from (alias for sessionId).',
     })
     declare s?: string
 }

@@ -11,9 +11,6 @@ import type {
     UiMessage,
 } from '@cmd-hub/common'
 import {
-    decodePositionalName,
-    isEncodedPositionalName,
-    STANDALONE_ARG_VALUE,
     SessionLogWriter,
     log,
 } from '@cmd-hub/common'
@@ -214,25 +211,18 @@ export class RemoteCmdInvoker {
         return { success: true, markup: { text: finalText }, messageType: 'dashboard' }
     }
 
-    /** Legacy-signature shim that flattens `ICommandCompiled` into the
-     *  bare-name args map the node expects (positional prefix stripped,
-     *  standalone sentinel collapsed to ''). */
+    /** Convenience overload: hand the invoker a compiled-builder result
+     *  and it ships `compiled.raw` (the slash-delimited dot-path map)
+     *  straight as the proto `args` map. */
     async invokeLegacy<Ctx extends BaseUIContext>(
         userId: string,
         compiled: ICommandCompiled,
         ctx: Ctx,
         uiImpl: IUI<Ctx, unknown>,
     ): Promise<RemoteInvokeResult> {
-        const args: Record<string, string> = {}
-        for (const a of compiled.raw) {
-            const name = isEncodedPositionalName(a.name)
-                ? decodePositionalName(a.name).name
-                : a.name
-            args[name] = a.value === STANDALONE_ARG_VALUE ? '' : a.value
-        }
         return this.invoke({
             command: compiled.command,
-            args,
+            args: Object.fromEntries(compiled.raw),
             userId,
             uiHandle: { ctx, uiImpl },
             uiName: uiImpl.ContextType(),

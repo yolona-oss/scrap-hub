@@ -29,7 +29,7 @@ function blankManifest(nodeId: string, cmd: string): NodeManifest {
         nodeId, nodeName: nodeId, version: '1.0.0',
         commands: [{
             name: cmd, compatibilityId: `com.ex.${cmd}`, version: '1.0.0',
-            description: '', args: [], aliases: [], requires: [],
+            description: '', aliases: [], requires: [],
         }],
         services: [], configs: [],
         hardware: { cpuCores: 1, totalMemoryBytes: 0, os: '', arch: '', hostname: '' },

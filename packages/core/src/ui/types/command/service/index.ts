@@ -7,7 +7,6 @@ export {
     GlobalServiceConfig,
     GlobalServiceParam,
     GlobalServiceMessages,
-    toDescriptor,
 } from '@cmd-hub/common'
 export type { ServiceContext } from '@cmd-hub/common'
 export { BLANK_SERVICE_NAME } from '@cmd-hub/common'

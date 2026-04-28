@@ -12,14 +12,14 @@ class InviteArgs {
     @CmdArgument({
         required: false,
         standalone: true,
-        description: "List all invitation links"
+        description: "List all invitation links",
     })
     list?: string
 
     @CmdArgument({
         required: false,
         description: "Expiration time (e.g. 1h, 24h, 7d). Empty = no expiry",
-        pairOptions: ['1h', '24h', '7d', '30d'],
+        options: ['1h', '24h', '7d', '30d'],
     })
     expires?: string
 }
@@ -40,7 +40,7 @@ function parseExpiry(str?: string): number | undefined {
 export const InviteCommand: BuiltInCommand = {
     command: BuiltInUiCommandsEnum.INVITE,
     description: "Create or list invitation links (admin only)",
-    args: new InviteArgs,
+    args: InviteArgs,
     requires: [CAP_InvitationLinkRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
         if (!ctx.manager?.isAdmin) {

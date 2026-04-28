@@ -47,7 +47,7 @@ function makeRenderCtx(uiName: string): UiRenderContext {
 export const LogCommand: BuiltInCommand = {
     command: BuiltInUiCommandsEnum.LOG,
     description: "Show full UiMessage history for a session.",
-    args: new LogArgs,
+    args: LogArgs,
     requires: [CAP_SessionLogRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx, uiImpl) {
         const repos = this.repos

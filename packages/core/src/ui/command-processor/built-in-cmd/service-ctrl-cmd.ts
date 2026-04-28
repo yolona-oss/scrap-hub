@@ -1,23 +1,17 @@
-import { CmdArgument, isOneShot } from "../../../ui/types/command"
+import { CmdArgument } from "../../../ui/types/command"
 import { BuiltInServiceCommandsEnum } from "../constants"
-import { ICmdService } from "../../../ui/types/command"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdDispatcher } from "../dispatcher"
-import { anyToString } from "@cmd-hub/common"
+import { anyToString, branch, CmdArgumentProxy } from "@cmd-hub/common"
 import { UiUnicodeSymbols } from "../../../ui"
-import { CmdArgumentProxy } from "../arg-proxy"
-import type { ManagerRecord } from "@cmd-hub/common"
 
 class ServiceStopArgs {
     @CmdArgument({
         required: true,
         position: 1,
         description: "Service name to stop",
-        pairOptions: async (_: string, handler: CmdDispatcher<any>, owner: ManagerRecord) => {
-            return handler.ActiveServices.get(String(owner.userId))?.map(s => s.name) ?? []
-        }
     })
-    service!: String
+    service?: string
 }
 
 const ServiceStopCommand: BuiltInCommand = {
@@ -44,11 +38,8 @@ class ServiceRunArgs {
         required: true,
         position: 1,
         description: "Service name to run",
-        pairOptions: async (_, handler, __) => {
-            return handler.getRegistredServiceNames()
-        }
     })
-    service!: String
+    service?: string
 }
 
 const ServiceRunCommand: BuiltInCommand = {
@@ -66,7 +57,13 @@ const ServiceRunCommand: BuiltInCommand = {
                 await ctx.reply(`${UiUnicodeSymbols.error} No remote invoker attached.`)
                 return
             }
-            const res = await invoker.invokeLegacy(userId, {command: serviceName, proxy: new CmdArgumentProxy([]), raw: []}, ctx, uiImpl)
+            const emptyTree = branch({})
+            const res = await invoker.invokeLegacy(
+                userId,
+                { command: serviceName, proxy: new CmdArgumentProxy(new Map(), emptyTree), raw: new Map() },
+                ctx,
+                uiImpl,
+            )
             await ctx.reply(`${UiUnicodeSymbols.success} Service "${serviceName}" started: ${JSON.stringify(res)}`)
         } catch (e: unknown) {
             await ctx.reply(`Service ${serviceName} termination error: ${anyToString(e)}.`)
@@ -81,41 +78,23 @@ class ServiceSendMsgArgs {
     @CmdArgument({
         required: true,
         position: 1,
-        description: "Service name to send message",
-        pairOptions: async function(_: string, dispatcher: CmdDispatcher<any>, owner: ManagerRecord): Promise<string[]> {
-            return dispatcher.UserActiveServices(String(owner.userId)).map(s => s.name)
-        }
+        description: 'Service name to send message',
     })
-    service!: String
+    service?: string
 
     @CmdArgument({
         required: true,
         position: 2,
-        description: "Message name",
-        pairOptions: async (serviceName, handler, __) => {
-            try {
-                const cb = handler.getInvokable(serviceName)
-                if (isOneShot(cb.invokable)) {
-                    throw new Error(`Command "${serviceName}" is not a service.`)
-                }
-                const instance = cb.invokable as ICmdService
-                const messages = instance.receiveMsgDescriptor()
-
-                return Object.keys(messages)
-            } catch (e: unknown) {
-                return []
-            }
-        }
+        description: 'Message name',
     })
-    message!: String
+    message?: string
 
     @CmdArgument({
         required: false,
         position: 3,
-        description: "Message additional args",
-        pairOptions: []
+        description: 'Message additional args',
     })
-    args?: String
+    args?: string
 }
 
 const ServiceSendMsgCommand: BuiltInCommand = {

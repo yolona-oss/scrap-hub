@@ -5,18 +5,13 @@ import { CmdDispatcher } from "../dispatcher"
 import { CmdArgument } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
 import { TableDesigner } from "@cmd-hub/common"
-import { CAP_ManagerRepo, CAP_AccountRepo, type ManagerRecord } from "@cmd-hub/common"
+import { CAP_ManagerRepo, CAP_AccountRepo } from "@cmd-hub/common"
 
 class SInfoArgs {
     @CmdArgument({
         required: false,
         position: 1,
-        description: "Service name",
-        pairOptions: async (_: string, handler: CmdDispatcher<any>, owner: ManagerRecord) => {
-            return handler.UserActiveServices(String(owner.userId)).map(s => s.name)
-                .concat(handler.getRegistredServiceNames())
-                .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i) // unique
-        }
+        description: 'Service name',
     })
     service?: string
 }
@@ -50,7 +45,7 @@ interface ServiceData {
 export const SInfoCommand: BuiltInCommand = {
     command: BuiltInUiCommandsEnum.SINFO,
     description: "Show service runtime data, saved config, and session state",
-    args: new SInfoArgs,
+    args: SInfoArgs,
     requires: [CAP_ManagerRepo, CAP_AccountRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
         const repos = this.requireRepos('sinfo')

@@ -1,31 +1,35 @@
 /**
  * HubGlobalServiceParam re-decorates `sessionId` and `s` on top of the
- * common base class so Telegram-side autocomplete picks them up. Verify
- * the child class's metadata wins the prototype-chain walk.
+ * common base class with a session-id validator. Verify both the child's
+ * leaf metadata (validator) and the base class's leaves
+ * (`noDashboard`, `noCache`) survive the prototype-chain walk.
  */
 import 'reflect-metadata'
-import { getCmdArgMetadata } from '@cmd-hub/common'
+import { buildTreeFromClass, walkLeaves, type LeafSpec } from '@cmd-hub/common'
 import { HubGlobalServiceParam } from '../hub-service-data'
-import {
-    sessionOptsWithRand,
-    sessionIdValidator,
-} from '../utils/session-id-generator'
+import { sessionIdValidator } from '../utils/session-id-generator'
+
+function leafMap(): Map<string, LeafSpec> {
+    const tree = buildTreeFromClass(HubGlobalServiceParam)
+    const out = new Map<string, LeafSpec>()
+    for (const { pathKey, leaf } of walkLeaves(tree)) {
+        out.set(pathKey, leaf)
+    }
+    return out
+}
 
 describe('HubGlobalServiceParam', () => {
-    it('attaches sessionOptsWithRand + sessionIdValidator to sessionId and s', () => {
-        const meta = getCmdArgMetadata<HubGlobalServiceParam>(new HubGlobalServiceParam())
-
-        expect(meta.sessionId.pairOptions).toBe(sessionOptsWithRand)
-        expect(meta.sessionId.validator).toBe(sessionIdValidator)
-        expect(meta.s.pairOptions).toBe(sessionOptsWithRand)
-        expect(meta.s.validator).toBe(sessionIdValidator)
+    it('attaches sessionIdValidator to sessionId and s', () => {
+        const leaves = leafMap()
+        expect(leaves.get('sessionId')?.validator).toBe(sessionIdValidator)
+        expect(leaves.get('s')?.validator).toBe(sessionIdValidator)
     })
 
     it('preserves the base class decoration for noDashboard', () => {
-        const meta = getCmdArgMetadata<HubGlobalServiceParam>(new HubGlobalServiceParam())
-
-        expect(meta.noDashboard).toBeDefined()
-        expect(meta.noDashboard.standalone).toBe(true)
-        expect(meta.noDashboard.required).toBe(false)
+        const leaves = leafMap()
+        const noDashboard = leaves.get('noDashboard')
+        expect(noDashboard).toBeDefined()
+        expect(noDashboard!.standalone).toBe(true)
+        expect(noDashboard!.required).toBe(false)
     })
 })

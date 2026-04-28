@@ -3,25 +3,13 @@ import { validateWithNeighborsMap } from "@cmd-hub/common";
 import type { CmdHubProto } from "@cmd-hub/transport";
 import { BaseUIContext } from "../../ui/types";
 
-/** Local mirror of the proto ArgSpec the dispatcher's builder consumes. */
-export interface RemoteArgSpec {
-    name: string
-    position: number
-    required: boolean
-    type: string
-    description: string
-    enumValues: string[]
-    defaultValue: string
-    /** Eager snapshot of a branched-pair-options tree when the node-side
-     *  arg used a function-form `pairOptions`. Mirrors the proto field of
-     *  the same name. Undefined for args with a literal string[] or none. */
-    branchedOptions?: CmdHubProto.BranchedOptions
-}
-
+/** Hub-side view of one cmd-node command. Carries the proto
+ *  `CommandOptionsTree` straight through; consumers (desc-compiler,
+ *  remote-invoker) decode to the in-memory `OptionsTree` themselves. */
 export interface RemoteCommandSpec {
     name: string
     description: string
-    args: ReadonlyArray<RemoteArgSpec>
+    options?: CmdHubProto.CommandOptionsTree
 }
 
 import log from '../../application/logger';
@@ -53,7 +41,9 @@ import type {
     IPendingDeleteRepo,
     CapabilityKey,
 } from "@cmd-hub/common";
-import { CmdArgumentMetadataRaw, getCmdArgMetadata, isOneShot, isService, IUICommandProcessed } from "../../ui/types/command";
+import { isOneShot, isService, IUICommandProcessed } from "../../ui/types/command";
+import { branch, buildTreeFromClass, walkLeaves, type OptionsTree } from "@cmd-hub/common";
+import { protoToTree } from "@cmd-hub/transport";
 
 export interface DispatcherRepos {
     readonly manager: IManagerRepo
@@ -105,10 +95,22 @@ import { HandleCommandAlias } from "./handlers/alias";
 import { ICommandHandlerChain } from "./handlers/abstract-handler";
 import { ServiceDashboard } from "./dashboard";
 
+function countRequiredLeaves(tree: OptionsTree): number {
+    let n = 0
+    for (const { leaf } of walkLeaves(tree)) {
+        if (leaf.required) n++
+    }
+    return n
+}
+
 export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit {
     private active_services: Map<string, Array<BaseCommandService<any>>>
     private dashboards: Map<string, ServiceDashboard<UIContextType>> = new Map()
     private cmd_registry: Map<string, IUICommandEntry<UIContextType>>
+    /** Required-leaf count per local command, computed once at registration.
+     *  The local registry's tree is immutable post-register, so the count
+     *  never changes. Hot-path: `isAllArgsPassed` is called per `/command`. */
+    private _localRequiredCount: Map<string, number> = new Map()
 
     /** Initialised in done() — see neighbours map validation. */
     private sequenceHandler!: CommandSequenceHandler
@@ -120,13 +122,13 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             commands: Array<{
                 name: string
                 description: string
-                args?: ReadonlyArray<RemoteArgSpec>
+                options?: CmdHubProto.CommandOptionsTree
             }>
         }>
         findCommand?(name: string): {
             name: string
             description: string
-            args?: ReadonlyArray<RemoteArgSpec>
+            options?: CmdHubProto.CommandOptionsTree
         } | undefined
         configModuleOwners(module: string): string[]
     } | null = null
@@ -284,31 +286,20 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
     }
 
     private registerWrapper({command, invokable, requires}: ICmdRegisterEntry<UIContextType>, bounded = true) {
-        let argsDesc: (CmdArgumentMetadataRaw&{name: string})[] = []
-        if (command.args) {
-            const _args = command.args
-            const metaArg = getCmdArgMetadata<any>(_args)
-            for (const key in metaArg) {
-                const arg = metaArg[key]
-                argsDesc.push({
-                    ...arg,
-                    name: key
-                })
-            }
-        }
-
+        const options = command.args ? buildTreeFromClass(command.args) : branch({})
         this.cmd_registry.set(
             command.command,
             {
                 invokable: invokable,
                 description: command.description,
-                args: argsDesc,
+                options,
                 next: command.next,
                 prev: command.prev,
                 seqBounded: bounded,
                 requires,
             },
         );
+        this._localRequiredCount.set(command.command, countRequiredLeaves(options))
     }
 
     done() {
@@ -414,11 +405,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         const cmd = this.cmd_registry.get(command)
         if (cmd) {
             if (isOneShot(cmd.invokable)) {
-                if (!cmd.args || cmd.args.length === 0) {
-                    return true
-                }
-                const requiredArgs = cmd.args.filter(a => a.required)
-                return passedArgs.length >= requiredArgs.length
+                return passedArgs.length >= (this._localRequiredCount.get(command) ?? 0)
             }
             // Services always open the builder, even with all args typed.
             return false
@@ -426,8 +413,9 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
 
         const remote = this.tryGetRemoteCommand(command)
         if (remote) {
-            const requiredCount = remote.args.filter(a => a.required).length
-            return passedArgs.length >= requiredCount
+            // Remote command trees aren't cached on the hub — the manifest
+            // can change as cmd-nodes attach/detach. Recompute per call.
+            return passedArgs.length >= countRequiredLeaves(protoToTree(remote.options))
         }
 
         log.error(`While processing command "${command}" with passed arguments "${passedArgs.join(", ")}", command not found`)
@@ -570,12 +558,12 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         if (agg.findCommand) {
             const c = agg.findCommand(command)
             if (!c) return undefined
-            return { name: c.name, description: c.description, args: c.args ?? [] }
+            return { name: c.name, description: c.description, options: c.options }
         }
         for (const m of agg.listManifests()) {
             for (const c of m.commands) {
                 if (c.name === command) {
-                    return { name: c.name, description: c.description, args: c.args ?? [] }
+                    return { name: c.name, description: c.description, options: c.options }
                 }
             }
         }
@@ -603,35 +591,32 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
     }
 
     public toUICommands(): IUICommandProcessed[] {
-        let commands = Array.from(this.cmd_registry.keys())
-        const cmd_descriptions = Array.from(this.cmd_registry.values()).map(v => v.description)
-        const cmd_args = Array.from(this.cmd_registry.values()).map(v => v.args)
-
-        const registredCmds: IUICommandProcessed[] = new Array(commands.length).fill(0).map(
-            (_, i) => ({
-                command: commands[i],
-                description: cmd_descriptions[i],
-                args: cmd_args[i]
+        const out: IUICommandProcessed[] = []
+        for (const [name, entry] of this.cmd_registry) {
+            out.push({
+                command: name,
+                description: entry.description,
+                options: entry.options,
             })
-        )
+        }
 
         // Local built-ins (e.g. `/help`) win on name collision with remote nodes.
         if (this._manifestAggregator) {
-            const localNames = new Set(commands)
+            const localNames = new Set(out.map(c => c.command))
             for (const m of this._manifestAggregator.listManifests()) {
                 for (const c of m.commands) {
                     if (localNames.has(c.name)) continue
-                    registredCmds.push({
+                    out.push({
                         command: c.name,
                         description: c.description,
-                        args: [],
+                        options: protoToTree(c.options),
                     })
                     localNames.add(c.name)
                 }
             }
         }
 
-        return registredCmds
+        return out
     }
 
 }

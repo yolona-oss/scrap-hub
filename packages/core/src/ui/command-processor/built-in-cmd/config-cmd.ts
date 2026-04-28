@@ -11,22 +11,21 @@ class ConfigArgs {
     @CmdArgument({
         required: false,
         position: 1,
-        description: "Config module name",
-        pairOptions: async () => ConfigRegistry.list()
+        description: 'Config module name',
     })
     module?: string
 
     @CmdArgument({
         required: false,
         position: 2,
-        description: "Config key to set"
+        description: 'Config key to set',
     })
     key?: string
 
     @CmdArgument({
         required: false,
         position: 3,
-        description: "New value"
+        description: 'New value',
     })
     value?: string
 }
@@ -42,7 +41,7 @@ function maskValue(value: any, sensitive: boolean): string {
 export const ConfigCommand: BuiltInCommand = {
     command: BuiltInUiCommandsEnum.CONFIG,
     description: "View or edit app configuration",
-    args: new ConfigArgs,
+    args: ConfigArgs,
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
         const moduleName = args.getPos(1) ?? args.get('module')
         const key = args.getPos(2) ?? args.get('key')

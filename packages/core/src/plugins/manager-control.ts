@@ -30,7 +30,7 @@ class SetNameArgs {
         validator: (arg: string) =>
             Boolean(arg.trim().match(/^[a-zA-Z0-9 ]+$/)) && arg.length <= 32 && arg.length >= 4,
     })
-    name?: String
+    name?: string
 }
 
 class SetGreetingArgs {
@@ -39,9 +39,9 @@ class SetGreetingArgs {
         position: 1,
         description: 'Toggle startup greeting',
         validator: (arg: string) => ['on', 'off'].includes(arg),
-        pairOptions: ['on', 'off'],
+        options: ['on', 'off'],
     })
-    greeting?: String
+    greeting?: string
 }
 
 export class ManagerControlPlugin<Ctx extends BaseUIContext = BaseUIContext>

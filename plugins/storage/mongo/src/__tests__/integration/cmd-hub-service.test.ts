@@ -60,7 +60,6 @@ function blankManifest(nodeId: string, name: string): NodeManifest {
             compatibilityId: `com.ex.${name}`,
             version: '1.0.0',
             description: '',
-            args: [],
             aliases: [],
             requires: [],
         }],

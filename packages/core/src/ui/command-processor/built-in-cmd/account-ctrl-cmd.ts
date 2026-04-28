@@ -1,6 +1,5 @@
 import { CmdArgument } from "../../../ui/types/command"
 import { BuiltInAccountCommandsEnum } from "../constants"
-import log from '../../../application/logger'
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdDispatcher } from "../dispatcher"
 
@@ -9,56 +8,29 @@ import { extractValueFromObject } from "@cmd-hub/common"
 import { UiUnicodeSymbols } from "../../../ui"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { isValidConfigPath } from "@cmd-hub/common"
-import { CAP_ManagerRepo, CAP_AccountRepo, type IAccountRepo } from "@cmd-hub/common"
-
-async function listModuleNames(repo: IAccountRepo, accountId: string): Promise<string[]> {
-    const account = await repo.handleById(accountId)
-    if (!account) {
-        log.error(`account-ctrl: account ${accountId} not found`)
-        return []
-    }
-    const modules = await account.getModules()
-    return modules.map(m => m.record.name)
-}
-
-/** Helper called by `pairOptions` callbacks to grab the dispatcher's repos
- *  bag at autocomplete time. */
-async function listModuleNamesViaDispatcher(
-    dispatcher: CmdDispatcher<any>,
-    accountId: string | null,
-): Promise<string[]> {
-    if (!accountId) return []
-    const repos = dispatcher.repos
-    if (!repos) return []
-    return listModuleNames(repos.account, accountId)
-}
+import { CAP_ManagerRepo, CAP_AccountRepo } from "@cmd-hub/common"
 
 class SetVariableArgs {
     @CmdArgument({
         required: true,
         position: 1,
         description: "Module name",
-        pairOptions: async (_, handler) => {
-            return handler.getRegistredServiceNames()
-        }
     })
-    module!: String
+    module?: string
 
     @CmdArgument({
         required: true,
         description: "Variable path",
         position: 2,
-        pairOptions: []
     })
-    path!: String
+    path?: string
 
     @CmdArgument({
         required: true,
         position: 3,
         description: "Variable value",
-        pairOptions: []
     })
-    value!: String
+    value?: string
 }
 
 const SetVariableCommand: BuiltInCommand = {
@@ -97,19 +69,15 @@ class RemoveVariableArgs {
         required: true,
         description: "Module name",
         position: 1,
-        pairOptions: async (_, dispatcher, owner) => {
-            return listModuleNamesViaDispatcher(dispatcher, owner.accountId)
-        }
     })
-    module!: String
+    module?: string
 
     @CmdArgument({
         required: true,
         description: "Variable path",
         position: 2,
-        pairOptions: []
     })
-    path!: String
+    path?: string
 }
 
 const RemoveVariableCommand: BuiltInCommand = {
@@ -146,19 +114,15 @@ class GetVariableArgs {
         required: true,
         position: 1,
         description: "Module name",
-        pairOptions: async (_, dispatcher, owner) => {
-            return listModuleNamesViaDispatcher(dispatcher, owner.accountId)
-        }
     })
-    module!: String
+    module?: string
 
     @CmdArgument({
         required: true,
         position: 2,
         description: "Variable path",
-        pairOptions: []
     })
-    path!: String
+    path?: string
 }
 
 const GetVariableCommand: BuiltInCommand = {
