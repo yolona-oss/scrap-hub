@@ -4,6 +4,7 @@ import { CBParser } from './interpreter/parser'
 import { BuilderMarkups } from './default-markup'
 import { BuilderActionSigns } from './default-callbacks'
 import { IMarkupButton, IBaseMarkup } from '../types/markup'
+import type { SavedSources } from '../saved-sources'
 
 interface IBuilderMarkupOpts {
     text?: {
@@ -43,9 +44,9 @@ export class BuilderMarkuper {
      *  description, and any saved-config preview. */
     static async intro(
         parser: CBParser,
-        savedData?: Record<string, unknown>,
+        savedSources?: SavedSources,
     ): Promise<IBaseMarkup> {
-        const overwrite = BuilderMarkuper._renderIntroText(parser, savedData)
+        const overwrite = BuilderMarkuper._renderIntroText(parser, savedSources)
         return BuilderMarkuper.markup(parser, { text: { overwrite, info: '' } })
     }
 
@@ -156,21 +157,20 @@ export class BuilderMarkuper {
     }
 
     private static _renderSavedDefaults(parser: CBParser): string {
-        const saved = parser.SavedData
-        if (!saved) return ''
+        const saved = parser.SavedSources
+        if (!saved || saved.size === 0) return ''
         const setKeys = new Set(parser.Values.keys())
         const lines: string[] = []
-        for (const [key, val] of Object.entries(saved)) {
-            if (val === undefined || val === null || val === '') continue
+        for (const [key, entry] of saved) {
             if (setKeys.has(key)) continue
-            const display = String(val).slice(0, 35)
-            lines.push(` - ${UiUnicodeSymbols.info} ${key}: ${display} (saved)`)
+            const display = entry.value.slice(0, 35)
+            lines.push(` - ${UiUnicodeSymbols.info} ${key}: ${display} (${entry.source})`)
         }
         if (lines.length === 0) return ''
         return `\n\n${UiUnicodeSymbols.lock} Saved defaults:\n${lines.join('\n')}`
     }
 
-    private static _renderIntroText(parser: CBParser, savedData?: Record<string, unknown>): string {
+    private static _renderIntroText(parser: CBParser, savedSources?: SavedSources): string {
         const command = parser.Command
         let text = `${UiUnicodeSymbols.hammer} Run CmdBuilder\n` +
             `Building command: ${UiUnicodeSymbols.arrowRight} "${command}"\n`
@@ -181,12 +181,11 @@ export class BuilderMarkuper {
             text += ` - ${brackets[0]}${pathKey}${brackets[1]} - ${desc}\n`
         }
 
-        if (savedData && Object.keys(savedData).length > 0) {
+        if (savedSources && savedSources.size > 0) {
             text += `\n${UiUnicodeSymbols.info} Saved config will be applied:\n`
-            for (const [key, val] of Object.entries(savedData)) {
-                if (val === undefined || val === null || val === '') continue
-                const display = typeof val === 'object' ? JSON.stringify(val).slice(0, 40) : String(val).slice(0, 40)
-                text += `  ${key}: ${display}\n`
+            for (const [key, entry] of savedSources) {
+                const display = entry.value.slice(0, 40)
+                text += `  ${key}: ${display} (${entry.source})\n`
             }
         }
         return text

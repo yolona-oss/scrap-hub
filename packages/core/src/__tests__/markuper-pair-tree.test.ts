@@ -103,3 +103,54 @@ describe('Markuper — Tree-native rendering', () => {
         expect(m.text).toContain('Optional limit')
     })
 })
+
+import type { SavedSources } from '../ui/command-processor/saved-sources'
+
+describe('BuilderMarkuper — saved-source tags', () => {
+    function tree() {
+        return branch({
+            city: leaf({ description: 'city' }),
+            depth: leaf({ description: 'depth' }),
+        })
+    }
+
+    test('intro lists saved entries with source tag', async () => {
+        const parser = new CBParser({ command: 'svc', descriptor: { options: tree() } })
+        const saved: SavedSources = new Map([
+            ['city', { value: 'Moscow', source: 'module' }],
+            ['depth', { value: '5', source: 'session' }],
+        ])
+        const markup = await BuilderMarkuper.intro(parser, saved)
+        expect(markup.text).toContain('city: Moscow')
+        expect(markup.text).toContain('(module)')
+        expect(markup.text).toContain('depth: 5')
+        expect(markup.text).toContain('(session)')
+    })
+
+    test('user-committed leaf is unmarked; only unset leaves show source tag', async () => {
+        const parser = new CBParser({ command: 'svc', descriptor: { options: tree() } })
+        const saved: SavedSources = new Map([
+            ['city', { value: 'Moscow', source: 'module' }],
+            ['depth', { value: '5', source: 'session' }],
+        ])
+        parser.SavedSources = saved
+        // Commit city by typing.
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'city' })
+        parser.parseNextToken({ type: 'TEXT', value: 'Kazan' })
+
+        const markup = await BuilderMarkuper.markup(parser, { text: { info: '' } })
+        // depth is still saved → tag rendered for depth, not for city.
+        expect(markup.text).toContain('depth: 5')
+        expect(markup.text).toContain('(session)')
+        // city was user-committed → no '(module)' next to it.
+        // (Look for the saved-defaults block specifically: the user-set commit appears with ✓.)
+        const savedSection = markup.text.split('Saved defaults')[1] ?? ''
+        expect(savedSection).not.toContain('city')
+    })
+
+    test('no SavedSources renders no saved-defaults block', async () => {
+        const parser = new CBParser({ command: 'svc', descriptor: { options: tree() } })
+        const markup = await BuilderMarkuper.markup(parser, { text: { info: '' } })
+        expect(markup.text).not.toContain('Saved defaults')
+    })
+})
