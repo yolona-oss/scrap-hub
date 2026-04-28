@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { IExporter, ExportResult } from "./types"
+import { IExporter, ExportResult } from "../exporters/types"
 import { OrgData, SearchQuery } from "../types"
 
 function escapeCsv(value: string | null): string {

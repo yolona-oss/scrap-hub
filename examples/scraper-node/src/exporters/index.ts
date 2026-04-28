@@ -1,5 +1,5 @@
 import { ExporterRegistry } from "./registry"
-import { CsvExporter } from "./csv"
+import { CsvExporter } from "../plugins/csv"
 
 export { ExporterRegistry } from "./registry"
 export type { IExporter, ExportResult, ExporterFactory } from "./types"
