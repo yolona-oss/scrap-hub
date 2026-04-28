@@ -142,11 +142,11 @@ export class BaseInterpreterComponent extends AbstractState<CBInterpreter> {
     }
 
     protected compile(): ICommandCompiled {
-        const values = this.parser.Values
+        const effective = this.parser.effectiveValues()
         return {
             command: this.parser.Command,
-            proxy: new CmdArgumentProxy(values, this.parser.Tree),
-            raw: new Map(values),
+            proxy: new CmdArgumentProxy(effective, this.parser.Tree),
+            raw: effective,
         }
     }
 }

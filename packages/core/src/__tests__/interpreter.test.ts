@@ -503,3 +503,27 @@ describe('CommandBuilder.startBuild — SavedSources', () => {
         // (Direct parser inspection isn't exposed; the markuper test covers rendering.)
     })
 })
+
+describe('Interpreter compile — saved values fold into effective args', () => {
+    test('compiled.raw includes saved values for unset leaves', () => {
+        const tree = branch({
+            city: leaf({ description: 'city' }),
+            depth: leaf({ description: 'depth' }),
+        })
+        const parser = createParser(tree)
+        parser.SavedSources = new Map([
+            ['city', { value: 'Moscow', source: 'module' }],
+            ['depth', { value: '5', source: 'session' }],
+        ])
+        const interpreter = new CBInterpreter(parser, 'incremental')
+
+        // User overrides depth, leaves city to saved.
+        interpreter.step('--depth 7')
+        const ev = interpreter.step(BuilderActionSigns.execute)
+
+        expect(ev.IsCompiled).toBe(true)
+        const compiled = ev.Result
+        expect(compiled.raw.get('city')).toBe('Moscow')
+        expect(compiled.raw.get('depth')).toBe('7')
+    })
+})
