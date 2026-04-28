@@ -1,7 +1,12 @@
 import * as cheerio from "cheerio"
 import { Tool } from "./types"
-import { httpPostForm } from "../../http"
+import { httpGet, httpPostForm, httpPostJson } from "../../http"
 import { log } from "@cmd-hub/common"
+import {
+    getScraperSystemConfig,
+    SCRAPER_COUNTRY,
+    SCRAPER_LANGUAGE,
+} from "../../../scraper-service/system-config"
 
 export interface WebSearchResult {
     title: string
@@ -12,6 +17,19 @@ export interface WebSearchResult {
 interface WebSearchResponse {
     results: WebSearchResult[]
     error?: string
+    /** Which provider served the results (or last one tried). Useful for trace/debug. */
+    provider?: string
+}
+
+interface SearchProvider {
+    name: string
+    isConfigured(cfg: Awaited<ReturnType<typeof getScraperSystemConfig>>): boolean
+    search(
+        query: string,
+        limit: number,
+        cfg: Awaited<ReturnType<typeof getScraperSystemConfig>>,
+        signal?: AbortSignal,
+    ): Promise<WebSearchResult[]>
 }
 
 export function makeWebSearchTool(): Tool {
@@ -32,34 +50,109 @@ export function makeWebSearchTool(): Tool {
             if (!query) return { results: [], error: 'empty query' }
 
             log.trace(`ai-agent.web_search: query="${query}" limit=${limit}`)
-            try {
-                const res = await searchDuckDuckGo(query, limit, signal)
-                log.debug(`ai-agent.web_search: ${res.results.length} results${res.error ? ` (error: ${res.error})` : ''}`)
-                return res
-            } catch (e: any) {
-                log.error(`ai-agent.web_search: ${e.message ?? e}`)
-                return { results: [], error: String(e.message ?? e) }
+            const cfg = await getScraperSystemConfig()
+            const errors: string[] = []
+            for (const provider of PROVIDERS) {
+                if (!provider.isConfigured(cfg)) continue
+                try {
+                    const results = await provider.search(query, limit, cfg, signal)
+                    if (results.length > 0) {
+                        log.debug(`ai-agent.web_search: ${results.length} results via ${provider.name}`)
+                        return { results, provider: provider.name }
+                    }
+                    log.trace(`ai-agent.web_search: ${provider.name} returned 0 results, trying next`)
+                } catch (e: any) {
+                    const msg = String(e?.message ?? e)
+                    log.trace(`ai-agent.web_search: ${provider.name} failed: ${msg}`)
+                    errors.push(`${provider.name}: ${msg}`)
+                }
             }
+            const error = errors.length ? errors.join('; ') : 'no results from any provider'
+            log.debug(`ai-agent.web_search: 0 results (${error})`)
+            return { results: [], error }
         },
     }
 }
 
-async function searchDuckDuckGo(query: string, limit: number, signal?: AbortSignal): Promise<WebSearchResponse> {
-    const res = await httpPostForm(
-        'https://html.duckduckgo.com/html/',
-        { q: query },
-        { validateStatus: s => s < 500, signal },
-    )
-    const $ = cheerio.load(res.data)
-    const results: WebSearchResult[] = []
-    $('.result').each((_, el) => {
-        if (results.length >= limit) return
-        const $el = $(el)
-        const a = $el.find('a.result__a').first()
-        const url = a.attr('href') ?? ''
-        const title = a.text().trim()
-        const snippet = $el.find('.result__snippet').first().text().trim()
-        if (title && url) results.push({ title, url, snippet })
-    })
-    return { results }
+/** Brave Search API — https://api.search.brave.com/res/v1/web/search */
+const braveProvider: SearchProvider = {
+    name: 'brave',
+    isConfigured: cfg => Boolean(cfg.braveSearchApiKey),
+    async search(query, limit, cfg, signal) {
+        const params = new URLSearchParams({
+            q: query,
+            count: String(Math.min(limit, 20)),
+            country: SCRAPER_COUNTRY.toLowerCase(),
+            search_lang: SCRAPER_LANGUAGE,
+        })
+        const res = await httpGet(`https://api.search.brave.com/res/v1/web/search?${params}`, {
+            headers: {
+                'Accept': 'application/json',
+                'X-Subscription-Token': cfg.braveSearchApiKey!,
+            },
+            signal,
+        })
+        if (res.status >= 400) throw new Error(`brave http ${res.status}`)
+        const data = res.data as { web?: { results?: Array<{ title?: string; url?: string; description?: string }> } }
+        const items = data?.web?.results ?? []
+        return items.slice(0, limit).flatMap(it =>
+            it.title && it.url ? [{ title: it.title, url: it.url, snippet: it.description ?? '' }] : [],
+        )
+    },
 }
+
+/** Tavily Search API — https://api.tavily.com/search */
+const tavilyProvider: SearchProvider = {
+    name: 'tavily',
+    isConfigured: cfg => Boolean(cfg.tavilyApiKey),
+    async search(query, limit, cfg, signal) {
+        const res = await httpPostJson(
+            'https://api.tavily.com/search',
+            {
+                api_key: cfg.tavilyApiKey,
+                query,
+                max_results: Math.min(limit, 20),
+                search_depth: 'basic',
+            },
+            { signal },
+        )
+        if (res.status >= 400) throw new Error(`tavily http ${res.status}`)
+        const data = res.data as { results?: Array<{ title?: string; url?: string; content?: string }> }
+        const items = data?.results ?? []
+        return items.slice(0, limit).flatMap(it =>
+            it.title && it.url ? [{ title: it.title, url: it.url, snippet: it.content ?? '' }] : [],
+        )
+    },
+}
+
+/** DuckDuckGo HTML scraper — last-ditch fallback. DDG now serves an
+ *  anti-bot challenge page to non-browser TLS clients (HTTP 202 with an
+ *  `anomaly-modal` element); we detect it and treat as zero-results so the
+ *  caller knows to fall through. Kept as a fallback for environments without
+ *  API keys; not reliable. */
+const duckduckgoProvider: SearchProvider = {
+    name: 'duckduckgo',
+    isConfigured: () => true,
+    async search(query, limit, _cfg, signal) {
+        const res = await httpPostForm(
+            'https://html.duckduckgo.com/html/',
+            { q: query },
+            { validateStatus: s => s < 500, signal },
+        )
+        const $ = cheerio.load(res.data)
+        if ($('.anomaly-modal').length > 0) throw new Error('anomaly challenge')
+        const results: WebSearchResult[] = []
+        $('.result').each((_, el) => {
+            if (results.length >= limit) return
+            const $el = $(el)
+            const a = $el.find('a.result__a').first()
+            const url = a.attr('href') ?? ''
+            const title = a.text().trim()
+            const snippet = $el.find('.result__snippet').first().text().trim()
+            if (title && url) results.push({ title, url, snippet })
+        })
+        return results
+    },
+}
+
+const PROVIDERS: SearchProvider[] = [braveProvider, tavilyProvider, duckduckgoProvider]

@@ -205,7 +205,7 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
             return
         }
 
-        const format = this.data.config.format ?? 'csv'
+        const format = this.data.config.format ?? 'json'
         try {
             const result = await this.scraper.export(format, this.getServiceContext())
             this.sendToWorld(result.message)

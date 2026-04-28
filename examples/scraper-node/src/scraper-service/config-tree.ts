@@ -24,7 +24,7 @@ const SOURCE_OPTIONS = [
     'zoon',
     'flamp',
 ] as const
-const EXPORTER_OPTIONS = ['csv', 'google-sheets'] as const
+const EXPORTER_OPTIONS = ['json', 'csv', 'google-sheets'] as const
 
 /**
  * Per-service argument tree for `OrgScraperService`. Each leaf carries
@@ -165,7 +165,7 @@ export class ScraperConfigData extends GlobalServiceConfig {
         required: false,
         description: 'Export format',
         options: [...EXPORTER_OPTIONS],
-        default: 'csv',
+        default: 'json',
     })
     format?: string
 

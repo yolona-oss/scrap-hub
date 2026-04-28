@@ -10,6 +10,11 @@ export interface ScraperSystemConfig {
     chromePath?: string
     requestDelayMs?: number
     userAgent?: string
+    /** Brave Search API key. When set, the AI agent's `web_search` tool tries
+     *  Brave first; falls through to Tavily / DuckDuckGo if unset or empty. */
+    braveSearchApiKey?: string
+    /** Tavily Search API key. Tried after Brave; falls through to DuckDuckGo. */
+    tavilyApiKey?: string
 }
 
 export const DEFAULT_USER_AGENT =
@@ -35,6 +40,8 @@ ConfigRegistry.register({
         chromePath: '',
         requestDelayMs: 1000,
         userAgent: DEFAULT_USER_AGENT,
+        braveSearchApiKey: '',
+        tavilyApiKey: '',
     } satisfies ScraperSystemConfig,
 })
 

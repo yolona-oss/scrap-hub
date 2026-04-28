@@ -76,8 +76,12 @@ describe('OrgScraperService manifest emits a tree', () => {
         expect(config.requestDelayMs.leaf!.type).toBe('number')
         expect(config.requestDelayMs.leaf!.default).toBe('1000')
 
-        expect(config.format.leaf!.default).toBe('csv')
-        expect(config.format.leaf!.options).toContain('csv')
+        expect(config.format.leaf!.default).toBe('json')
+        // CSV + google-sheets stay in the picker (their plugins are
+        // registered by default in index.ts) but JSON is the baseline.
+        expect(config.format.leaf!.options).toEqual(
+            expect.arrayContaining(['json', 'csv', 'google-sheets']),
+        )
     })
 
     test('messages slice exposes pause/resume/stop/export as standalone bool leaves', async () => {

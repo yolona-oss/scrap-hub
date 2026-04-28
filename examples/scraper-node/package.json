@@ -7,6 +7,8 @@
         "start:ts": "ts-node src/index.ts",
         "start": "node build/index.js",
         "build": "tsc --build --pretty",
+        "clean": "rm -rf build tsconfig.tsbuildinfo",
+        "rebuild": "npm run clean && npm run build",
         "test": "jest"
     },
     "license": "ISC",

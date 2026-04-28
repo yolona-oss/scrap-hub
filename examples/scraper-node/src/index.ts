@@ -8,15 +8,20 @@ import { CmdNodeApp, HubClientMiddleware, InvokeServerMiddleware } from '@cmd-hu
 import { OrgScraperService } from './scraper-service/service'
 import { registerSources } from './sources'
 import { registerExporters } from './exporters'
+import { registerCsvExporter } from './plugins/csv'
 import { registerGoogleSheetsPlugin } from './plugins/google-sheets'
 import { registerBuiltInCheerioSources } from './plugins/cheerio-sources'
 import { OrgKind } from './ui-messages/org'
 import { SourceFailedKind } from './ui-messages/source-failed'
 
-// Side-effecting plugin registrations. These populate SourceRegistry /
-// ExporterRegistry before any scraper invocation runs.
+// Side-effecting plugin registrations. `registerExporters` seeds the
+// always-on `json` baseline; `registerCsvExporter` and
+// `registerGoogleSheetsPlugin` are opt-in formats. These run before
+// any scraper invocation so SourceRegistry / ExporterRegistry are
+// populated by the time the manifest emits.
 registerSources()
 registerExporters()
+registerCsvExporter()
 registerGoogleSheetsPlugin()
 registerBuiltInCheerioSources()
 

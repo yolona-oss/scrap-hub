@@ -6,7 +6,9 @@
     "scripts": {
         "start:ts": "ts-node src/index.ts",
         "start": "node build/index.js",
-        "build": "tsc --build --pretty"
+        "build": "tsc --build --pretty",
+        "clean": "rm -rf build tsconfig.tsbuildinfo",
+        "rebuild": "npm run clean && npm run build"
     },
     "license": "ISC",
     "description": "Example deployable: cmd-hub gateway with a swappable UI plugin (Telegram / CLI / Web)",
