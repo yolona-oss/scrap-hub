@@ -14,6 +14,7 @@ import { IUICommandDescriptor } from '../../../../ui/types'
 import { StateSnaper, type StateSnap } from './state-span'
 import { CBLexerToken } from './lexer'
 import log from '../../../../application/logger'
+import type { SavedSources } from '../../saved-sources'
 
 /**
  * Tree-native command builder parser. State at any moment:
@@ -82,7 +83,7 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
     private _path: string[] = []
     private _pending: Pending = null
     private _values = new Map<string, string>()
-    private _savedData?: Record<string, unknown>
+    private _savedSources?: SavedSources
 
     private snaper = new StateSnaper()
     private tknParseChain = new Chain<PChainReq, PChainResGType>()
@@ -359,11 +360,24 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
         return this._values
     }
 
-    get SavedData(): Record<string, unknown> | undefined {
-        return this._savedData
+    get SavedSources(): SavedSources | undefined {
+        return this._savedSources
     }
-    set SavedData(data: Record<string, unknown> | undefined) {
-        this._savedData = data
+    set SavedSources(data: SavedSources | undefined) {
+        this._savedSources = data
+    }
+
+    /** Compile-time view: user-committed values overlaid with saved
+     *  values for any leaf the user did not commit. Used by the
+     *  interpreter's compile path so saved values fill gaps without
+     *  appearing as user input in the markup. */
+    effectiveValues(): Map<string, string> {
+        const out = new Map<string, string>()
+        if (this._savedSources) {
+            for (const [k, entry] of this._savedSources) out.set(k, entry.value)
+        }
+        for (const [k, v] of this._values) out.set(k, v)
+        return out
     }
 
     /** A flat snapshot of internal state. Markuper uses this to render
