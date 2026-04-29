@@ -5,7 +5,7 @@ import { ExporterRegistry } from '../exporters/registry'
 import { OrgData, SearchQuery } from '../types'
 import { log } from '@cmd-hub/common'
 
-function escapeCsv(value: string | null): string {
+function escapeCsv(value: string | number | null | undefined): string {
     if (value === null || value === undefined) return ''
     const str = String(value)
     if (str.includes(',') || str.includes('"') || str.includes('\n')) {
@@ -14,26 +14,64 @@ function escapeCsv(value: string | null): string {
     return str
 }
 
+interface LongFormatRow {
+    name: string
+    phone: string
+    email: string
+    address: string
+    status: string
+    confidence: number
+    extractionMethod: string
+    sourceUrls: string
+}
+
+function toLongFormatRows(org: OrgData): LongFormatRow[] {
+    const phones = org.phones.length ? org.phones : ['']
+    const emails = org.emails.length ? org.emails : ['']
+    const addresses = org.addresses.length ? org.addresses : ['']
+    const sourceUrls = org.sources.map(s => s.url).join(';')
+    const rows: LongFormatRow[] = []
+    for (const phone of phones) {
+        for (const email of emails) {
+            for (const address of addresses) {
+                rows.push({
+                    name: org.name,
+                    phone, email, address,
+                    status: org.status,
+                    confidence: org.confidence,
+                    extractionMethod: org.extractionMethod,
+                    sourceUrls,
+                })
+            }
+        }
+    }
+    return rows
+}
+
 /**
  * CSV exporter, packaged as an opt-in plugin (parallel to
  * `google-sheets.ts`). Writes UTF-8 with BOM so Excel auto-detects the
- * encoding when the user opens the file. Headers are Russian, matching
- * the scraper's primary user base.
+ * encoding when the user opens the file. One row per (org, phone, email,
+ * address) cross-product (long format). Empty arrays still produce one row
+ * with empty cells.
  */
 export class CsvExporter implements IExporter {
     readonly name = 'csv'
     readonly fileExtension = '.csv'
 
     async export(data: OrgData[], query: SearchQuery): Promise<ExportResult> {
-        log.debug(`csv-exporter.export: rows=${data.length} query="${query.query}"`)
-        const headers = ['Наименование организации', 'Источник', 'E-mail', 'Телефон', 'Адрес', 'URL']
-        const rows = data.map(org => [
-            escapeCsv(org.name),
-            escapeCsv(org.source),
-            escapeCsv(org.email),
-            escapeCsv(org.phone),
-            escapeCsv(org.address),
-            escapeCsv(org.url ?? null),
+        log.debug(`csv-exporter.export: orgs=${data.length} query="${query.query}"`)
+        const headers = ['name', 'phone', 'email', 'address', 'status', 'confidence', 'extractionMethod', 'sourceUrls']
+        const longRows = data.flatMap(toLongFormatRows)
+        const rows = longRows.map(r => [
+            escapeCsv(r.name),
+            escapeCsv(r.phone),
+            escapeCsv(r.email),
+            escapeCsv(r.address),
+            escapeCsv(r.status),
+            escapeCsv(r.confidence),
+            escapeCsv(r.extractionMethod),
+            escapeCsv(r.sourceUrls),
         ].join(','))
 
         const csv = [headers.join(','), ...rows].join('\n')
@@ -53,7 +91,7 @@ export class CsvExporter implements IExporter {
 
         try {
             fs.writeFileSync(filePath, '﻿' + csv, 'utf-8') // BOM for Excel UTF-8
-            log.info(`csv-exporter.export: wrote ${data.length} rows to ${filePath} (${csv.length}b)`)
+            log.info(`csv-exporter.export: wrote ${longRows.length} rows (${data.length} orgs) to ${filePath} (${csv.length}b)`)
         } catch (e: any) {
             log.error(`csv-exporter.export: writeFileSync "${filePath}" failed: ${e?.message ?? e}`)
             throw e
@@ -62,7 +100,7 @@ export class CsvExporter implements IExporter {
         return {
             type: 'file',
             filePath,
-            message: `Exported ${data.length} organizations to ${fileName}`,
+            message: `Exported ${data.length} organizations (${longRows.length} rows) to ${fileName}`,
         }
     }
 }
