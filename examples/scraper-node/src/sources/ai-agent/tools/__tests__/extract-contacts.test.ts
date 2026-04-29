@@ -40,3 +40,38 @@ describe('extract_contacts — phones and emails', () => {
         expect(matches).toHaveLength(1)
     })
 })
+
+describe('extract_contacts — addresses', () => {
+    const tool = makeExtractContactsTool()
+
+    it('extracts address from itemprop="address"', async () => {
+        const html = `<html><body><div itemprop="address">ул. Тверская, 7</div></body></html>`
+        const result = await tool.handler({ html })
+        expect(result.addresses).toContain('ул. Тверская, 7')
+    })
+
+    it('extracts address from itemprop="streetAddress"', async () => {
+        const html = `<html><body><span itemprop="streetAddress">пр. Невский, 28</span></body></html>`
+        const result = await tool.handler({ html })
+        expect(result.addresses).toContain('пр. Невский, 28')
+    })
+
+    it('extracts address from .address class', async () => {
+        const html = `<html><body><div class="address">ул. Арбат, д. 12</div></body></html>`
+        const result = await tool.handler({ html })
+        expect(result.addresses).toContain('ул. Арбат, д. 12')
+    })
+
+    it('extracts Russian address from body text via regex', async () => {
+        const html = `<html><body><p>Наш офис: г. Москва, ул. Ленина, 5</p></body></html>`
+        const result = await tool.handler({ html })
+        expect(result.addresses.some((a: string) => /Ленина/.test(a))).toBe(true)
+    })
+
+    it('dedups addresses across sources', async () => {
+        const html = `<html><body><div class="address">ул. Тверская, 7</div><p>ул. Тверская, 7</p></body></html>`
+        const result = await tool.handler({ html })
+        const matches = result.addresses.filter((a: string) => a === 'ул. Тверская, 7')
+        expect(matches).toHaveLength(1)
+    })
+})

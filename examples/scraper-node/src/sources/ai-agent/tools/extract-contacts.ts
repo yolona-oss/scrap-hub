@@ -12,6 +12,8 @@ interface ExtractResult {
 
 const PHONE_REGEX = /(?:\+7|8)[\s\-()]*\d{3}[\s\-()]*\d{3}[\s\-()]*\d{2}[\s\-()]*\d{2}/g
 const EMAIL_REGEX = /[\w.+-]+@[\w-]+\.[\w.-]+/g
+const ADDRESS_REGEX = /(?:ул\.|улица|пр\.|проспект|пер\.|переулок|д\.|дом)\s+[А-ЯЁа-яё0-9\s,.-]{3,80}/g
+const ADDRESS_SELECTORS = '[itemprop="address"], [itemprop="streetAddress"], .address, .adres, .contacts__address'
 
 function normalizePhone(raw: string): string {
     const digits = raw.replace(/\D/g, '')
@@ -58,8 +60,18 @@ export function makeExtractContactsTool(): Tool {
                 for (const m of bodyText.match(EMAIL_REGEX) ?? []) emailSet.add(m.toLowerCase())
                 const emails = Array.from(emailSet).slice(0, 10)
 
-                log.debug(`ai-agent.extract_contacts: phones=${phones.length} emails=${emails.length}`)
-                return { phones, emails, addresses: [], candidateName: '' }
+                const addressSet = new Set<string>()
+                $(ADDRESS_SELECTORS).each((_, el) => {
+                    const text = $(el).text().replace(/\s+/g, ' ').trim()
+                    if (text) addressSet.add(text)
+                })
+                for (const m of bodyText.match(ADDRESS_REGEX) ?? []) {
+                    addressSet.add(m.replace(/\s+/g, ' ').trim())
+                }
+                const addresses = Array.from(addressSet).slice(0, 10)
+
+                log.debug(`ai-agent.extract_contacts: phones=${phones.length} emails=${emails.length} addresses=${addresses.length}`)
+                return { phones, emails, addresses, candidateName: '' }
             } catch (e: any) {
                 log.warn(`ai-agent.extract_contacts: ${e.message ?? e}`)
                 return { phones: [], emails: [], addresses: [], candidateName: '', error: String(e.message ?? e) }
