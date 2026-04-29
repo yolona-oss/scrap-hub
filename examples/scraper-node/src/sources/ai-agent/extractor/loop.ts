@@ -2,20 +2,35 @@ import { OpenAI } from 'openai'
 import { log } from '@cmd-hub/common'
 import type { ResolvedExtractorConfig } from './config'
 import type { ExtractorInput, ExtractionResult, ExtractorTool, ExtractorReport } from './types'
+import type { ClassifiedPage } from '../page-types'
 import { buildExtractorSystemPrompt, buildExtractorUserPrompt } from './prompts'
 import { makeReadBlocksTool } from './tools/read-blocks'
 import { makeReadJsonBlobTool } from './tools/read-json-blob'
+import { makeRefetchTool } from './tools/refetch'
 import { makeReportExtractionTool } from './tools/report-extraction'
 import { makeReportIncompleteTool } from './tools/report-incomplete'
 
+type ClassifyPageFn = (url: string, opts?: { signal?: AbortSignal }) => Promise<ClassifiedPage>
+
 interface RunOptions {
     client?: OpenAI
+    /** Injected for testing. In production this is `classifyPage` from `../classify-page`. */
+    classifyPage?: ClassifyPageFn
 }
 
-function buildToolset(): ExtractorTool[] {
+function buildToolset(
+    input: ExtractorInput,
+    cfg: ResolvedExtractorConfig,
+    classifyPage: ClassifyPageFn,
+): ExtractorTool[] {
     return [
         makeReadBlocksTool(),
         makeReadJsonBlobTool(),
+        makeRefetchTool({
+            originalUrl: input.url,
+            maxRefetches: cfg.maxRefetches,
+            classifyPage,
+        }),
         makeReportExtractionTool(),
         makeReportIncompleteTool(),
     ]
@@ -32,6 +47,13 @@ function defaultClient(cfg: ResolvedExtractorConfig): OpenAI {
     return new OpenAI({ baseURL: cfg.baseUrl, apiKey: cfg.apiKey ?? 'local-no-key' })
 }
 
+async function defaultClassifyPage(url: string, opts?: { signal?: AbortSignal }): Promise<ClassifiedPage> {
+    // Dynamic import: keeps module-load coupling lazy and lets test runs inject a mock
+    // via opts.classifyPage without dragging the real classifier into Jest's module graph.
+    const { classifyPage } = await import('../classify-page')
+    return classifyPage(url, opts)
+}
+
 export async function runExtractor(
     input: ExtractorInput,
     cfg: ResolvedExtractorConfig,
@@ -44,7 +66,8 @@ export async function runExtractor(
     }
 
     const client = opts.client ?? defaultClient(cfg)
-    const tools = buildToolset()
+    const classifyPage = opts.classifyPage ?? defaultClassifyPage
+    const tools = buildToolset(input, cfg, classifyPage)
     const toolByName = new Map(tools.map(t => [t.name, t]))
     const ctx = { input }
 

@@ -148,4 +148,92 @@ describe('runExtractor', () => {
         expect(r.outcome).toBe('incomplete')
         if (r.outcome === 'incomplete') expect(r.reason).toMatch(/abort/i)
     })
+
+    it('threads refetch through to a same-origin URL and reaches terminal', async () => {
+        const fakeClassify = jest.fn(async (url: string) => ({
+            url,
+            pageType: 'org-site' as const,
+            confidence: 0.85,
+            signals: [],
+            cleanedText: 'fetched contacts page',
+            candidateBlocks: [],
+            jsonLdBlobs: [],
+            contactCandidates: [],
+            aggregatorCandidates: [],
+            branchCandidates: [],
+        }))
+        const client = mockClient([
+            {
+                tool_calls: [{
+                    id: 't1', type: 'function',
+                    function: {
+                        name: 'refetch',
+                        arguments: JSON.stringify({ url: 'https://x/contacts', reason: 'contact-page' }),
+                    },
+                }],
+            },
+            {
+                tool_calls: [{
+                    id: 't2', type: 'function',
+                    function: {
+                        name: 'report_extraction',
+                        arguments: JSON.stringify({
+                            phones: ['+78121001010'], candidateName: 'X', confidence: 0.7,
+                        }),
+                    },
+                }],
+            },
+        ])
+        const r = await runExtractor(
+            { ...INPUT, url: 'https://x/' },
+            CFG,
+            undefined,
+            { client, classifyPage: fakeClassify },
+        )
+        expect(r.outcome).toBe('extraction')
+        expect(fakeClassify).toHaveBeenCalledWith('https://x/contacts')
+    })
+
+    it('rejects cross-origin refetch but loop continues', async () => {
+        const fakeClassify = jest.fn(async () => ({
+            url: 'https://x/',
+            pageType: 'org-site' as const,
+            confidence: 0.85,
+            signals: [],
+            cleanedText: '',
+            candidateBlocks: [],
+            jsonLdBlobs: [],
+            contactCandidates: [],
+            aggregatorCandidates: [],
+            branchCandidates: [],
+        }))
+        const client = mockClient([
+            {
+                tool_calls: [{
+                    id: 't1', type: 'function',
+                    function: {
+                        name: 'refetch',
+                        arguments: JSON.stringify({ url: 'https://other.ru/', reason: 'other' }),
+                    },
+                }],
+            },
+            {
+                tool_calls: [{
+                    id: 't2', type: 'function',
+                    function: {
+                        name: 'report_incomplete',
+                        arguments: JSON.stringify({ reason: 'cross-origin blocked' }),
+                    },
+                }],
+            },
+        ])
+        const r = await runExtractor(
+            { ...INPUT, url: 'https://x/' },
+            CFG,
+            undefined,
+            { client, classifyPage: fakeClassify },
+        )
+        expect(r.outcome).toBe('incomplete')
+        expect(fakeClassify).not.toHaveBeenCalled() // Cross-origin short-circuits before fetch.
+    })
 })
