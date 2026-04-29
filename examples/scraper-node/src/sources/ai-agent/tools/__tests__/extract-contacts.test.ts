@@ -182,3 +182,66 @@ describe('extract_contacts — strategy reporting', () => {
         expect(r.strategiesFired).toBeUndefined()
     })
 })
+
+describe('extract_contacts — extractor escalation', () => {
+    function fakeRunner(report: any) {
+        return jest.fn().mockResolvedValue({
+            outcome: report.outcome,
+            phones: report.phones ?? [],
+            emails: report.emails ?? [],
+            addresses: report.addresses ?? [],
+            candidateName: report.candidateName ?? '',
+            confidence: report.confidence ?? 0.5,
+            reason: report.reason,
+            toolCallsUsed: 1,
+        })
+    }
+
+    it('does not escalate when deterministic extraction succeeds', async () => {
+        const runner = jest.fn()
+        const tool = makeExtractContactsTool({ extractorRunner: runner })
+        const html = `<html><body><a href="tel:+78121001010">x</a></body></html>`
+        const r = await tool.handler({ html })
+        expect(runner).not.toHaveBeenCalled()
+        expect(r.phones).toContain('+78121001010')
+    })
+
+    it('escalates when zero contacts on substantive page', async () => {
+        const runner = fakeRunner({
+            outcome: 'extraction', phones: ['+78122002020'], candidateName: 'X', confidence: 0.7,
+        })
+        const tool = makeExtractContactsTool({ extractorRunner: runner })
+        const longText = 'About us, our story, '.repeat(60)  // >500 chars
+        const html = `<html><body><div>${longText}</div></body></html>`
+        const r = await tool.handler({ html })
+        expect(runner).toHaveBeenCalledTimes(1)
+        expect(r.phones).toContain('+78122002020')
+        expect(r.strategiesFired).toEqual(expect.arrayContaining(['extractor-llm']))
+    })
+
+    it('does not escalate on thin pages (text < 500 chars)', async () => {
+        const runner = jest.fn()
+        const tool = makeExtractContactsTool({ extractorRunner: runner })
+        const html = `<html><body><p>tiny page</p></body></html>`
+        await tool.handler({ html })
+        expect(runner).not.toHaveBeenCalled()
+    })
+
+    it('does not escalate when no runner provided (escalation disabled)', async () => {
+        const tool = makeExtractContactsTool()
+        const longText = 'About us, our story, '.repeat(60)
+        const html = `<html><body><div>${longText}</div></body></html>`
+        const r = await tool.handler({ html })
+        expect(r.phones).toEqual([])  // no contacts; no escalation
+    })
+
+    it('extractor incomplete result does not pollute output', async () => {
+        const runner = fakeRunner({ outcome: 'incomplete', reason: 'no markers' })
+        const tool = makeExtractContactsTool({ extractorRunner: runner })
+        const longText = 'A'.repeat(600)
+        const html = `<html><body><div>${longText}</div></body></html>`
+        const r = await tool.handler({ html })
+        expect(r.phones).toEqual([])
+        expect(r.strategiesFired).not.toEqual(expect.arrayContaining(['extractor-llm']))
+    })
+})
