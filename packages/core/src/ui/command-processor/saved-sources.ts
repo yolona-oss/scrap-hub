@@ -25,12 +25,12 @@ function flatten(prefix: string, obj: Record<string, unknown>, out: Map<string, 
     }
 }
 
-/** Read account-module + most-recent session config and return a
+/** Read account-module + most-recent session args and return a
  *  flat slash-delimited map of `pathKey → { value, source }`. Session
  *  values override module values on key collision (matches
  *  BaseCommandService.initSession's account < session precedence).
  *
- *  Keys are emitted under the `config/` slice prefix so they line up
+ *  Keys are emitted under the `args/` slice prefix so they line up
  *  with the wire convention used by the parser's value map.
  *
  *  Returns an empty map on any DB error so the caller falls through
@@ -48,9 +48,9 @@ export async function loadSavedSources(
         if (!account) return result
         const { module } = await account.getModuleByNameOrCreate(command)
 
-        const moduleConfig = (module.record.data?.config ?? {}) as Record<string, unknown>
+        const moduleArgs = (module.record.data?.args ?? {}) as Record<string, unknown>
         const moduleFlat = new Map<string, string>()
-        flatten('config', moduleConfig, moduleFlat)
+        flatten('args', moduleArgs, moduleFlat)
         for (const [k, v] of moduleFlat) result.set(k, { value: v, source: 'module' })
 
         const sessions = await module.getSessions()
@@ -60,9 +60,9 @@ export async function loadSavedSources(
                 (b.record.createTime ?? 0) - (a.record.createTime ?? 0),
             )
             const latest = sorted[0]
-            const sessionConfig = (latest.record.data?.config ?? {}) as Record<string, unknown>
+            const sessionArgs = (latest.record.data?.args ?? {}) as Record<string, unknown>
             const sessionFlat = new Map<string, string>()
-            flatten('config', sessionConfig, sessionFlat)
+            flatten('args', sessionArgs, sessionFlat)
             for (const [k, v] of sessionFlat) result.set(k, { value: v, source: 'session' })
         }
     } catch (e) {

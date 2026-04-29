@@ -24,7 +24,7 @@ import type { SavedSources } from '../../saved-sources'
  *     or pair). `null` while idle / browsing branches / after a toggle.
  *   - `values: Map<string,string>` — committed leaves keyed by full
  *     slash-delimited path. Shipped verbatim as the proto `args` map,
- *     slice prefixes (`config/`, `params/`, `messages/`) included.
+ *     slice prefixes (`args/`, `intercom/`) included.
  *
  * Token interpretation (against the tree, one branch level at a time):
  *
@@ -216,12 +216,12 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
      *  doesn't name a child — TEXT callers fall back to positional
      *  auto-bind, DOUBLE_DASH callers report `'none'`.
      *
-     *  At the root of a service tree (`config|params|messages` slices),
+     *  At the root of a service tree (`args|intercom` slices),
      *  if `name` doesn't name an immediate child but DOES name a unique
      *  child of one of the slices, we auto-descend into that slice first
      *  and then resolve there. This lets a CLI user type
      *  `/scraper Адвокат --city СПб` without having to know that `city`
-     *  lives under `config/`. */
+     *  lives under `args/`. */
     private handleNavigationToken(name: string): ParserPerformedAction | null {
         let node = this.childOfCurrentBranch(name)
         if (!node && this._path.length === 0) {

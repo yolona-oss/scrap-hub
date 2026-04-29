@@ -36,7 +36,7 @@ function makeDispatcher(opts: {
 
     // Stub repos so loadSavedSources works without a real DB.
     const moduleHandle = {
-        record: { data: { config: {} } },
+        record: { data: { args: {} } },
         getSessions: jest.fn().mockResolvedValue([]),
     }
     const account = { getModuleByNameOrCreate: jest.fn().mockResolvedValue({ module: moduleHandle, isNew: false }) }

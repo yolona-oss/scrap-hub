@@ -440,7 +440,7 @@ describe('Parser — SavedSources & effectiveValues', () => {
         expect(parser.SavedSources).toBeUndefined()
 
         const map: SavedSources = new Map([
-            ['config/city', { value: 'Moscow', source: 'module' as const }],
+            ['args/city', { value: 'Moscow', source: 'module' as const }],
         ])
         parser.SavedSources = map
         expect(parser.SavedSources).toBe(map)
