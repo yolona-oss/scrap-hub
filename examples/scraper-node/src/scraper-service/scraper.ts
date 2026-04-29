@@ -32,8 +32,8 @@ function normalizeString(s: string | null): string {
 
 function dedupKey(org: OrgData): string {
     const name = normalizeString(org.name)
-    const phone = normalizeString(org.phone)
-    const address = normalizeString(org.address)
+    const phone = org.phones[0] ? normalizeString(org.phones[0]) : ''
+    const address = org.addresses[0] ? normalizeString(org.addresses[0]) : ''
     // Primary: name+phone, fallback: name+address
     return phone ? `${name}::${phone}` : `${name}::${address}`
 }
@@ -69,11 +69,19 @@ export class OrgScraper {
     private addOrg(org: OrgData): boolean {
         const key = dedupKey(org)
         if (this.seen.has(key)) {
-            // Merge missing fields
             const existing = this.seen.get(key)!
-            if (!existing.email && org.email) existing.email = org.email
-            if (!existing.phone && org.phone) existing.phone = org.phone
-            if (!existing.address && org.address) existing.address = org.address
+            // Array union for each contact field.
+            for (const x of org.phones) if (!existing.phones.includes(x)) existing.phones.push(x)
+            for (const x of org.emails) if (!existing.emails.includes(x)) existing.emails.push(x)
+            for (const x of org.addresses) if (!existing.addresses.includes(x)) existing.addresses.push(x)
+            // Source-ref union (dedup by url+kind).
+            for (const s of org.sources) {
+                if (!existing.sources.some(e => e.url === s.url && e.kind === s.kind)) {
+                    existing.sources.push(s)
+                }
+            }
+            // Confidence: take the higher of the two.
+            if (org.confidence > existing.confidence) existing.confidence = org.confidence
             return false
         }
         this.seen.set(key, org)
