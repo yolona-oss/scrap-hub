@@ -51,8 +51,10 @@ Quality bar — every emitted organization must have:
 - url (optional)
 
 Address field discipline (STRICT — strongly preferred field, but only when real):
-- "address" means a PHYSICAL STREET ADDRESS of the organization — city + street + building number, e.g. "г. Санкт-Петербург, ул. Пушкина, 12" or "Невский пр., 28" or "БЦ Ренессанс, 5 этаж".
-- A partial address (street + number, no city) is ACCEPTED — the framework prefixes the target city automatically.
+- "address" means a real, page-derived location for the organization. In order of preference:
+  1. Full street address — city + street + building number, e.g. "г. Санкт-Петербург, ул. Пушкина, 12" or "Невский пр., 28" or "БЦ Ренессанс, 5 этаж".
+  2. Partial address — street + number with no city. ACCEPTED; the framework prefixes the target city automatically.
+  3. Bare target city — ACCEPTED as a last resort when the page only exposes the city (e.g. SEO meta like \`og:locality\`, schema.org \`addressLocality\`, or a "Город: …" label) and no street is available. The framework normalizes "${query.city ?? '<city>'}" to "г. ${query.city ?? '<city>'}". Do NOT fabricate a city the page doesn't claim — if the page is silent on city too, leave address null.
 - The following are NOT addresses and MUST NOT go in the address field:
   - Page URLs ("https://example.com/contacts")
   - Email addresses ("info@example.ru")
@@ -60,8 +62,8 @@ Address field discipline (STRICT — strongly preferred field, but only when rea
   - Breadcrumbs ("Главная > О нас > Контакты")
   - Page titles or organization names ("ООО Ромашка")
   - HTML markup
-  - A bare city name with no street ("Санкт-Петербург" alone)
-- If you can't find a real street address, leave address null and rely on phone/email. The address field is preferred but not mandatory; bad addresses get dropped and waste a turn.
+  - A city different from the target city (out-of-scope, will be rejected)
+- If the page exposes nothing usable for address, leave it null and rely on phone/email. The address field is preferred but not mandatory; bad addresses get dropped and waste a turn.
 
 Tool-call cache: every (tool, args) pair is invoked at most once per run; subsequent calls with identical args return the prior cached result for free (no tool budget cost, no recon-budget cost). Use this to re-read earlier results that scrolled out of recent context — but don't spam duplicates as a "thinking" device, the cache hit still consumes an LLM turn. Note: report_results is non-idempotent and is never cached.
 
@@ -107,7 +109,7 @@ Workflow heuristics:
 
 Ranking web_search results — fetch_url order matters:
 - Prefer official organization sites (".ru" or ".рф" hostnames matching the org's name) over directory aggregators (2gis.ru, yell.ru, zoon.ru, yandex.ru, rusprofile.ru). Aggregators duplicate orgs you'll find via search_source, and pages tend to be JS-rendered, so contact extraction often fails.
-- Skip social-media URLs (vk.com, instagram.com, t.me) — extract_contacts won't find structured contacts there.
+- Skip social-media URLs (vk.com, instagram.com, t.me, youtube.com) — extract_contacts won't find structured contacts there.
 - 1–3 fetches per web_search batch is enough; if the first 3 didn't yield contacts, switch tactics rather than walking the whole list.
 
 Selector hints — most pages are handled by extract_contacts(html) automatically. Call parse_html directly only when extract_contacts returned 0 of a SPECIFIC field you need:

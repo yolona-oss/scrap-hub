@@ -9,9 +9,15 @@ import { runAgentLoop, AgentToolCallInfo } from "./loop"
 import { log } from "@cmd-hub/common"
 
 export class AIAgentSource implements IScraperSource {
-    async availability(context?: ServiceContext): Promise<SourceAvailability> {
-        const cfg = await resolveAIAgentConfig(context)
-        if (!cfg) return { ok: false, reason: 'aiAgent.baseUrl / model is empty (set via the /scraper builder under --config --aiAgent --baseUrl/--model)' }
+    /** Context-free per the IScraperSource contract — the registry caches
+     *  this result by source name across users. The real "did the user
+     *  configure baseUrl/model?" check happens inside `search()` below
+     *  (per-invocation, not cached, so it sees the caller's args).
+     *
+     *  Returning ok=true here means: "the source exists and could run if
+     *  configured". Misconfigured runs surface as a thrown error in
+     *  `search()`, which the orchestrator reports as `kind:'thrown'`. */
+    async availability(_context?: ServiceContext): Promise<SourceAvailability> {
         return { ok: true }
     }
 
@@ -21,8 +27,8 @@ export class AIAgentSource implements IScraperSource {
         context?: ServiceContext,
         signal?: AbortSignal,
     ): AsyncGenerator<OrgData> {
-        const cfg = await resolveAIAgentConfig(context)
-        if (!cfg) throw new Error('aiAgent.baseUrl / model is empty')
+        const cfg = resolveAIAgentConfig(context)
+        if (!cfg) throw new Error('aiAgent.baseUrl / model is empty (set via the /scraper builder under --config --aiAgent --baseUrl / --model)')
 
         log.info(`ai-agent.search: query="${query.query}" city="${query.city ?? ''}" maxResults=${query.maxResults}`)
         log.debug(`ai-agent.search: model=${cfg.model} baseUrl=${cfg.baseUrl} maxToolCalls=${cfg.maxToolCalls} totalTimeoutMs=${cfg.totalTimeoutMs}`)
