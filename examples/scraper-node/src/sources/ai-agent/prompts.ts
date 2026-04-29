@@ -22,6 +22,19 @@ Quality bar — every emitted organization must have:
 - source (string — where you found it)
 - url (optional)
 
+Address field discipline (STRICT — strongly preferred field, but only when real):
+- "address" means a PHYSICAL STREET ADDRESS of the organization — city + street + building number, e.g. "г. Санкт-Петербург, ул. Пушкина, 12" or "Невский пр., 28" or "БЦ Ренессанс, 5 этаж".
+- A partial address (street + number, no city) is ACCEPTED — the framework prefixes the target city automatically.
+- The following are NOT addresses and MUST NOT go in the address field:
+  - Page URLs ("https://example.com/contacts")
+  - Email addresses ("info@example.ru")
+  - Phone numbers ("+7 (812) 123-45-67")
+  - Breadcrumbs ("Главная > О нас > Контакты")
+  - Page titles or organization names ("ООО Ромашка")
+  - HTML markup
+  - A bare city name with no street ("Санкт-Петербург" alone)
+- If you can't find a real street address, leave address null and rely on phone/email. The address field is preferred but not mandatory; bad addresses get dropped and waste a turn.
+
 Tool-call cache: every (tool, args) pair is invoked at most once per run; subsequent calls with identical args return the prior cached result for free (no tool budget cost, no recon-budget cost). Use this to re-read earlier results that scrolled out of recent context — but don't spam duplicates as a "thinking" device, the cache hit still consumes an LLM turn. Note: report_results is non-idempotent and is never cached.
 
 Target query: "${query.query}"

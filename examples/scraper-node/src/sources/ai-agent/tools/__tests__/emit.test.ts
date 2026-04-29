@@ -55,22 +55,25 @@ describe('emitOrg — city filter', () => {
         expect(ok).toBe(true)
     })
 
-    it('accepts a declined-form address (locative)', () => {
+    it('accepts a declined-form city when paired with a street marker (locative)', () => {
         const { queue, state, query } = makeFixtures({ city: 'Санкт-Петербург' })
         const ok = emitOrg(
-            { name: 'X', address: 'находится в Санкт-Петербурге' },
+            { name: 'X', address: 'в Санкт-Петербурге, ул. Мира, 5' },
             queue, state, query, 'src',
         )
         expect(ok).toBe(true)
     })
 
-    it('accepts a genitive-form address', () => {
+    it('rejects a vague city-only descriptor as an address (no street component)', () => {
+        // "находится в Санкт-Петербурге" / "центр Москвы" are descriptions, not
+        // addresses. Per the strict address-discipline rules they're rejected
+        // unless they have a street marker or digit.
         const { queue, state, query } = makeFixtures({ city: 'Москва' })
         const ok = emitOrg(
-            { name: 'X', address: 'центр Москвы' },
+            { name: 'X', phone: null, address: 'центр Москвы' },
             queue, state, query, 'src',
         )
-        expect(ok).toBe(true)
+        expect(ok).toBe(false)
     })
 
     it('rejects an address from a different city', () => {
