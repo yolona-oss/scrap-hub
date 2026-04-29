@@ -1,6 +1,7 @@
 import type { ServiceContext } from '../../exporters/types'
 import type { ScraperArgs, AIAgentConfig } from '../../scraper-service/args-tree'
 import { log } from '@cmd-hub/common'
+import { resolveExtractorConfig, type ResolvedExtractorConfig } from './extractor/config'
 
 export interface ResolvedAIAgentConfig {
     baseUrl: string
@@ -10,6 +11,7 @@ export interface ResolvedAIAgentConfig {
     maxToolCalls: number
     toolTimeoutMs: number
     totalTimeoutMs: number
+    extractor: ResolvedExtractorConfig | null
 }
 
 /**
@@ -39,7 +41,9 @@ export function resolveAIAgentConfig(context?: ServiceContext): ResolvedAIAgentC
         maxToolCalls: ai.maxToolCalls ?? 100,
         toolTimeoutMs: ai.toolTimeoutMs ?? 60_000,
         totalTimeoutMs: ai.totalTimeoutMs ?? 3_600_000,
+        extractor: null,
     }
-    log.debug(`ai-agent.config: resolved model=${resolved.model} baseUrl=${resolved.baseUrl} temp=${resolved.temperature} maxToolCalls=${resolved.maxToolCalls} toolTimeoutMs=${resolved.toolTimeoutMs} totalTimeoutMs=${resolved.totalTimeoutMs}`)
+    resolved.extractor = resolveExtractorConfig(resolved, ai.extractor)
+    log.debug(`ai-agent.config: resolved model=${resolved.model} baseUrl=${resolved.baseUrl} temp=${resolved.temperature} maxToolCalls=${resolved.maxToolCalls} toolTimeoutMs=${resolved.toolTimeoutMs} totalTimeoutMs=${resolved.totalTimeoutMs} extractor=${resolved.extractor ? 'on' : 'off'}`)
     return resolved
 }
