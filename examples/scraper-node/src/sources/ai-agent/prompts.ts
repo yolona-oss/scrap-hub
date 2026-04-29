@@ -1,11 +1,6 @@
 import { SearchQuery } from "../../types"
-import { SourceRegistry } from "../registry"
 
-export function buildSystemPrompt(query: SearchQuery): string {
-    const availableSources = SourceRegistry.available()
-        .filter(n => n !== 'ai-agent')
-        .join(', ') || '(none registered)'
-
+export function buildRolePrompt(query: SearchQuery): string {
     const cityBlock = query.city
         ? `\nCity (decline to the appropriate Russian case for the surrounding sentence — locative for "в …", e.g. "Москва" → "в Москве", "Санкт-Петербург" → "в Санкт-Петербурге"): ${query.city}`
         : ''
@@ -14,41 +9,75 @@ export function buildSystemPrompt(query: SearchQuery): string {
         ? `\n\nCity discipline (STRICT):
 - Target city: "${query.city}". ALL emitted organizations must be located in this city.
 - For BOTH web_search and search_source: pass ONLY the topic in the \`query\` argument (e.g. "адвокат"). The framework normalizes every search to use "${query.city}" — if you write a different city, it will be silently replaced. Do not include city names in your queries; they are wasted tokens.
-- If a candidate's address is in a different city, DROP it — do not pass it to report_results. Out-of-city orgs are auto-rejected at the emit boundary anyway, but skipping them upstream saves your tool budget.
-- Repeating the same (tool, args) pair returns a cached result from the prior call instantly — useful when you need to re-read earlier results that scrolled out of the recent message window. It's free, but it only works when the args match exactly.`
-        : `\n\nRepeating the same (tool, args) pair returns a cached result from the prior call instantly — useful when you need to re-read earlier results that scrolled out of the recent message window. It's free, but it only works when the args match exactly.`
+- If a candidate's address is in a different city, DROP it — do not pass it to report_results. Out-of-city orgs are auto-rejected at the emit boundary anyway, but skipping them upstream saves your tool budget.`
+        : ''
 
     return `You are an organization research agent.
 
 Language: respond and search in Russian (ru-RU). If the query is transliterated Latin, transliterate back to Cyrillic before searching.${cityBlock}${cityRules}
 
-Available tools:
-- web_search(query, limit): general web search via the configured provider. Returns title/url/snippet only — fetch_url + parse_html to get contact info.
-- fetch_url(url, mode): fetch a web page. mode='text' returns extracted text, 'html' returns raw HTML (truncated to 15000 chars). Use 'html' when you plan to call parse_html.
-- parse_html(html, selector, extract?, limit?): apply a CSS selector to HTML returned by fetch_url(mode='html'). Use this instead of substring-searching markup. extract='text' (default) | 'html' | 'href' | 'src' | <attr-name>.
-- search_source(source, query, limit): delegate to a specialized scraper source. Available sources: ${availableSources}. Found organizations are emitted to the user automatically; the response is a summary so you can decide whether to keep going.
-- report_results(orgs): emit organizations YOU discovered via web_search + fetch_url + parse_html. Do NOT re-report results from search_source — those are already emitted.
-
-Each organization must have:
-- name (required, string)
-- at least one of: phone, email, address  ← never report without one; emit will reject and your tool budget is wasted.
+Quality bar — every emitted organization must have:
+- name (required, non-empty string)
+- at least one of: phone, email, address. Without one of these, the org is rejected at the emit boundary and your tool budget is wasted.
 - source (string — where you found it)
 - url (optional)
 
-Workflow:
-1. Start with web_search to find candidate websites for the query. Web search is the PREFERRED entry point — it discovers long-tail and niche listings that the structured sources miss.
-2. For each promising web_search result: fetch_url(mode='html') the page, then parse_html with selectors targeting contact info (e.g. 'a[href^="tel:"]', 'a[href^="mailto:"]', '.address', '[itemprop="telephone"]'). Emit found orgs via report_results.
-3. Use search_source only as a fallback when web_search yields too few promising results, or when you've exhausted the web_search-driven leads. Pick the source most likely to have structured data for the topic.
-4. After a search_source call, READ totalYielded and rejected. If rejected > 0, the source returned items missing required contact info — go back to web_search rather than retrying a different source.
-5. Stop when totalYielded reaches ${query.maxResults}, or when further searches return nothing new.
+Global rule: do not repeat the same tool call with identical arguments. Each (tool, args) pair is invoked once per run; duplicates return an error and waste a turn.
 
 Target query: "${query.query}"
-Target count: ${query.maxResults}`
+Target count: ${query.maxResults}
+
+Read every tool response's "hint" and "progress" fields — they tell you what to try next and where you stand against your budget.`
+}
+
+export function buildReconInstructions(query: SearchQuery): string {
+    return `Phase: RECONNAISSANCE.
+Your job right now is to map the search landscape — not to extract contacts.
+
+- Call web_search 1–10 times with broad queries to learn what kinds of pages exist for "${query.query}".
+- Look at result domains and snippets to recognize patterns (directory aggregators, official sites, social media, blog roundups).
+- Do NOT fetch_url, parse_html, extract_contacts, or report anything yet. Those tools are unavailable in this phase.
+- When you've seen enough (usually 1–3 searches), call end_recon to move on to planning.
+- Recon searches count against your tool budget; do not waste them.`
+}
+
+export function buildPlanInstructions(): string {
+    return `Phase: PLANNING.
+Based on what you saw in recon, write a research plan inside <plan>...</plan> tags.
+
+A good plan:
+- Names specific source types you will prioritize ("directory aggregators like 2gis", "individual firm websites", "search_source('yandex-business')").
+- States what you will NOT spend tool calls on.
+- Sets a rough budget split (e.g. "10 calls on aggregators, 10 on individual sites, 5 reserve").
+
+Soft suggestion: plans of 100–300 tokens tend to get followed; very long plans get summarized away.
+
+Do not call any tools this turn. Output only the plan.`
+}
+
+export function buildExecuteInstructions(query: SearchQuery): string {
+    return `Phase: EXECUTION.
+Follow the plan pinned above. Use the tools to discover and report organizations.
+
+Workflow heuristics:
+- Standard chain: web_search → fetch_url(mode='html') → extract_contacts(html) → report_results.
+- Use search_source as a fallback when web evidence is thin or aggregators dominate.
+- Read each tool response's "hint" field — it tells you what to try next based on what just happened.
+- Read each tool response's "progress" field — when yielded reaches ${query.maxResults}, stop emitting tool calls.
+
+Call revise_plan(reason) if the current plan stops working — for example, the chosen sources keep returning rejects, or the topic landscape turned out different than expected. Note: revise_plan is unavailable for the first 2 execute turns after a (re)plan; give the plan a chance.`
+}
+
+export function buildPlanPin(planText: string): { role: 'system', content: string } {
+    return {
+        role: 'system',
+        content: `Active research plan:\n${planText}\n\nFollow this plan. Call revise_plan() if it stops working.`,
+    }
 }
 
 export function buildUserPrompt(query: SearchQuery): string {
     const cityClause = query.city
         ? ` in the city "${query.city}" (use the appropriate Russian case in any phrasing)`
         : ''
-    return `Find up to ${query.maxResults} organizations matching: "${query.query}"${cityClause}. Begin with web_search to discover candidate websites, then fetch_url + parse_html to extract contact info. Use search_source only as a fallback. Watch totalYielded in tool responses to know when to stop.`
+    return `Find up to ${query.maxResults} organizations matching: "${query.query}"${cityClause}. Begin with reconnaissance: a few broad web_search calls to understand the landscape, then end_recon and write your research plan.`
 }
