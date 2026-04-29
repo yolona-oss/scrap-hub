@@ -154,11 +154,11 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
             // form ("· name · phone · address · <url>").
             this.send(OrgKind.build({
                 name: org.name,
-                phone: org.phone ?? null,
-                email: org.email ?? null,
-                address: org.address ?? null,
-                url: org.url,
-                source: org.source,
+                phone: org.phones[0] ?? null,
+                email: org.emails[0] ?? null,
+                address: org.addresses[0] ?? null,
+                url: org.sources.find(s => s.kind === 'org-site')?.url ?? org.sources[0]?.url,
+                source: org.sources[0]?.kind,
             }))
 
             if (this.scraper.count % SAVE_EVERY_N_ORGS === 0) {
