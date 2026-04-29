@@ -60,4 +60,14 @@ describe('resolveExtractorConfig', () => {
         expect(r?.maxToolCallsPerPage).toBe(4)
         expect(r?.timeoutMs).toBe(30000)
     })
+
+    it('applies maxRefetches default of 3', () => {
+        const r = resolveExtractorConfig(PARENT, { enabled: true } as any)
+        expect(r?.maxRefetches).toBe(3)
+    })
+
+    it('respects explicit maxRefetches override', () => {
+        const r = resolveExtractorConfig(PARENT, { enabled: true, maxRefetches: 5 } as any)
+        expect(r?.maxRefetches).toBe(5)
+    })
 })

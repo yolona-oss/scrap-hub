@@ -23,6 +23,7 @@ const CFG: ResolvedExtractorConfig = {
     temperature: 0.1,
     maxToolCallsPerPage: 8,
     timeoutMs: 45000,
+    maxRefetches: 3,
 }
 
 function mockClient(responses: Array<{ tool_calls?: any[], content?: string | null }>): OpenAI {

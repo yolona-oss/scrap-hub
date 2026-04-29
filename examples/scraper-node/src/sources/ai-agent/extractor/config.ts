@@ -9,6 +9,7 @@ export interface ResolvedExtractorConfig {
     temperature: number
     maxToolCallsPerPage: number
     timeoutMs: number
+    maxRefetches: number
 }
 
 interface ExtractorArgsSlice {
@@ -19,6 +20,7 @@ interface ExtractorArgsSlice {
     temperature?: number
     maxToolCallsPerPage?: number
     timeoutMs?: number
+    maxRefetches?: number
 }
 
 export function resolveExtractorConfig(
@@ -46,7 +48,8 @@ export function resolveExtractorConfig(
         temperature: args.temperature ?? 0.1,
         maxToolCallsPerPage: args.maxToolCallsPerPage ?? 8,
         timeoutMs: args.timeoutMs ?? 45000,
+        maxRefetches: args.maxRefetches ?? 3,
     }
-    log.debug(`extractor.config: resolved model=${resolved.model} (parent=${parent.model}) baseUrl=${resolved.baseUrl} maxToolCallsPerPage=${resolved.maxToolCallsPerPage}`)
+    log.debug(`extractor.config: resolved model=${resolved.model} (parent=${parent.model}) baseUrl=${resolved.baseUrl} maxToolCallsPerPage=${resolved.maxToolCallsPerPage} maxRefetches=${resolved.maxRefetches}`)
     return resolved
 }
