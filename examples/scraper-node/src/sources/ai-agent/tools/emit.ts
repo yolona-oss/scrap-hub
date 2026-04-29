@@ -1,4 +1,4 @@
-import { OrgData, SearchQuery } from "../../../types"
+import { OrgData, OrgSourceRef, SearchQuery } from "../../../types"
 import { AsyncQueue } from "../async-queue"
 import { log } from "@cmd-hub/common"
 
@@ -147,8 +147,28 @@ export function emitOrg(
         return false
     }
 
-    log.trace(`emit.emitOrg: accepted source=${source} hasPhone=${Boolean(phone)} hasEmail=${Boolean(email)} hasAddress=${Boolean(address)} yielded=${state.yielded + 1}/${query.maxResults}`)
-    queue.push({ name, source, phone, email, address, url })
+    // `fallbackSource` (= source) is kept for traceability; not pushed to v2 record (deprecated in PR5).
+    log.trace(`emit.emitOrg: accepted fallbackSource=${source} hasPhone=${Boolean(phone)} hasEmail=${Boolean(email)} hasAddress=${Boolean(address)} yielded=${state.yielded + 1}/${query.maxResults}`)
+
+    const sources: OrgSourceRef[] = url
+        ? [{
+            url,
+            kind: 'org-site',
+            extractedAt: new Date().toISOString(),
+            extractionMethod: 'extractor-llm',
+        }]
+        : []
+    const orgData: OrgData = {
+        name,
+        phones: phone ? [phone] : [],
+        emails: email ? [email] : [],
+        addresses: address ? [address] : [],
+        sources,
+        status: 'partial',
+        confidence: 0.7,
+        extractionMethod: 'extractor-llm',
+    }
+    queue.push(orgData)
     state.yielded++
     return true
 }
