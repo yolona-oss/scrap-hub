@@ -1,27 +1,48 @@
 import * as cheerio from "cheerio"
 import { Tool } from "./types"
 import { log } from "@cmd-hub/common"
+import {
+    parseJsonLdBlobs,
+    extractFromJsonLd,
+    extractFromMicrodata,
+    extractFromSemanticHtml,
+    extractFromRegex,
+    type PartialExtraction,
+} from "./extraction-strategies"
 
 interface ExtractResult {
     phones: string[]
     emails: string[]
     addresses: string[]
     candidateName: string
+    strategiesFired?: string[]
     error?: string
     hint?: string
 }
 
-const PHONE_REGEX = /(?:\+7|8)[\s\-()]*\d{3}[\s\-()]*\d{3}[\s\-()]*\d{2}[\s\-()]*\d{2}/g
-const EMAIL_REGEX = /[\w.+-]+@[\w-]+\.[\w.-]+/g
-const ADDRESS_REGEX = /(?:ул\.|улица|пр\.|проспект|пер\.|переулок|д\.|дом)\s+[А-ЯЁа-яё0-9\s,.-]{3,80}/g
-const ADDRESS_SELECTORS = '[itemprop="address"], [itemprop="streetAddress"], .address, .adres, .contacts__address'
+const MAX_PER_FIELD = 10
 
-function normalizePhone(raw: string): string {
-    const digits = raw.replace(/\D/g, '')
-    if (digits.length === 11 && digits.startsWith('8')) return '+7' + digits.slice(1)
-    if (digits.length === 11 && digits.startsWith('7')) return '+' + digits
-    if (digits.length === 10) return '+7' + digits
-    return raw.trim()
+function mergeInto(
+    acc: { phones: Set<string>, emails: Set<string>, addresses: Set<string>, name: string },
+    p: PartialExtraction,
+): boolean {
+    let contributed = false
+    for (const x of p.phones ?? []) if (!acc.phones.has(x)) { acc.phones.add(x); contributed = true }
+    for (const x of p.emails ?? []) if (!acc.emails.has(x)) { acc.emails.add(x); contributed = true }
+    for (const x of p.addresses ?? []) if (!acc.addresses.has(x)) { acc.addresses.add(x); contributed = true }
+    if (!acc.name && p.candidateName) { acc.name = p.candidateName; contributed = true }
+    return contributed
+}
+
+function pickCandidateName($: cheerio.CheerioAPI, current: string): string {
+    if (current) return current
+    const title = $('title').first().text().trim()
+    if (title) return title
+    const og = $('meta[property="og:title"]').attr('content')?.trim() ?? ''
+    if (og) return og
+    const h1 = $('h1').first().text().trim()
+    if (h1) return h1
+    return ''
 }
 
 export function makeExtractContactsTool(): Tool {
@@ -41,50 +62,33 @@ export function makeExtractContactsTool(): Tool {
 
             try {
                 const $ = cheerio.load(html)
+                const acc = { phones: new Set<string>(), emails: new Set<string>(), addresses: new Set<string>(), name: '' }
+                const fired: string[] = []
 
-                const phoneSet = new Set<string>()
-                $('a[href^="tel:"]').each((_, el) => {
-                    const href = $(el).attr('href') ?? ''
-                    const raw = href.replace(/^tel:/i, '').trim()
-                    if (raw) phoneSet.add(normalizePhone(raw))
-                })
-                const bodyText = $('body').text()
-                for (const m of bodyText.match(PHONE_REGEX) ?? []) phoneSet.add(normalizePhone(m))
-                const phones = Array.from(phoneSet).slice(0, 10)
+                const jsonLd = parseJsonLdBlobs($)
+                if (mergeInto(acc, extractFromJsonLd(jsonLd))) fired.push('jsonld')
+                if (mergeInto(acc, extractFromMicrodata($))) fired.push('microdata')
+                if (mergeInto(acc, extractFromSemanticHtml($))) fired.push('semantic-html')
 
-                const emailSet = new Set<string>()
-                $('a[href^="mailto:"]').each((_, el) => {
-                    const href = $(el).attr('href') ?? ''
-                    const raw = href.replace(/^mailto:/i, '').trim().toLowerCase()
-                    if (raw) emailSet.add(raw)
-                })
-                for (const m of bodyText.match(EMAIL_REGEX) ?? []) emailSet.add(m.toLowerCase())
-                const emails = Array.from(emailSet).slice(0, 10)
+                const cleanedText = (() => {
+                    const $clone = cheerio.load(html)
+                    $clone('script, style, noscript').remove()
+                    return $clone('body').text().replace(/\s+/g, ' ').trim()
+                })()
+                if (mergeInto(acc, extractFromRegex(cleanedText))) fired.push('regex')
 
-                const addressSet = new Set<string>()
-                $(ADDRESS_SELECTORS).each((_, el) => {
-                    const text = $(el).text().replace(/\s+/g, ' ').trim()
-                    if (text) addressSet.add(text)
-                })
-                for (const m of bodyText.match(ADDRESS_REGEX) ?? []) {
-                    addressSet.add(m.replace(/\s+/g, ' ').trim())
-                }
-                const addresses = Array.from(addressSet).slice(0, 10)
-
-                let candidateName = ''
-                const titleText = $('title').first().text().trim()
-                if (titleText) candidateName = titleText
-                if (!candidateName) candidateName = $('[itemprop="name"]').first().text().trim()
-                if (!candidateName) candidateName = $('h1').first().text().trim()
-                if (!candidateName) candidateName = $('meta[property="og:title"]').attr('content')?.trim() ?? ''
+                const phones = Array.from(acc.phones).slice(0, MAX_PER_FIELD)
+                const emails = Array.from(acc.emails).slice(0, MAX_PER_FIELD)
+                const addresses = Array.from(acc.addresses).slice(0, MAX_PER_FIELD)
+                const candidateName = pickCandidateName($, acc.name)
 
                 const totalContacts = phones.length + emails.length + addresses.length
                 const hint = totalContacts === 0
                     ? "no structured contacts found — try parse_html with a custom selector, or check the page's footer/contacts subpath"
                     : `found ${totalContacts} contacts — call report_results with the org details`
 
-                log.debug(`ai-agent.extract_contacts: phones=${phones.length} emails=${emails.length} addresses=${addresses.length} name="${candidateName.slice(0, 40)}"`)
-                return { phones, emails, addresses, candidateName, hint }
+                log.debug(`ai-agent.extract_contacts: phones=${phones.length} emails=${emails.length} addresses=${addresses.length} fired=[${fired.join(',')}] name="${candidateName.slice(0, 40)}"`)
+                return { phones, emails, addresses, candidateName, strategiesFired: fired, hint }
             } catch (e: any) {
                 log.warn(`ai-agent.extract_contacts: ${e.message ?? e}`)
                 return { phones: [], emails: [], addresses: [], candidateName: '', error: String(e.message ?? e) }
