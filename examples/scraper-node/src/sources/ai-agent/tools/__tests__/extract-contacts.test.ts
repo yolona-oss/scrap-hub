@@ -135,3 +135,50 @@ describe('extract_contacts — hint', () => {
         expect(result.hint).toMatch(/found.*report_results/i)
     })
 })
+
+describe('extract_contacts — strategy reporting', () => {
+    const tool = makeExtractContactsTool()
+
+    it('reports jsonld when JSON-LD LocalBusiness is present', async () => {
+        const html = `
+            <html><body>
+                <script type="application/ld+json">
+                {"@type":"LocalBusiness","name":"X","telephone":"+78121001010"}
+                </script>
+            </body></html>
+        `
+        const r = await tool.handler({ html })
+        expect(r.strategiesFired).toEqual(expect.arrayContaining(['jsonld']))
+    })
+
+    it('reports semantic-html for tel: links', async () => {
+        const html = `<html><body><a href="tel:+78121001010">x</a></body></html>`
+        const r = await tool.handler({ html })
+        expect(r.strategiesFired).toEqual(expect.arrayContaining(['semantic-html']))
+    })
+
+    it('reports regex when phones come only from body text', async () => {
+        const html = `<html><body><p>Call +7 (812) 100-10-10 today</p></body></html>`
+        const r = await tool.handler({ html })
+        expect(r.strategiesFired).toEqual(expect.arrayContaining(['regex']))
+    })
+
+    it('records multiple strategies when several fired', async () => {
+        const html = `
+            <html><body>
+                <script type="application/ld+json">
+                {"@type":"LocalBusiness","name":"X","telephone":"+78121001010"}
+                </script>
+                <a href="mailto:a@b.ru">m</a>
+            </body></html>
+        `
+        const r = await tool.handler({ html })
+        expect(r.strategiesFired?.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('omits strategiesFired field when html is empty', async () => {
+        const r = await tool.handler({ html: '' })
+        expect(r.error).toBe('empty html')
+        expect(r.strategiesFired).toBeUndefined()
+    })
+})
