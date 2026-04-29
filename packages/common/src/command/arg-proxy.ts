@@ -14,12 +14,12 @@ import { walkArgLeaves, argBranch, type ArgTree, ARG_PATH_DELIMITER } from './tr
  *
  *   - by **positional index** — `args.getPos(1)` walks the tree for the
  *     leaf with `position === 1` and reads its committed value. Used by
- *     `/sconfig <serviceName> <key>` and friends.
+ *     `/sargs <serviceName> <key>` and friends.
  *
  * Construction takes the tree alongside the values map so positional
  * lookup can find the leaf without an extra index. The tree is also the
- * authority for `walkLeaves`-based iteration, used by callers that want
- * the full effective-args list.
+ * authority for `walkArgLeaves`-based iteration, used by callers that
+ * want the full effective-args list.
  */
 export class CmdArgumentProxy {
     private readonly _byLastSegment: Map<string, string>

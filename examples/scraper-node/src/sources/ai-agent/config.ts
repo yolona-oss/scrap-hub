@@ -1,5 +1,5 @@
 import type { ServiceContext } from '../../exporters/types'
-import type { ScraperConfig, AIAgentConfig } from '../../scraper-service/config-tree'
+import type { ScraperArgs, AIAgentConfig } from '../../scraper-service/args-tree'
 import { log } from '@cmd-hub/common'
 
 export interface ResolvedAIAgentConfig {
@@ -13,7 +13,7 @@ export interface ResolvedAIAgentConfig {
 }
 
 /**
- * Project the per-user `aiAgent` slice off `context.config` into the
+ * Project the per-user `aiAgent` slice off `context.args` into the
  * shape the AI-agent runtime consumes. Returns `null` when the user
  * explicitly wiped `baseUrl` or `model` to empty strings — that's the
  * per-user "disable AI agent" signal.
@@ -25,7 +25,7 @@ export interface ResolvedAIAgentConfig {
  * going through the parser (e.g. legacy callers).
  */
 export function resolveAIAgentConfig(context?: ServiceContext): ResolvedAIAgentConfig | null {
-    const ai = ((context?.config ?? {}) as Partial<ScraperConfig>).aiAgent as AIAgentConfig | undefined
+    const ai = ((context?.args ?? {}) as Partial<ScraperArgs>).aiAgent as AIAgentConfig | undefined
     if (!ai?.baseUrl || !ai?.model) {
         log.debug(`ai-agent.config: resolve returns null — baseUrl=${ai?.baseUrl ? 'set' : 'empty'} model=${ai?.model ? 'set' : 'empty'}`)
         return null
