@@ -2,30 +2,6 @@ import { SearchQuery } from "../../types"
 import type { ResolvedAIAgentConfig } from "./config"
 import { log } from "@cmd-hub/common"
 
-/** One-line descriptions of the sources the agent can call via search_source.
- *  Names must match what's in SourceRegistry. Order is the rough preference
- *  for "structured contact info first, web-search fallback last".
- *
- *  Keep this in sync when registering or removing a source — there's no
- *  runtime reflection to learn what each source returns. */
-const SOURCE_DESCRIPTIONS: Record<string, string> = {
-    'yandex-business':
-        "Yandex Maps API — structured business listings with phone, address, sometimes email and website. Best for established orgs that bother to claim their Yandex listing. CSRF-protected; one call per topic is plenty.",
-    'yandex-html':
-        "Yandex web search HTML scrape — organic results page. Fewer structured fields than yandex-business; use when yandex-business returns zero or the topic is too niche for the maps directory.",
-    'zoon':
-        "Zoon.ru directory — beauty, medical, legal, food services. Strong in St. Petersburg & Moscow. Returns name, phone, address. Heavy aggregator: orgs you find here may also surface in web_search.",
-    'flamp':
-        "Flamp.ru reviews — broad business directory with reviews, in regional cities especially. Returns name, phone, address. Less coverage in Moscow/SPb than zoon.",
-}
-
-function describeSources(available: readonly string[]): string {
-    return available
-        .filter(n => n !== 'ai-agent')
-        .map(n => `  - ${n}: ${SOURCE_DESCRIPTIONS[n] ?? '(no description registered)'}`)
-        .join('\n')
-}
-
 export function buildRolePrompt(query: SearchQuery, cfg: ResolvedAIAgentConfig): string {
     const cityBlock = query.city
         ? `\nCity (decline to the appropriate Russian case for the surrounding sentence — locative for "в …", e.g. "Москва" → "в Москве", "Санкт-Петербург" → "в Санкт-Петербурге"): ${query.city}`
@@ -34,7 +10,7 @@ export function buildRolePrompt(query: SearchQuery, cfg: ResolvedAIAgentConfig):
     const cityRules = query.city
         ? `\n\nCity discipline (STRICT):
 - Target city: "${query.city}". ALL emitted organizations must be located in this city.
-- For BOTH web_search and search_source: pass ONLY the topic in the \`query\` argument (e.g. "адвокат"). The framework normalizes every search to use "${query.city}" — if you write a different city, it will be silently replaced. Do not include city names in your queries; they are wasted tokens.
+- Pass ONLY the topic in the \`query\` argument to web_search (e.g. "адвокат"). The framework normalizes every search to use "${query.city}" — if you write a different city, it will be silently replaced. Do not include city names in your queries; they are wasted tokens.
 - If a candidate's address is in a different city, DROP it — do not pass it to report_results. Out-of-city orgs are auto-rejected at the emit boundary anyway, but skipping them upstream saves your tool budget.`
         : ''
 
@@ -89,7 +65,7 @@ export function buildPlanInstructions(): string {
 Based on what you saw in recon, write a research plan inside <plan>...</plan> tags.
 
 A good plan:
-- Names specific source types you will prioritize ("directory aggregators like 2gis", "individual firm websites", "search_source('yandex-business')").
+- Names specific page types you will prioritize ("directory aggregators like 2gis", "individual firm websites").
 - States what you will NOT spend tool calls on.
 - Sets a rough budget split (e.g. "10 calls on aggregators, 10 on individual sites, 5 reserve").
 
@@ -98,7 +74,7 @@ Soft suggestion: plans of 100–300 tokens tend to get followed; very long plans
 Do not call any tools this turn. Output only the plan.`
 }
 
-export function buildExecuteInstructions(query: SearchQuery, availableSources: readonly string[]): string {
+export function buildExecuteInstructions(query: SearchQuery): string {
     return `Phase: EXECUTION.
 Follow the plan pinned above. Use the tools to discover and report organizations.
 
@@ -108,7 +84,7 @@ Workflow heuristics:
 - Read each tool response's "progress" field — when yielded reaches ${query.maxResults}, stop emitting tool calls.
 
 Ranking web_search results — fetch_url order matters:
-- Prefer official organization sites (".ru" or ".рф" hostnames matching the org's name) over directory aggregators (2gis.ru, yell.ru, zoon.ru, yandex.ru, rusprofile.ru). Aggregators duplicate orgs you'll find via search_source, and pages tend to be JS-rendered, so contact extraction often fails.
+- Prefer official organization sites (".ru" or ".рф" hostnames matching the org's name) over directory aggregators (2gis.ru, yell.ru, zoon.ru, yandex.ru, rusprofile.ru). Aggregator pages tend to be JS-rendered, so contact extraction often fails.
 - Skip social-media URLs (vk.com, instagram.com, t.me, youtube.com) — extract_contacts won't find structured contacts there.
 - 1–3 fetches per web_search batch is enough; if the first 3 didn't yield contacts, switch tactics rather than walking the whole list.
 
@@ -118,17 +94,14 @@ Selector hints — most pages are handled by extract_contacts(html) automaticall
 - 0 addresses found: parse_html(html, 'footer address, footer .contacts, .footer-contacts', 'text') — many sites only put addresses in the footer
 - Org name verification: parse_html(html, 'h1, [itemprop="name"], meta[property="og:title"]', 'content')
 
-Available sources for search_source (use as fallback when web evidence is thin or aggregator-heavy):
-${describeSources(availableSources)}
-
 Stuck detection — bail before burning the whole budget:
-- If 3 consecutive tool calls (web_search/fetch_url/extract_contacts/search_source) yielded zero accepted orgs, stop the current strategy. Either call revise_plan(reason="3 zero-yield calls in a row") or call report_results with whatever you have and finish.
+- If 3 consecutive tool calls (web_search/fetch_url/extract_contacts) yielded zero accepted orgs, stop the current strategy. Either call revise_plan(reason="3 zero-yield calls in a row") or call report_results with whatever you have and finish.
 - If a tool returns an error, do NOT call it again with identical arguments — vary the URL/query/selector or pick a different tool. The dedup cache will replay the error, not retry it.
 
 Wrap-up:
 - When yielded ≥ ${query.maxResults} or you've genuinely exhausted leads, send a final assistant message (no tool calls) with one short Russian sentence: how many orgs you collected, or one-line reason for stopping early. Do NOT summarize the orgs — they were already emitted via report_results.
 
-Call revise_plan(reason) if the current plan stops working — for example, the chosen sources keep returning rejects, or the topic landscape turned out different than expected. Note: revise_plan is unavailable for the first 2 execute turns after a (re)plan; give the plan a chance.`
+Call revise_plan(reason) if the current plan stops working — for example, the topic landscape turned out different than expected. Note: revise_plan is unavailable for the first 2 execute turns after a (re)plan; give the plan a chance.`
 }
 
 export function buildPlanPin(planText: string): { role: 'system', content: string } {

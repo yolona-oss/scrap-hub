@@ -2,7 +2,6 @@ import { Tool } from "./types"
 import { makeWebSearchTool } from "./web-search"
 import { makeFetchUrlTool } from "./fetch-url"
 import { makeParseHtmlTool } from "./parse-html"
-import { makeDelegateSourceTool } from "./delegate-source"
 import { makeReportResultsTool } from "./report-results"
 import { makeExtractContactsTool, type ExtractorRunner } from "./extract-contacts"
 import { makeEndReconTool } from "./end-recon"
@@ -56,7 +55,6 @@ export async function buildTools(
         makeFetchUrlTool(),
         makeParseHtmlTool(),
         makeExtractContactsTool({ extractorRunner: opts.extractorRunner }),
-        await makeDelegateSourceTool(query, queue, state),
         makeReportResultsTool(queue, query, state),
         makeRevisePlanTool(),
     ]
