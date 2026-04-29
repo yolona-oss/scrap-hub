@@ -14,13 +14,13 @@ import {
     getCmdOneShotMeta,
     bindArgsForSpec,
     makeCmdOneShotContext,
-    buildTreeFromClass,
-    branch,
-    unflattenValue,
+    buildArgTreeFromClass,
+    argBranch,
+    unflattenArgs,
     CmdOneShotSpec,
     uiMessageKindCap,
-    type OptionsTree,
-    type BranchSpec,
+    type ArgTree,
+    type ArgBranch,
 } from '@cmd-hub/common'
 import { CmdHubProto, treeToProto } from '@cmd-hub/transport'
 import { hardwareInfo } from '../manifest/hardware-info'
@@ -37,9 +37,8 @@ interface HubConfigFragment {
 }
 
 export interface ServiceConstructorInput {
-    config: unknown
-    params: unknown
-    messages: unknown
+    args: unknown
+    intercom: unknown
     sessionId: string
     sessionData: Record<string, unknown>
 }
@@ -62,14 +61,9 @@ export interface CmdNodeAppOptions<Cfg>
     version?: string
 }
 
-/** Build the merged config+params+messages tree for a `@CmdService`-decorated
- *  class. Each slice contributes a top-level branch (`config` / `params` /
- *  `messages`); the global slice classes are merged in via the prototype-walk
- *  done by `buildTreeFromClass` against an instance whose constructor is the
- *  user's slice class. */
 /** Split a flat dot-path-keyed wire-args map by top-level slice prefix.
  *  Keys not matching any prefix land in a `_unprefixed` bucket the caller
- *  ignores. Used to feed `unflattenValue` per-slice with the right sub-map. */
+ *  ignores. Used to feed `unflattenArgs` per-slice with the right sub-map. */
 function sliceArgsByPrefix<P extends string>(
     args: { [k: string]: string },
     prefixes: readonly P[],
@@ -93,18 +87,17 @@ function sliceArgsByPrefix<P extends string>(
     return out
 }
 
-function buildServiceTree(cls: unknown): OptionsTree {
+function buildServiceTree(cls: unknown): ArgTree {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const meta = getCmdServiceMeta(cls as any)
     if (!meta) {
         throw new Error(`buildServiceTree: class is not decorated with @CmdService`)
     }
-    const slices: Record<string, OptionsTree> = {
-        config: buildTreeFromClass(meta.config),
-        params: buildTreeFromClass(meta.params),
-        messages: buildTreeFromClass(meta.messages),
+    const slices: Record<string, ArgTree> = {
+        args: buildArgTreeFromClass(meta.args),
+        intercom: buildArgTreeFromClass(meta.intercom),
     }
-    return branch(slices, { description: meta.description }) as BranchSpec
+    return argBranch(slices, { description: meta.description }) as ArgBranch
 }
 
 /** Wraps a `CmdOneShotSpec` as a `RunnableService` so the
@@ -258,7 +251,7 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
                 compatibilityId: meta.compatibilityId,
                 version: meta.version,
                 description: meta.description,
-                options: treeToProto(buildServiceTree(cls)),
+                args: treeToProto(buildServiceTree(cls)),
                 aliases: [],
                 requires: (meta.requires ?? []).map(k => k as string),
             }
@@ -266,15 +259,15 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
             serviceCommands.push(cmd)
         }
         for (const [, spec] of this._functionCommands) {
-            const tree: OptionsTree = spec.argsClass
-                ? buildTreeFromClass(spec.argsClass)
-                : branch({})
+            const tree: ArgTree = spec.argsClass
+                ? buildArgTreeFromClass(spec.argsClass)
+                : argBranch({})
             commands.push({
                 name: spec.name,
                 compatibilityId: spec.compatibilityId,
                 version: spec.version,
                 description: spec.description,
-                options: treeToProto(tree),
+                args: treeToProto(tree),
                 aliases: [],
                 requires: (spec.requires ?? []).map(k => k as string),
             })
@@ -325,7 +318,7 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
                 const fnSpec = functionCommands.get(start.commandName)
                 if (fnSpec) {
                     if (fnSpec.argsClass) {
-                        runLeafValidators(buildTreeFromClass(fnSpec.argsClass), start.args)
+                        runLeafValidators(buildArgTreeFromClass(fnSpec.argsClass), start.args)
                     }
                     return makeOneShotService(fnSpec, start, app)
                 }
@@ -334,25 +327,22 @@ export class CmdNodeApp<Cfg = unknown> extends Application<Cfg> {
                     throw new Error(`no service registered for command "${start.commandName}"`)
                 }
                 const meta = getCmdServiceMeta(cls)!
-                // `start.args` is a flat dot-path-keyed map across the
-                // whole service tree (config.foo, params.bar, messages.baz).
+                // `start.args` is a flat slash-keyed wire map across the
+                // whole service tree (e.g. args/aiAgent/model, intercom/pause).
                 // Split by slice prefix, then unflatten each slice's
                 // sub-map against its own tree to produce typed objects.
                 // Validate per slice BEFORE materializing the service so a
                 // bad value is caught before any constructor side effects.
-                const configTree = buildTreeFromClass(meta.config)
-                const paramsTree = buildTreeFromClass(meta.params)
-                const messagesTree = buildTreeFromClass(meta.messages)
-                runLeafValidators(configTree, start.args, 'config/')
-                runLeafValidators(paramsTree, start.args, 'params/')
-                runLeafValidators(messagesTree, start.args, 'messages/')
+                const argsTree = buildArgTreeFromClass(meta.args)
+                const intercomTree = buildArgTreeFromClass(meta.intercom)
+                runLeafValidators(argsTree, start.args, 'args/')
+                runLeafValidators(intercomTree, start.args, 'intercom/')
 
-                const sliced = sliceArgsByPrefix(start.args, ['config', 'params', 'messages'])
-                const config = unflattenValue(configTree, sliced.config)
-                const params = unflattenValue(paramsTree, sliced.params)
-                const messages = unflattenValue(messagesTree, sliced.messages)
+                const sliced = sliceArgsByPrefix(start.args, ['args', 'intercom'])
+                const args = unflattenArgs(argsTree, sliced.args)
+                const intercom = unflattenArgs(intercomTree, sliced.intercom)
                 const input: ServiceConstructorInput = {
-                    config, params, messages,
+                    args, intercom,
                     sessionId: start.sessionId,
                     sessionData: {},
                 }

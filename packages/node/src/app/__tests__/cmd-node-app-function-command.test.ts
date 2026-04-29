@@ -1,7 +1,7 @@
 import 'reflect-metadata'
 import { z } from 'zod'
 import {
-    CmdArgument,
+    CmdArg,
     CmdOneShot,
     type CmdOneShotContext,
     defineCapability,
@@ -11,7 +11,7 @@ import { CmdNodeApp } from '../cmd-node-app'
 const CAP_GREETER = defineCapability<string>('test.greeter')
 
 class GreetArgs {
-    @CmdArgument({ required: false, position: 1, description: 'name', default: 'world' })
+    @CmdArg({ required: false, position: 1, description: 'name', default: 'world' })
     name?: string
 }
 
@@ -69,9 +69,9 @@ describe('CmdNodeApp + CmdOneShot function commands', () => {
         expect(greet.description).toBe('emit a greeting')
         // The new manifest carries one tree per command; for a one-shot
         // with `argsClass`, the root is a branch with one child per arg.
-        expect(greet.options).toBeDefined()
-        expect(greet.options!.branch).toBeDefined()
-        expect(Object.keys(greet.options!.branch!.children)).toContain('name')
+        expect(greet.args).toBeDefined()
+        expect(greet.args!.branch).toBeDefined()
+        expect(Object.keys(greet.args!.branch!.children)).toContain('name')
     })
 
     it('rejects duplicate command names across function commands and services', async () => {
