@@ -4,9 +4,42 @@ import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
 import { CmdArg } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
-import { TableDesigner } from "@cmd-hub/common"
+import { TableDesigner, walkArgLeaves, type ArgTree, type ArgLeaf } from "@cmd-hub/common"
 import { isValidConfigPath } from "@cmd-hub/common"
 import { CAP_ManagerRepo, CAP_AccountRepo } from '@cmd-hub/common'
+
+/** Find an `ArgLeaf` at the given dot-path inside the tree, returning it
+ *  ONLY if it is marked `persistent: true`. Returns `undefined` for
+ *  ephemeral leaves, branch nodes, or unknown paths. */
+export function findPersistentLeafByDotPath(tree: ArgTree, dotPath: string): ArgLeaf | undefined {
+    const target = dotPath.replace(/\./g, '/')
+    for (const { pathKey, leaf } of walkArgLeaves(tree)) {
+        if (pathKey === target && leaf.persistent) return leaf
+    }
+    return undefined
+}
+
+/** Recursively project a persisted args object onto only the persistent
+ *  leaves in the tree. Drops ephemeral leaves, drops unknown keys, and
+ *  drops branches that end up empty after filtering. */
+export function filterPersistentArgs(tree: ArgTree, persisted: unknown): Record<string, unknown> {
+    if (tree.node !== 'branch') return {}
+    if (typeof persisted !== 'object' || persisted === null) return {}
+    const obj = persisted as Record<string, unknown>
+    const out: Record<string, unknown> = {}
+    for (const [name, child] of tree.children) {
+        if (!(name in obj)) continue
+        const v = obj[name]
+        if (child.node === 'leaf') {
+            if (child.persistent) out[name] = v
+            // ephemeral leaves: skip
+        } else {
+            const sub = filterPersistentArgs(child, v)
+            if (Object.keys(sub).length > 0) out[name] = sub
+        }
+    }
+    return out
+}
 
 class SArgsArgs {
     @CmdArg({
@@ -109,7 +142,9 @@ export const SArgsCommand: BuiltInCommand = {
             for (const name of serviceNames) {
                 try {
                     const { module } = await account.getModuleByNameOrCreate(name)
-                    const config = (module.record.data.args ?? {}) as Record<string, unknown>
+                    const raw = (module.record.data.args ?? {}) as Record<string, unknown>
+                    const argsTree = this.getCommandTree(name)
+                    const config = argsTree ? filterPersistentArgs(argsTree, raw) : raw
                     if (Object.keys(config).length > 0) {
                         const fields = flattenObject(config)
                         text += ` ${UiUnicodeSymbols.arrowRight} ${name} (${fields.length} fields)\n`
@@ -139,6 +174,15 @@ export const SArgsCommand: BuiltInCommand = {
                 await ctx.reply(`${UiUnicodeSymbols.error} Invalid config key: "${key}"`)
                 return
             }
+            // Reject writes to non-persistent leaves when the service schema is known
+            const argsTree = this.getCommandTree(serviceName)
+            if (argsTree) {
+                const leaf = findPersistentLeafByDotPath(argsTree, key)
+                if (!leaf) {
+                    await ctx.reply(`${UiUnicodeSymbols.error} Cannot persist "${key}": not a persistent leaf in ${serviceName}'s schema.`)
+                    return
+                }
+            }
             // Parse JSON values so objects/arrays are stored natively in MongoDB
             let parsedValue: unknown = value
             try { parsedValue = JSON.parse(value) } catch (_) {}
@@ -153,14 +197,19 @@ export const SArgsCommand: BuiltInCommand = {
             return
         }
 
-        // Show config
-        const config = (module.record.data.args ?? {}) as Record<string, unknown>
+        // Show config — filter to only persistent leaves if the schema is available
+        const rawConfig = (module.record.data.args ?? {}) as Record<string, unknown>
+        const detailArgsTree = this.getCommandTree(serviceName)
+        const config = detailArgsTree ? filterPersistentArgs(detailArgsTree, rawConfig) : rawConfig
+
         if (Object.keys(config).length === 0) {
             await ctx.reply(`${UiUnicodeSymbols.info} No saved config for "${serviceName}". Start the service to create one.`)
             return
         }
 
+        const rawFields = flattenObject(rawConfig)
         const fields = flattenObject(config)
+        const dropped = rawFields.length - fields.length
         const designer = new TableDesigner()
         const table = designer.make({
             title: `${UiUnicodeSymbols.gear} ${serviceName} config`,
@@ -168,6 +217,7 @@ export const SArgsCommand: BuiltInCommand = {
             body: fields.map(({ key: k, value: v }) => [k, maskSensitive(k, v)]),
         }, ctx.manager?.messageWidth ?? 72)
 
-        await ctx.reply(`<pre>${table}</pre>Use /sargs ${serviceName} &lt;key&gt; &lt;value&gt; to update.`, { parse_mode: 'HTML' })
+        const hint = dropped > 0 ? `\n${UiUnicodeSymbols.info} (${dropped} ephemeral or legacy keys hidden)` : ''
+        await ctx.reply(`<pre>${table}</pre>Use /sargs ${serviceName} &lt;key&gt; &lt;value&gt; to update.${hint}`, { parse_mode: 'HTML' })
     }
 }
