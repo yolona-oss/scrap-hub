@@ -4,12 +4,6 @@ import { IExporter, ExportResult } from './types'
 import { OrgData, SearchQuery } from '../types'
 import { log } from '@cmd-hub/common'
 
-/**
- * JSON exporter — the always-on baseline. Writes a single `.json` file
- * holding the original `SearchQuery` (so a saved file is self-describing
- * for replay) plus the full `OrgData[]` array. No external dependencies,
- * works on any node, no per-user credentials.
- */
 export class JsonExporter implements IExporter {
     readonly name = 'json'
     readonly fileExtension = '.json'
@@ -29,10 +23,36 @@ export class JsonExporter implements IExporter {
         const fileName = `orgs_${safeQuery}_${timestamp}.json`
         const filePath = path.join(dir, fileName)
 
+        const countByStatus = {
+            verified: data.filter(d => d.status === 'verified').length,
+            partial: data.filter(d => d.status === 'partial').length,
+            rejected: data.filter(d => d.status === 'rejected').length,
+        }
+        const aggregatorsHit = Array.from(new Set(
+            data.flatMap(d => d.sources)
+                .filter(s => s.kind.startsWith('aggregator'))
+                .map(s => {
+                    try { return new URL(s.url).hostname } catch { return '' }
+                })
+                .filter(Boolean)
+        ))
+
         const payload = {
+            schemaVersion: 2 as const,
             query,
             exportedAt: new Date().toISOString(),
+            run: {
+                agentVersion: process.env.npm_package_version ?? 'unknown',
+                parentModel: '',
+                extractorModel: '',
+                toolCallsUsed: 0,
+                extractionsByMethod: { deterministic: 0, llm: 0 },
+                durationMs: 0,
+                pagesFetched: 0,
+                aggregatorsHit,
+            },
             count: data.length,
+            countByStatus,
             results: data,
         }
         const json = JSON.stringify(payload, null, 2)
