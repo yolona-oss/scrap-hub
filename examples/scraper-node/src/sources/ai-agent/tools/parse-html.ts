@@ -11,6 +11,13 @@ interface ParseHtmlResult {
     count: number
     truncated: boolean
     error?: string
+    hint?: string
+}
+
+export function buildParseHtmlHint(result: { matches: string[], count: number, truncated: boolean }): string | undefined {
+    if (result.count === 0) return 'selector matched nothing — try a broader selector, or extract_contacts(html) which bundles common contact patterns'
+    if (result.truncated) return 'more matches available — narrow your selector if you only need the first few'
+    return undefined
 }
 
 /** Apply a CSS selector to HTML returned by `fetch_url(mode=html)`. Cheaper
@@ -56,7 +63,9 @@ export function makeParseHtmlTool(): Tool {
 
                 const truncated = found.length > matches.length
                 log.debug(`ai-agent.parse_html: selector="${selector}" extract=${extract} matches=${matches.length}/${found.length}${truncated ? ' (truncated)' : ''}`)
-                return { matches, count: matches.length, truncated }
+                const result = { matches, count: matches.length, truncated }
+                const hint = buildParseHtmlHint(result)
+                return hint ? { ...result, hint } : result
             } catch (e: any) {
                 log.warn(`ai-agent.parse_html: ${e.message ?? e}`)
                 return { matches: [], count: 0, truncated: false, error: String(e.message ?? e) }
