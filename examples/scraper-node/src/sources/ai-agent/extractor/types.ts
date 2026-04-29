@@ -47,3 +47,18 @@ export interface ExtractorTool {
     terminal: boolean
     handler: (args: any, ctx: { input: ExtractorInput }) => Promise<unknown>
 }
+
+export interface RefetchedPagePayload {
+    url: string
+    newPageType: PageType
+    cleanedText: string
+    candidateBlocks: Block[]
+    jsonLdBlobs: unknown[]
+    nextDataBlob?: unknown
+    partialResult: {
+        phones: string[]
+        emails: string[]
+        addresses: string[]
+        candidateName: string
+    }
+}

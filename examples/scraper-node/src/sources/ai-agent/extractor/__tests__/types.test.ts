@@ -61,4 +61,16 @@ describe('extractor types', () => {
         expect(r1.outcome).toBe('extraction')
         expect(r2.outcome).toBe('incomplete')
     })
+
+    it('RefetchedPagePayload has fields for the extractor LLM', () => {
+        const payload: import('../types').RefetchedPagePayload = {
+            url: 'https://x/contacts',
+            newPageType: 'org-site',
+            cleanedText: 'Contacts...',
+            candidateBlocks: [],
+            jsonLdBlobs: [],
+            partialResult: { phones: [], emails: [], addresses: [], candidateName: '' },
+        }
+        expect(payload.newPageType).toBe('org-site')
+    })
 })
