@@ -599,9 +599,29 @@ function assertServiceMeta(meta: CmdServiceMeta): void {
     if (!meta.intercom) throw new Error('@CmdService: intercom class is required')
 }
 
+/** The intercom tree models a flat vocabulary of in-band actions; nested
+ *  branches are not meaningful for receiveMsg(msg, args) routing. Reject
+ *  any intercom class whose root contains a non-leaf child. */
+function assertIntercomFlat(intercomCls: CmdDataClass): void {
+    // Imported lazily to avoid a cycle with arg-decorator.
+    const { buildArgTreeFromClass } = require('./arg-decorator') as typeof import('./arg-decorator')
+    const tree = buildArgTreeFromClass(intercomCls)
+    if (tree.node !== 'branch') {
+        throw new Error('@CmdService.intercom: class must produce a branch root')
+    }
+    for (const [name, child] of tree.children) {
+        if (child.node !== 'leaf') {
+            throw new Error(
+                `@CmdService.intercom: nested branch "${name}" is not allowed — intercom is flat by construction`,
+            )
+        }
+    }
+}
+
 export function CmdService(meta: CmdServiceMeta): ClassDecorator {
     return (target) => {
         assertServiceMeta(meta)
+        assertIntercomFlat(meta.intercom)
         defineDecoratorMeta(META_KEY, target, meta)
     }
 }
@@ -705,6 +725,86 @@ messages }). CmdServiceData has fields args/intercom/state (was
 config/params/messages/runtimeState). GlobalServiceConfig (empty) is
 deleted; GlobalServiceParam → GlobalServiceArgs absorbs the four
 ephemeral flags; GlobalServiceMessages → GlobalServiceIntercom."
+```
+
+---
+
+### Task 3.5: Enforce intercom flatness — failing test then the assertion is already in place
+
+**Files:**
+- Modify: `packages/common/src/command/__tests__/service-decorator.test.ts` (create if absent)
+
+The assertion was added in Task 3. This task adds the test that pins the behavior so a future "let me add a branch to intercom" change fails fast.
+
+- [ ] **Step 1: Write the test**
+
+```typescript
+// packages/common/src/command/__tests__/service-decorator.test.ts
+import 'reflect-metadata'
+import { CmdService, CmdArg } from '..'
+
+describe('@CmdService intercom flatness', () => {
+    it('accepts a flat intercom class', () => {
+        class Args {}
+        class Intercom {
+            @CmdArg({ standalone: true }) pause?: boolean
+            @CmdArg({ standalone: true }) resume?: boolean
+        }
+        expect(() => {
+            @CmdService({
+                name: 'svc',
+                description: 'd',
+                compatibilityId: 'com.example.svc',
+                version: '1.0.0',
+                args: Args,
+                intercom: Intercom,
+                requires: [],
+            })
+            class _Svc {}
+            void _Svc
+        }).not.toThrow()
+    })
+
+    it('rejects an intercom class with a nested branch', () => {
+        class Args {}
+        class Inner { @CmdArg() x?: string }
+        class Intercom { @CmdArg({ childClass: Inner }) nested?: Inner }
+        expect(() => {
+            @CmdService({
+                name: 'svc',
+                description: 'd',
+                compatibilityId: 'com.example.svc',
+                version: '1.0.0',
+                args: Args,
+                intercom: Intercom,
+                requires: [],
+            })
+            class _Svc {}
+            void _Svc
+        }).toThrow(/intercom.*flat by construction/i)
+    })
+})
+```
+
+- [ ] **Step 2: Run; expect PASS for the accepting test, PASS for the rejecting test (the assertion landed in Task 3)**
+
+```bash
+cd packages/common && npx jest src/command/__tests__/service-decorator.test.ts
+```
+
+Expected: both tests PASS.
+
+If the rejecting test instead errors before reaching the assertion (cycle / import order), revisit Task 3 Step 1's `require('./arg-decorator')` lazy load and adjust.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add packages/common/src/command/__tests__/service-decorator.test.ts
+git commit -m "test(common): pin intercom flatness invariant
+
+@CmdService validates that the intercom class produces a flat tree
+(only leaves, no nested branches). Test covers both the accepting
+and rejecting paths."
 ```
 
 ---

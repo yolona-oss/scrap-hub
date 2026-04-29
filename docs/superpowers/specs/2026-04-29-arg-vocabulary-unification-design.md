@@ -13,7 +13,7 @@ The framework's vocabulary for "values passed to a command" has accumulated drif
 2. **Declaration vocabulary** — `@CmdArgument` decorator, `CmdArgumentDef`, `LeafOptions`, `BranchOptions`, `OptionsTree`, `LeafSpec.options` mix three different roots (`Argument`, `Options`, `Spec`) for one mechanism.
 3. **Term overload** — "options" means at least three different things in the public API: the tree primitive (`OptionsTree`), the decorator's input shape (`LeafOptions`), and the per-leaf static enum list (`LeafSpec.options`).
 
-`messages` is a fourth concept, distinct from the above: it declares the **intercom message vocabulary** (the `receiveMsg(msg, args)` reverse channel for pause/resume/stop/custom actions), not invocation arguments.
+`messages` is a fourth concept, distinct from the above: it declares the **intercom message vocabulary** (the `receiveMsg(msg, args)` reverse channel for pause/resume/stop/custom actions), not invocation arguments. By construction, the intercom tree is **always flat** — one level of leaves, no nested branches. Each leaf is one named action the running service responds to.
 
 ## Goal
 
@@ -33,6 +33,14 @@ A single, consistent vocabulary across the framework that:
 - Changing the `@CmdService` / `@CmdOneShot` decorator surfaces beyond the field-name renames listed below.
 
 ## Design
+
+### Intercom is flat by construction
+
+The `intercom` slice models a finite vocabulary of in-band reverse-channel actions (pause / resume / stop / custom action ids). Each leaf is one action; nesting has no meaning here, and would make `receiveMsg(msg, args)` have to walk a tree to resolve an action name.
+
+The framework enforces this at `@CmdService` validation time: when the `intercom` class produces an `ArgTree` whose root branch contains any non-leaf child, the decorator throws. The invariant lets the wire encoding skip recursive walking for `intercom`, and lets the hub-side builder render intercom actions as a flat list of buttons rather than a drill-down.
+
+`args`, by contrast, is a real tree (groups + leaves) — it has to be, since real services nest configuration (e.g. `aiAgent.model`).
 
 ### Vocabulary
 
