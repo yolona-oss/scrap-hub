@@ -21,12 +21,12 @@ function makeDispatcher(opts: {
     dispatcher.attachManifestAggregator({
         listManifests: () => [{
             nodeId: 'n1', nodeName: 'n', version: '1.0.0',
-            commands: [{ name: command, options: opts.commandTree, description: '' }],
+            commands: [{ name: command, args: opts.commandTree, description: '' }],
             services: opts.isService === false ? [] : [{ command: { name: command }, intercomActions: [], caps: {} }],
             configs: [], hardware: {}, metrics: {},
         }],
         findCommand: (n: string) => n === command
-            ? { name: command, options: opts.commandTree, description: '' }
+            ? { name: command, args: opts.commandTree, description: '' }
             : undefined,
         configModuleOwners: () => [],
     })

@@ -9,7 +9,7 @@ import { BaseUIContext } from "../../ui/types";
 export interface RemoteCommandSpec {
     name: string
     description: string
-    options?: ArgTree
+    argsTree?: ArgTree
 }
 
 import log from '../../application/logger';
@@ -134,14 +134,14 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             commands: Array<{
                 name: string
                 description: string
-                options?: ArgTree
+                args: ArgTree
             }>
             services?: Array<{ command?: { name?: string } }>
         }>
         findCommand?(name: string): {
             name: string
             description: string
-            options?: ArgTree
+            args: ArgTree
         } | undefined
         configModuleOwners(module: string): string[]
     } | null = null
@@ -427,9 +427,9 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             // builder so the user can review hydrated saved data and
             // toggle `-now` to skip it explicitly.
             if (this._isRemoteService(command)) return false
-            // Aggregator already decoded the proto on attach; remote.options
+            // Aggregator already decoded the proto on attach; remote.argsTree
             // is an ArgTree. Empty/undefined → no required leaves → 0 ≥ 0.
-            return passedArgs.length >= countRequiredLeaves(remote.options ?? argBranch({}))
+            return passedArgs.length >= countRequiredLeaves(remote.argsTree ?? argBranch({}))
         }
 
         log.error(`While processing command "${command}" with passed arguments "${passedArgs.join(", ")}", command not found`)
@@ -602,12 +602,12 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         if (agg.findCommand) {
             const c = agg.findCommand(command)
             if (!c) return undefined
-            return { name: c.name, description: c.description, options: c.options }
+            return { name: c.name, description: c.description, argsTree: c.args }
         }
         for (const m of agg.listManifests()) {
             for (const c of m.commands) {
                 if (c.name === command) {
-                    return { name: c.name, description: c.description, options: c.options }
+                    return { name: c.name, description: c.description, argsTree: c.args }
                 }
             }
         }
@@ -622,7 +622,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         const local = this.cmd_registry.get(command)
         if (local) return local.argsTree
         const remote = this.tryGetRemoteCommand(command)
-        return remote?.options
+        return remote?.argsTree
     }
 
     public getRegistredServiceNames(): string[] {
@@ -664,7 +664,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
                     out.push({
                         command: c.name,
                         description: c.description,
-                        argsTree: c.options ?? argBranch({}),
+                        argsTree: c.args ?? argBranch({}),
                     })
                     localNames.add(c.name)
                 }

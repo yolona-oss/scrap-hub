@@ -79,9 +79,9 @@ export class CBDescriptorCompiler {
 
     private buildRemoteOptions(remote: RemoteCommandSpec): ArgTree {
         // The aggregator already decoded the proto on attach
-        // (see cmd-hub-service-impl.ts toAggregated); options is an
+        // (see cmd-hub-service-impl.ts toAggregated); argsTree is an
         // ArgTree, not the proto shape. Decoding again would yield
         // an empty branch and the builder would refuse to open.
-        return remote.options ?? argBranch({})
+        return remote.argsTree ?? argBranch({})
     }
 }
