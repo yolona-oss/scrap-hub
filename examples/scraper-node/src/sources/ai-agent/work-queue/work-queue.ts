@@ -3,7 +3,7 @@ import { log } from '@cmd-hub/common'
 import type { OrgRecord, OrgRecordStatus } from './types'
 
 const ALLOWED_TRANSITIONS: Record<OrgRecordStatus, OrgRecordStatus[]> = {
-    partial: ['saturated', 'verified', 'rejected'],
+    partial: ['saturated', 'rejected'],
     saturated: ['verified', 'rejected'],
     verified: [],
     rejected: [],

@@ -50,6 +50,7 @@ describe('WorkQueue', () => {
         const q = new WorkQueue()
         const a = q.insert(newRec({ name: 'A' }))
         q.insert(newRec({ name: 'B' }))
+        q.transition(a.id, 'saturated')
         q.transition(a.id, 'verified')
         expect(q.list({ status: 'partial' }).length).toBe(1)
         expect(q.list({ status: 'verified' }).length).toBe(1)
@@ -87,6 +88,7 @@ describe('WorkQueue', () => {
     it('transition verified → anything NOT allowed (terminal)', () => {
         const q = new WorkQueue()
         const r = q.insert(newRec())
+        q.transition(r.id, 'saturated')
         q.transition(r.id, 'verified')
         expect(() => q.transition(r.id, 'partial')).toThrow(/terminal/i)
         expect(() => q.transition(r.id, 'rejected')).toThrow(/terminal/i)
@@ -104,6 +106,7 @@ describe('WorkQueue', () => {
     it('pickNextPartial returns undefined when no partials remain', () => {
         const q = new WorkQueue()
         const r = q.insert(newRec())
+        q.transition(r.id, 'saturated')
         q.transition(r.id, 'verified')
         expect(q.pickNextPartial()).toBeUndefined()
     })
