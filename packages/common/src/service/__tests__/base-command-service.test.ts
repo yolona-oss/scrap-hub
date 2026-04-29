@@ -10,6 +10,11 @@ import {
     DEFAULT_ACCOUNT_SESSION_NAME,
 } from '../service-store'
 import { assignToCustomPath } from '../../utils/object'
+import { CmdArg } from '../../command'
+
+// ---------------------------------------------------------------------------
+// Shared test infrastructure
+// ---------------------------------------------------------------------------
 
 class FakeAccountLayer implements IServiceAccountLayer {
     public data: Record<string, unknown> = {}
@@ -64,6 +69,38 @@ class FakeStore implements IServiceStore {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Args class used by layered-merge tests: a, b, c are persistent leaves so
+// they participate in the account ← session ← input overlay chain.
+// ---------------------------------------------------------------------------
+class LayerTestArgs extends GlobalServiceArgs {
+    @CmdArg({ persistent: true, description: 'test leaf a' })
+    a?: number
+
+    @CmdArg({ persistent: true, description: 'test leaf b' })
+    b?: number
+
+    @CmdArg({ persistent: true, description: 'test leaf c' })
+    c?: number
+}
+
+type LayerTestData = CmdServiceData<LayerTestArgs, GlobalServiceIntercom, {}>
+
+class LayerTestService extends BaseCommandService<LayerTestData> {
+    constructor(userId: string, input: Partial<LayerTestData> = {}) {
+        super(userId, new CmdServiceData(new LayerTestArgs(), new GlobalServiceIntercom()), input, 'layer-test-svc')
+    }
+    clone(userId: string, inputData?: Partial<LayerTestData>) {
+        return new LayerTestService(userId, inputData)
+    }
+    protected async runWrapper(): Promise<void> {}
+    protected async terminateWrapper(): Promise<void> {}
+    async receiveMsg(): Promise<void> {}
+}
+
+// ---------------------------------------------------------------------------
+// Plain TestService (GlobalServiceArgs only) — used for setArgValue / setState
+// ---------------------------------------------------------------------------
 class TestServiceData extends CmdServiceData<GlobalServiceArgs, GlobalServiceIntercom, {}> {
     constructor() {
         super(new GlobalServiceArgs(), new GlobalServiceIntercom())
@@ -107,26 +144,29 @@ beforeEach(() => {
     BaseCommandService.__resetStoreForTests()
 })
 
+// ---------------------------------------------------------------------------
+// Layered args precedence — use LayerTestService so a/b/c are declared leaves
+// ---------------------------------------------------------------------------
 describe('BaseCommandService — layered args precedence', () => {
     test('session overlay overrides account baseline; input overrides session', async () => {
         const { sessionLayer } = newScenario({
             accountArgs: { a: 1, b: 1, c: 1 },
             sessionArgs: { b: 2, c: 2 },
         })
-        const svc = new TestService('u1', { args: { c: 3 } as any })
+        const svc = new LayerTestService('u1', { args: { c: 3 } as any })
         await svc.Initialize()
         // a only in account → 1; b in account+session → session wins → 2; c in all three → input wins → 3
         const cfg = (svc.snapshot as any).args
         expect(cfg.a).toBe(1)
         expect(cfg.b).toBe(2)
         expect(cfg.c).toBe(3)
-        // The merged result was written back to session layer.
+        // The merged result was written back to session layer (persistent keys only).
         expect(sessionLayer.data.args).toMatchObject({ a: 1, b: 2, c: 3 })
     })
 
     test('legacy account-only data still merges through (no session overlay yet)', async () => {
         const { sessionLayer } = newScenario({ accountArgs: { a: 1, b: 1 } })
-        const svc = new TestService('u1')
+        const svc = new LayerTestService('u1')
         await svc.Initialize()
         const cfg = (svc.snapshot as any).args
         expect(cfg).toMatchObject({ a: 1, b: 1 })
@@ -185,13 +225,16 @@ describe('BaseCommandService — setArgValue routes to session layer', () => {
     })
 })
 
+// ---------------------------------------------------------------------------
+// noCache bypass — use LayerTestService so a/b/c are in the tree
+// ---------------------------------------------------------------------------
 describe('BaseCommandService — noCache bypass', () => {
     test('noCache=true skips overlay reads AND skips session-layer write', async () => {
         const { sessionLayer } = newScenario({
             accountArgs: { a: 1 },
             sessionArgs: { a: 2, b: 2 },
         })
-        const svc = new TestService('u1', {
+        const svc = new LayerTestService('u1', {
             args: { c: 3, noCache: true } as any,
         })
         await svc.Initialize()
@@ -209,8 +252,80 @@ describe('BaseCommandService — noCache bypass', () => {
             accountArgs: { a: 1 },
             sessionArgs: { b: 2 },
         })
-        const svc = new TestService('u1', { args: { c: 3 } as any })
+        const svc = new LayerTestService('u1', { args: { c: 3 } as any })
         await svc.Initialize()
         expect(sessionLayer.data.args).toMatchObject({ a: 1, b: 2, c: 3 })
+    })
+})
+
+// ---------------------------------------------------------------------------
+// Persistent-flag filtering — core Task 11 behavior
+// ---------------------------------------------------------------------------
+
+class PersistentArgs extends GlobalServiceArgs {
+    @CmdArg({ persistent: true, description: 'persistent value' })
+    kept?: string
+
+    @CmdArg({ description: 'ephemeral value' })
+    ephemeral?: string
+}
+
+class PersistentIntercom extends GlobalServiceIntercom {}
+
+type PersistentData = CmdServiceData<PersistentArgs, PersistentIntercom, {}>
+
+class PersistentTestSvc extends BaseCommandService<PersistentData> {
+    constructor(userId: string, input: Partial<PersistentData> = {}) {
+        super(userId, new CmdServiceData(new PersistentArgs(), new PersistentIntercom()), input, 'persistent-test-svc')
+    }
+    clone() { return this }
+    protected async runWrapper(): Promise<void> {}
+    protected async terminateWrapper(): Promise<void> {}
+    async receiveMsg(): Promise<void> {}
+}
+
+describe('initSession persistent-flag filtering', () => {
+    test('only persistent leaves are written to the session layer', async () => {
+        const { sessionLayer } = newScenario()
+        const svc = new PersistentTestSvc('user-1', {
+            args: { kept: 'k1', ephemeral: 'e1' } as Partial<PersistentArgs>,
+        } as Partial<PersistentData>)
+
+        await svc.Initialize()
+
+        const layerArgs = sessionLayer.data.args as Record<string, unknown> | undefined
+        expect(layerArgs).toBeDefined()
+        expect(layerArgs!.kept).toBe('k1')
+        expect(layerArgs!.ephemeral).toBeUndefined()
+    })
+
+    test('ephemeral leaves are read from input, not the layered store', async () => {
+        // pre-seed both keys in the session layer; ephemeral should not be picked up
+        newScenario({ sessionArgs: { kept: 'session-k', ephemeral: 'session-e' } })
+        const svc = new PersistentTestSvc('user-1', {
+            args: { ephemeral: 'input-e' } as Partial<PersistentArgs>,
+        } as Partial<PersistentData>)
+
+        await svc.Initialize()
+
+        // Persistent: layered merge picks up the session value.
+        expect((svc as any).data.args.kept).toBe('session-k')
+        // Ephemeral: from input only; the session-layer value is ignored.
+        expect((svc as any).data.args.ephemeral).toBe('input-e')
+    })
+
+    test('ephemeral leaves do not leak into this.data.args after Initialize when not provided', async () => {
+        // No input at all → ephemeral leaf stays undefined; persistent leaf comes from session layer.
+        const { sessionLayer } = newScenario({ sessionArgs: { kept: 'session-k', ephemeral: 'leak-attempt' } })
+        const svc = new PersistentTestSvc('user-1', {} as Partial<PersistentData>)
+
+        await svc.Initialize()
+
+        expect((svc as any).data.args.kept).toBe('session-k')
+        // The session layer's stale 'leak-attempt' should NOT enter this.data.args.
+        expect((svc as any).data.args.ephemeral).toBeUndefined()
+
+        // Also verify the session layer was NOT updated with ephemeral data.
+        expect((sessionLayer.data.args as any)?.ephemeral).toBeUndefined()
     })
 })

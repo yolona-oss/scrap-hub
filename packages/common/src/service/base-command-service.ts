@@ -27,7 +27,7 @@ import {
     readDecoratorMeta,
 } from "../command"
 import type { ArgTree, ArgBranch } from "../command/tree"
-import { argBranch } from "../command/tree"
+import { argBranch, walkArgLeaves, flattenArgs, unflattenArgs } from "../command/tree"
 
 /** Keys under `sessionLayer.data` for the two parallel slices the
  *  layered model writes to: per-session args overlay and resumable
@@ -312,41 +312,73 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
     async initSession() {
         const inputData = this.inputServiceData
         const defaultData = this.defaultData
+        const inputArgs = (inputData.args ?? {}) as Record<string, unknown>
+
         const _session_id: string =
-            (inputData.args as Record<string, unknown> | undefined)?.['s'] as string ||
-            (inputData.args as Record<string, unknown> | undefined)?.['sessionId'] as string ||
+            (inputArgs as any)?.s ||
+            (inputArgs as any)?.sessionId ||
             DEFAULT_ACCOUNT_SESSION_NAME
         this.data.sessionId = _session_id
-        this.data.args = { ...this.data.args, ...inputData.args }
 
         const { sessionLayerData, accountLayerData, sessionLayer } = await this.retrieveAccountData(true)
 
         // `noCache` is the per-run escape hatch: skip overlay reads AND
         // skip the session-layer write so saved values survive untouched.
-        // TODO(Task 11): with config+params merged into a single `args`
-        // slice, ephemeral knobs (noCache / sessionId / s / noDashboard /
-        // now) currently flow into the merged `aArgs` and from there into
-        // `this.data.args` and (when !noCache) the session-layer write.
-        // Task 11 wires the per-leaf `persistent` filter that keeps
-        // ephemeral leaves out of both the persisted slice AND the session-
-        // layer write. Until then, ephemeral keys leak into `this.data.args`.
-        const noCache = isFlagSet((inputData.args as Record<string, unknown> | undefined)?.['noCache'])
+        const noCache = isFlagSet(inputArgs['noCache'])
 
-        // Wire args arrive nested-keyed under the new tree-native API,
-        // so the input args is a typed object (or absent). No more
-        // positional-prefix decoding — the dispatcher unflattens at the
-        // wire boundary.
-        const inputArgs   = (inputData.args ?? {}) as Record<string, unknown>
-        const accountArgs = noCache ? {} : ((accountLayerData[SESSION_ARGS_KEY] ?? {}) as Record<string, unknown>)
-        const sessionArgs = noCache ? {} : ((sessionLayerData[SESSION_ARGS_KEY] ?? {}) as Record<string, unknown>)
-
-        const aArgs = {
-            ...defaultData.args,
-            ...accountArgs,
-            ...sessionArgs,
-            ...inputArgs,
+        // Walk the args tree to learn which leaves are persistent vs. ephemeral.
+        // Persistent leaves take part in the layered merge AND get written back
+        // to the session layer. Ephemeral leaves come from input (or default)
+        // only — they never touch the store.
+        const tree = this.argsTree()
+        const persistentPaths = new Set<string>()
+        const ephemeralPaths = new Set<string>()
+        for (const { pathKey, leaf } of walkArgLeaves(tree)) {
+            if (leaf.persistent) persistentPaths.add(pathKey)
+            else ephemeralPaths.add(pathKey)
         }
 
+        // Project nested-object inputs through the tree to flat dot-path maps,
+        // then filter each by which paths are persistent vs ephemeral.
+        const flatDefaults = flattenArgs(tree, defaultData.args)
+        const flatInput = flattenArgs(tree, inputArgs)
+        const flatAccount = noCache
+            ? new Map<string, string>()
+            : flattenArgs(tree, accountLayerData[SESSION_ARGS_KEY] ?? {})
+        const flatSession = noCache
+            ? new Map<string, string>()
+            : flattenArgs(tree, sessionLayerData[SESSION_ARGS_KEY] ?? {})
+
+        const filterMap = (m: Map<string, string>, allowed: Set<string>): Map<string, string> => {
+            const out = new Map<string, string>()
+            for (const [k, v] of m) if (allowed.has(k)) out.set(k, v)
+            return out
+        }
+
+        // Persistent slice: defaults ← account ← session ← input
+        const mergedPersistent = new Map<string, string>()
+        for (const m of [
+            filterMap(flatDefaults, persistentPaths),
+            filterMap(flatAccount, persistentPaths),
+            filterMap(flatSession, persistentPaths),
+            filterMap(flatInput, persistentPaths),
+        ]) {
+            for (const [k, v] of m) mergedPersistent.set(k, v)
+        }
+
+        // Ephemeral slice: defaults ← input only
+        const mergedEphemeral = new Map<string, string>()
+        for (const m of [
+            filterMap(flatDefaults, ephemeralPaths),
+            filterMap(flatInput, ephemeralPaths),
+        ]) {
+            for (const [k, v] of m) mergedEphemeral.set(k, v)
+        }
+
+        const allMerged = new Map<string, string>([...mergedPersistent, ...mergedEphemeral])
+        const aArgs = unflattenArgs(tree, allMerged) as Record<string, unknown>
+
+        // State (resumable runtime state) — unchanged from the rename-only pass.
         const existingState = (sessionLayerData[SESSION_STATE_KEY] ?? {}) as Record<string, unknown>
         let aState: Record<string, unknown> = existingState
         const initState = !aState || Object.keys(aState).length === 0
@@ -364,7 +396,10 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
         // `save()` on a single doc with "Can't save() the same doc multiple
         // times in parallel".
         if (!noCache) {
-            await sessionLayer.setField(SESSION_ARGS_KEY, aArgs as Record<string, unknown>)
+            // Persist ONLY the persistent slice; the session layer must not
+            // accumulate ephemeral knobs.
+            const persistentNested = unflattenArgs(tree, mergedPersistent) as Record<string, unknown>
+            await sessionLayer.setField(SESSION_ARGS_KEY, persistentNested)
             if (initState) {
                 await sessionLayer.setField(SESSION_STATE_KEY, aState)
             }
