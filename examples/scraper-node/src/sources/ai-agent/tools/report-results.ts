@@ -4,6 +4,20 @@ import { AsyncQueue } from "../async-queue"
 import { emitMany, ReportState } from "./emit"
 import { log } from "@cmd-hub/common"
 
+export function buildReportResultsHint(
+    outcome: { accepted: number, rejected: number, totalYielded: number },
+    target: number,
+    city?: string,
+): string {
+    if (outcome.accepted === 0) {
+        const cityClause = city ? ` and address mentions ${city}` : ''
+        return `all candidates rejected — check that each org has name + at least one of phone/email/address${cityClause}`
+    }
+    if (outcome.totalYielded >= target) return 'target reached — emit no more tool calls to finish'
+    const remaining = target - outcome.totalYielded
+    return `${remaining} more orgs needed — keep searching`
+}
+
 export function makeReportResultsTool(
     queue: AsyncQueue<OrgData>,
     query: SearchQuery,
@@ -38,7 +52,7 @@ export function makeReportResultsTool(
             log.trace(`ai-agent.report_results: ${orgs.length} candidate(s)`)
             const outcome = emitMany(orgs, queue, state, query, 'ai-agent')
             log.debug(`ai-agent.report_results: accepted=${outcome.accepted} rejected=${outcome.rejected} totalYielded=${outcome.totalYielded}`)
-            return outcome
+            return { ...outcome, hint: buildReportResultsHint(outcome, query.maxResults, query.city) }
         },
     }
 }
