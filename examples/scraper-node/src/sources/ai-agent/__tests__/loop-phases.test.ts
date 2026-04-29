@@ -34,48 +34,55 @@ describe('runAgentLoop — plan extraction & pinning', () => {
     it('extracts plan from <plan>...</plan> tags and pins at messages[1]', async () => {
         const queue = new AsyncQueue<OrgData>()
         const state: ReportState = { yielded: 0 }
+        const finishMsg = { role: 'assistant', content: 'done', tool_calls: [] }
         const client = new FakeOpenAIClient([
             callMsg('end_recon', {}, 'r1'),
             { role: 'assistant', content: 'My plan: <plan>do A then B</plan>', tool_calls: [] },
+            finishMsg,
         ])
-        // Loop will hit "execute phase not yet implemented" stub and return,
-        // but only after the plan transition completes — which is what we test.
         await runAgentLoop(client as any, baseQuery, queue, state, cfg)
 
-        // The third request would be the execute call, but the stub returns
-        // before sending it. Instead, we inspect the messages constructed at
-        // the moment of plan transition by looking at request[1] (the plan
-        // request) and confirming tool_choice='none', then the pin will be
-        // present in the *internal* messages array. Since we can't see that,
-        // we verify via the LLM request shape that the plan turn happened.
-        expect(client.requests.length).toBe(2)
-        expect(client.requests[1].tool_choice).toBe('none')
+        // Three requests: recon, plan, execute. The execute request's
+        // messages[1] should be the plan pin (system role, content includes plan text).
+        expect(client.requests.length).toBe(3)
+        const execReq = client.requests[2]
+        const pin = execReq.messages[1]
+        expect(pin.role).toBe('system')
+        expect(pin.content).toContain('Active research plan:')
+        expect(pin.content).toContain('do A then B')
     })
 
     it('falls back to whole content when <plan> tags missing twice', async () => {
         const queue = new AsyncQueue<OrgData>()
         const state: ReportState = { yielded: 0 }
+        const finishMsg = { role: 'assistant', content: 'done', tool_calls: [] }
         const client = new FakeOpenAIClient([
             callMsg('end_recon', {}, 'r1'),
             { role: 'assistant', content: 'first response, no tags', tool_calls: [] },
             { role: 'assistant', content: 'still no tags here', tool_calls: [] },
+            finishMsg,
         ])
         await runAgentLoop(client as any, baseQuery, queue, state, cfg)
 
-        // Three requests: recon, plan-attempt-1, plan-retry. The retry's
+        // Four requests: recon, plan-attempt-1, plan-retry, execute. The retry's
         // messages should include a user prompt asking to wrap in <plan>.
-        expect(client.requests.length).toBe(3)
+        expect(client.requests.length).toBe(4)
         const retryReq = client.requests[2]
         const userReprompt = retryReq.messages.find((m: any) => m.role === 'user' && typeof m.content === 'string' && m.content.includes('<plan>'))
         expect(userReprompt).toBeDefined()
+        // Execute request's pin should contain the second response's content as fallback.
+        const execReq = client.requests[3]
+        expect(execReq.messages[1].content).toContain('still no tags here')
     })
 
     it('plan phase request uses tool_choice=none and omits tools', async () => {
         const queue = new AsyncQueue<OrgData>()
         const state: ReportState = { yielded: 0 }
+        const finishMsg = { role: 'assistant', content: 'done', tool_calls: [] }
         const client = new FakeOpenAIClient([
             callMsg('end_recon', {}, 'r1'),
             { role: 'assistant', content: '<plan>p</plan>', tool_calls: [] },
+            finishMsg,
         ])
         await runAgentLoop(client as any, baseQuery, queue, state, cfg)
 
@@ -87,9 +94,11 @@ describe('runAgentLoop — plan extraction & pinning', () => {
     it('recon phase request uses tool_choice=required with [web_search, end_recon]', async () => {
         const queue = new AsyncQueue<OrgData>()
         const state: ReportState = { yielded: 0 }
+        const finishMsg = { role: 'assistant', content: 'done', tool_calls: [] }
         const client = new FakeOpenAIClient([
             callMsg('end_recon', {}, 'r1'),
             { role: 'assistant', content: '<plan>p</plan>', tool_calls: [] },
+            finishMsg,
         ])
         await runAgentLoop(client as any, baseQuery, queue, state, cfg)
 
@@ -99,5 +108,25 @@ describe('runAgentLoop — plan extraction & pinning', () => {
         expect(toolNames).toEqual(expect.arrayContaining(['web_search', 'end_recon']))
         expect(toolNames).not.toContain('fetch_url')
         expect(toolNames).not.toContain('report_results')
+    })
+
+    it('execute phase request uses tool_choice=auto with full tool set', async () => {
+        const queue = new AsyncQueue<OrgData>()
+        const state: ReportState = { yielded: 0 }
+        const finishMsg = { role: 'assistant', content: 'done', tool_calls: [] }
+        const client = new FakeOpenAIClient([
+            callMsg('end_recon', {}, 'r1'),
+            { role: 'assistant', content: '<plan>p</plan>', tool_calls: [] },
+            finishMsg,
+        ])
+        await runAgentLoop(client as any, baseQuery, queue, state, cfg)
+
+        const execReq = client.requests[2]
+        expect(execReq.tool_choice).toBe('auto')
+        const toolNames = execReq.tools.map((t: any) => t.function.name)
+        expect(toolNames).toEqual(expect.arrayContaining([
+            'web_search', 'fetch_url', 'parse_html', 'extract_contacts',
+            'report_results', 'revise_plan',
+        ]))
     })
 })

@@ -300,8 +300,104 @@ export async function runAgentLoop(
             continue
         }
 
-        // execute phase — implemented in Task 11
-        log.error('ai-agent.loop: execute phase not yet implemented')
+        if ((phase as AgentPhase) === 'execute') {
+            turn++
+            executePhaseTurnsSinceLastPlan++
+            const requestTools: ChatCompletionTool[] = tools.map(toOpenAISchema)
+            const reqStart = Date.now()
+            let response
+            try {
+                response = await client.chat.completions.create(
+                    {
+                        model: cfg.model,
+                        temperature: cfg.temperature,
+                        messages,
+                        tools: requestTools,
+                        tool_choice: 'auto',
+                    },
+                    { signal },
+                )
+            } catch (e: any) {
+                if (isAbortError(e, signal)) return
+                log.error(`ai-agent.loop: LLM request failed (execute turn ${turn}): ${e.message ?? e}`)
+                return
+            }
+            log.trace(`ai-agent.loop: execute turn ${turn} response in ${Date.now() - reqStart}ms`)
+
+            const choice = response.choices?.[0]
+            if (!choice) { log.warn('ai-agent.loop: LLM returned no choices'); return }
+            const assistantMsg = choice.message
+            messages.push(assistantMsg as ChatCompletionMessageParam)
+
+            const toolCalls = assistantMsg.tool_calls ?? []
+            if (toolCalls.length === 0) {
+                log.info(`ai-agent.loop: agent finished after ${turn} turns, ${toolCallsUsed} tool calls`)
+                return
+            }
+
+            let revisedThisTurn = false
+            for (const call of toolCalls) {
+                if (revisedThisTurn) break
+                if (call.type !== 'function') {
+                    pushToolError(call.id, 'unsupported tool call type')
+                    continue
+                }
+                const name = call.function.name
+
+                let parsed: any
+                try { parsed = call.function.arguments ? JSON.parse(call.function.arguments) : {} }
+                catch (e: any) { pushToolError(call.id, `invalid arguments: ${e.message ?? e}`); continue }
+
+                if (name === 'revise_plan') {
+                    const tool = toolByName.get('revise_plan')!
+                    const result = await tool.handler(parsed, signal)
+                    pushToolResult(call.id, result)
+                    log.warn(`ai-agent.loop: execute→plan via revise_plan after ${executePhaseTurnsSinceLastPlan} turns. reason: ${parsed?.reason ?? '(none)'}`)
+                    phase = 'plan'
+                    messages[0] = buildSystemMessage(query, 'plan')
+                    tools = await buildTools(query, queue, state, 'plan')
+                    toolByName = new Map(tools.map(t => [t.name, t]))
+                    revisedThisTurn = true
+                    continue
+                }
+
+                const tool = toolByName.get(name)
+                if (!tool) {
+                    log.warn(`ai-agent.loop: agent called unknown tool "${name}"`)
+                    pushToolError(call.id, `unknown tool "${name}"`)
+                    continue
+                }
+
+                // Cache replay path: cacheable tools return prior result for free.
+                const dedupKey = `${tool.name}:${canonicalJson(parsed)}`
+                const cacheable = !NON_CACHEABLE_TOOLS.has(tool.name)
+                if (cacheable && seenResults.has(dedupKey)) {
+                    const cached = seenResults.get(dedupKey)
+                    log.debug(`ai-agent.loop: ${tool.name} cache hit, replaying`)
+                    hooks?.onToolCall?.({ name: tool.name, args: JSON.stringify(parsed), durationMs: 0, ok: true })
+                    pushToolResult(call.id, cached)
+                    continue
+                }
+
+                if (toolCallsUsed >= cfg.maxToolCalls) {
+                    pushToolError(call.id, 'max tool calls reached, wrap up with report_results')
+                    continue
+                }
+                toolCallsUsed++
+
+                const callStart = Date.now()
+                const result = await executeWithTimeout(tool, parsed, cfg.toolTimeoutMs, signal)
+                if (signal?.aborted) return
+                const durationMs = Date.now() - callStart
+                if (result?.error) log.warn(`ai-agent.loop: ${tool.name} returned error: ${result.error}`)
+                else if (cacheable) seenResults.set(dedupKey, result)
+                hooks?.onToolCall?.({ name: tool.name, args: JSON.stringify(parsed), durationMs, ok: !result?.error, error: result?.error })
+                pushToolResult(call.id, result)
+            }
+            continue
+        }
+
+        log.error('ai-agent.loop: unknown phase')
         return
     }
 }
