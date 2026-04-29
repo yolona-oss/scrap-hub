@@ -56,6 +56,78 @@ const zeroToOne = (raw: string): true | string => {
 const nonEmptyString = (raw: string): true | string =>
     raw.trim().length > 0 ? true : 'must not be empty'
 
+/** Extractor sub-agent settings (one-shot LLM extraction on hostile pages).
+ *  Lives nested under `aiAgent.extractor` so users see one cohesive AI block. */
+class ExtractorSettings {
+    @CmdArg({
+        required: false,
+        persistent: true,
+        description: 'Enable extractor sub-agent escalation when deterministic extraction misses',
+        type: 'bool',
+        choices: ['true', 'false'],
+        default: 'true',
+    })
+    enabled?: boolean
+
+    @CmdArg({
+        required: false,
+        persistent: true,
+        description: 'Extractor model id. Different model recommended (smaller/faster); falls back to parent aiAgent.model when empty.',
+        choices: ['', 'qwen2.5:3b', 'qwen2.5:7b', 'qwen3:8b', 'gpt-4o-mini'],
+        default: '',
+    })
+    model?: string
+
+    @CmdArg({
+        required: false,
+        persistent: true,
+        description: 'Extractor base URL. Falls back to parent aiAgent.baseUrl when empty.',
+        default: '',
+    })
+    baseUrl?: string
+
+    @CmdArg({
+        required: false,
+        persistent: true,
+        description: 'Extractor API key. Falls back to parent aiAgent.apiKey when empty.',
+        default: '',
+    })
+    apiKey?: string
+
+    @CmdArg({
+        required: false,
+        persistent: true,
+        description: 'Extractor sampling temperature (0..1). Lower = more structured.',
+        type: 'number',
+        choices: ['0.0', '0.1', '0.2', '0.5'],
+        default: '0.1',
+        validator: zeroToOne,
+    })
+    temperature?: number
+
+    @CmdArg({
+        required: false,
+        persistent: true,
+        description: 'Extractor max tool calls per page',
+        type: 'number',
+        choices: ['4', '8', '16'],
+        default: '8',
+        validator: positiveInt,
+    })
+    maxToolCallsPerPage?: number
+
+    @CmdArg({
+        required: false,
+        persistent: true,
+        description: 'Extractor whole-call timeout (ms)',
+        type: 'number',
+        choices: ['15000', '30000', '45000', '90000'],
+        default: '45000',
+        validator: positiveInt,
+    })
+    timeoutMs?: number
+}
+
 /** AI-agent settings as a nested branch class. Defaults preserved from
  *  the old `AI_AGENT_DEFAULTS` constants — the leaves carry them directly. */
 class AIAgentSettings {
@@ -127,6 +199,14 @@ class AIAgentSettings {
         default: '',
     })
     apiKey?: string
+
+    @CmdArg({
+        required: false,
+        persistent: true,
+        description: 'Extractor sub-agent settings (one-shot LLM extraction on hostile pages)',
+        childClass: ExtractorSettings,
+    })
+    extractor?: ExtractorSettings
 }
 
 /** Google Sheets exporter config. Both fields are free-form; empty
