@@ -79,10 +79,22 @@ export interface IUI_InvokableCommand<Ctx extends BaseUIContext> extends IUIComm
 }
 
 /** @description Describes the arg tree the parser walks for one
- *  command. The root is whatever the desc-compiler synthesized: a
- *  branch with `args` / `intercom` children for services,
- *  the args-class tree for one-shots and built-ins, or a single leaf
- *  for argless commands. */
+ *  command. The root is whatever the desc-compiler synthesized:
+ *
+ *   - service (build phase) → the args-class tree, with `slice: 'args'`
+ *   - service (active phase) → the intercom-class tree, with `slice: 'intercom'`
+ *   - one-shot / built-in → the args-class tree, `slice: undefined`
+ *   - remote one-shot → the manifest-supplied tree, `slice: undefined`
+ *
+ *  The `slice`, when set, names the wire prefix the parser must
+ *  prepend to every committed value's key when emitting them onto the
+ *  wire (so the receiver's `sliceArgsByPrefix` keeps routing correctly).
+ *  The user-facing tree is flat — the slice wrapper that used to live
+ *  in the tree (`argBranch({ args, intercom })`) is gone. */
 export interface IUICommandDescriptor {
     tree: ArgTree
+    /** Wire-prefix slice. When set, `effectiveValues` prepends `${slice}/`
+     *  to every key. Undefined for one-shot/built-in commands whose
+     *  values ride bare on the wire. */
+    slice?: 'args' | 'intercom'
 }

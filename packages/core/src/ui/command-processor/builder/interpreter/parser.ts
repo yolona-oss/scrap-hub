@@ -80,6 +80,12 @@ export interface CBParserConfig {
 export class CBParser<PChainResGType extends ParserPerformedAction | string = ParserPerformedAction> {
     private readonly _command: string
     private readonly _tree: ArgTree
+    /** Wire-prefix slice from the descriptor. Prepended to every
+     *  `effectiveValues` key when set; undefined for one-shot / built-in
+     *  commands whose values ride bare on the wire. The user-facing
+     *  tree is flat — there is no `args` or `intercom` child to descend
+     *  into. */
+    private readonly _slice: 'args' | 'intercom' | undefined
     private _path: string[] = []
     private _pending: Pending = null
     private _values = new Map<string, string>()
@@ -97,7 +103,8 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
     constructor(config: CBParserConfig) {
         this._command = config.command
         this._tree = config.descriptor.tree
-        log.trace(`Parser created for command: ${this._command}`)
+        this._slice = config.descriptor.slice
+        log.trace(`Parser created for command: ${this._command} slice=${this._slice ?? 'none'}`)
     }
 
     /* -- chain composition: custom handlers fire BEFORE the built-in ones */
@@ -142,14 +149,17 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
             const { tkn } = req
             if (tkn.type !== 'SINGLE_DASH') return
             let node = this.childOfCurrentBranch(tkn.value!)
-            // At root, allow `-flag` to auto-descend into the slice that
-            // owns the flag (same fallback as DOUBLE_DASH navigation).
+            // At root, allow `-flag` to deep-resolve to a unique leaf
+            // anywhere in the tree (hybrid deep search). Same fallback
+            // as DOUBLE_DASH navigation.
             if (!node && this._path.length === 0) {
-                const sliceMatch = this.findInRootSlices(tkn.value!)
-                if (sliceMatch) {
-                    this._path = [sliceMatch.slice]
-                    node = sliceMatch.node
-                    log.debug(`SINGLE_DASH "${tkn.value}" auto-descended into slice "${sliceMatch.slice}"`)
+                const match = this.findInTree(tkn.value!)
+                if (match) {
+                    // Descend through every branch on the path so the
+                    // markuper renders the destination correctly.
+                    this._path = match.pathToParent.slice()
+                    node = match.node
+                    log.debug(`SINGLE_DASH "${tkn.value}" deep-resolved to ${[...match.pathToParent, tkn.value].join(ARG_PATH_DELIMITER)}`)
                 }
             }
             if (!node || node.node !== 'leaf' || !node.standalone) {
@@ -216,20 +226,21 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
      *  doesn't name a child — TEXT callers fall back to positional
      *  auto-bind, DOUBLE_DASH callers report `'none'`.
      *
-     *  At the root of a service tree (`args|intercom` slices),
-     *  if `name` doesn't name an immediate child but DOES name a unique
-     *  child of one of the slices, we auto-descend into that slice first
-     *  and then resolve there. This lets a CLI user type
-     *  `/scraper Адвокат --city СПб` without having to know that `city`
-     *  lives under `args/`. */
+     *  At root, if `name` doesn't name an immediate child but DOES name
+     *  a UNIQUE node anywhere in the tree, we descend through every
+     *  branch on the path to it before resolving. This lets a CLI user
+     *  type `/scraper Адвокат --baseUrl http://...` without having to
+     *  know that `baseUrl` lives under `aiAgent/`. Ambiguous names
+     *  (two leaves with the same name in different branches) return
+     *  `null` — the user must drill explicitly. */
     private handleNavigationToken(name: string): ParserPerformedAction | null {
         let node = this.childOfCurrentBranch(name)
         if (!node && this._path.length === 0) {
-            const sliceMatch = this.findInRootSlices(name)
-            if (sliceMatch) {
-                this._path = [sliceMatch.slice]
-                node = sliceMatch.node
-                log.debug(`navigation "${name}" auto-descended into slice "${sliceMatch.slice}"`)
+            const match = this.findInTree(name)
+            if (match) {
+                this._path = match.pathToParent.slice()
+                node = match.node
+                log.debug(`navigation "${name}" deep-resolved to ${[...match.pathToParent, name].join(ARG_PATH_DELIMITER)}`)
             }
         }
         if (!node) {
@@ -247,18 +258,34 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
         return 'await-value'
     }
 
-    /** Search the canonical service-tree slices `args`, `intercom` (in
-     *  that priority order) for a direct child named `name`.
-     *  First match wins. Returns `undefined` when none of the slices
-     *  contains the name. Slice names not present in the tree are skipped
-     *  silently (allows non-service trees to be parsed unaffected). */
-    private findInRootSlices(name: string): { slice: string; node: ArgTree } | undefined {
-        if (this._tree.node !== 'branch') return undefined
-        for (const sliceName of ['args', 'intercom']) {
-            const slice = this._tree.children.get(sliceName)
-            if (!slice || slice.node !== 'branch') continue
-            const child = slice.children.get(name)
-            if (child) return { slice: sliceName, node: child }
+    /** Hybrid deep search at root: walk the entire tree for nodes named
+     *  `name` (excluding the current branch's immediate children, which
+     *  the caller already checked). Returns `undefined` when the name
+     *  matches zero or 2+ nodes. When exactly one match exists, returns
+     *  the path-to-parent (so the caller can set `_path` to it) and the
+     *  matched node.
+     *
+     *  Only the caller decides when to invoke this — the design is
+     *  "root-only" so a partially-drilled user doesn't accidentally
+     *  jump out of their current branch. */
+    private findInTree(name: string): { pathToParent: string[]; node: ArgTree } | undefined {
+        const matches: { pathToParent: string[]; node: ArgTree }[] = []
+        const visit = (branch: ArgBranch, pathToBranch: string[]): void => {
+            for (const [childName, child] of branch.children) {
+                if (childName === name) {
+                    matches.push({ pathToParent: pathToBranch.slice(), node: child })
+                    if (matches.length > 1) return
+                }
+                if (child.node === 'branch') {
+                    visit(child, [...pathToBranch, childName])
+                    if (matches.length > 1) return
+                }
+            }
+        }
+        if (this._tree.node === 'branch') visit(this._tree, [])
+        if (matches.length === 1) return matches[0]
+        if (matches.length > 1) {
+            log.debug(`findInTree "${name}" — ambiguous (${matches.length} matches), refusing to deep-resolve`)
         }
         return undefined
     }
@@ -413,25 +440,39 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
      *  interpreter's compile path so saved values fill gaps without
      *  appearing as user input in the markup.
      *
+     *  Wire-prefix reapply: when the descriptor carries a `slice`
+     *  (`'args'` or `'intercom'`), every emitted key is prefixed with
+     *  `${slice}/`. The parser's internal storage uses bare paths
+     *  relative to the user-facing tree; the prefix lives at this
+     *  boundary so transport / storage / node-side routing
+     *  (`sliceArgsByPrefix` in `cmd-node-app.ts`) keep their
+     *  slice-namespaced view. One-shot / built-in commands have no
+     *  slice and emit bare keys.
+     *
      *  Insertion order: user values FIRST so `CmdArgumentProxy._byLastSegment`
      *  resolves bare names to user input on collision (Map preserves insertion
      *  order, the proxy's last-segment index uses first-write-wins).
      *
-     *  `params/now` is the hub-side "skip the builder" flag — it must never
+     *  `now` is the hub-side "skip the builder" flag — it must never
      *  ride the wire (the dispatcher already stripped the `-now` token
      *  pre-build, but a builder-side toggle could still commit it). Drop
      *  it here so neither the proxy nor the wire `args` map sees it. */
     effectiveValues(): Map<string, string> {
+        const slicePrefix = this._slice ? `${this._slice}${ARG_PATH_DELIMITER}` : ''
+        const emit = (out: Map<string, string>, k: string, v: string): void => {
+            if (k === 'now') return
+            out.set(`${slicePrefix}${k}`, v)
+        }
         const out = new Map<string, string>()
         for (const [k, v] of this._values) {
-            if (k === 'args/now') continue
-            out.set(k, v)
+            emit(out, k, v)
         }
         if (this._savedSources) {
             for (const [k, entry] of this._savedSources) {
-                if (k === 'args/now') continue
-                if (out.has(k)) continue
-                out.set(k, entry.value)
+                if (k === 'now') continue
+                const wireKey = `${slicePrefix}${k}`
+                if (out.has(wireKey)) continue
+                out.set(wireKey, entry.value)
             }
         }
         return out

@@ -683,6 +683,133 @@ describe('Parser — top-level flag auto-descends into config|params|messages sl
     })
 })
 
+describe('Parser — flat-tree model (new desc-compiler output)', () => {
+    /** New service-build tree shape: NO `args` / `intercom` wrapper.
+     *  The descriptor compiler now returns the args-class tree directly
+     *  as the root, with `slice: 'args'` carried separately. The wire
+     *  prefix is reapplied at the parser→wire boundary in
+     *  `effectiveValues`. */
+    function flatBuildTree(): ArgTree {
+        return argBranch({
+            query: argLeaf({ position: 1 }),
+            city: argLeaf({}),
+            limit: argLeaf({}),
+            aiAgent: argBranch({
+                model: argLeaf({}),
+                baseUrl: argLeaf({}),
+            }),
+            googleSheets: argBranch({
+                spreadsheetId: argLeaf({}),
+            }),
+        })
+    }
+
+    function withSlice(tree: ArgTree, slice: 'args' | 'intercom'): CBParser {
+        return new CBParser({
+            command: 'svc',
+            descriptor: { tree, slice },
+        })
+    }
+
+    test('--baseUrl at root deep-resolves to aiAgent/baseUrl (unique-leaf hybrid search)', () => {
+        const parser = withSlice(flatBuildTree(), 'args')
+        const lexer = new Lexer()
+        lexer.setInput('Адвокат --baseUrl http://x/v1')
+        for (const tkn of lexer.tokenizeCurrent()) parser.parseNextToken(tkn)
+        // Internal storage: bare path through the flat tree.
+        expect(parser.Values.get('query')).toBe('Адвокат')
+        expect(parser.Values.get('aiAgent/baseUrl')).toBe('http://x/v1')
+        // Wire view: slice prefix reapplied.
+        const wire = parser.effectiveValues()
+        expect(wire.get('args/query')).toBe('Адвокат')
+        expect(wire.get('args/aiAgent/baseUrl')).toBe('http://x/v1')
+    })
+
+    test('ambiguous deep-search match returns null — user must drill', () => {
+        const tree = argBranch({
+            aiAgent: argBranch({ timeout: argLeaf({}) }),
+            googleSheets: argBranch({ timeout: argLeaf({}) }),
+        })
+        const parser = withSlice(tree, 'args')
+        const lexer = new Lexer()
+        lexer.setInput('--timeout 5000')
+        for (const tkn of lexer.tokenizeCurrent()) parser.parseNextToken(tkn)
+        // Ambiguous → no commit anywhere; the user has to drill into
+        // the branch they meant.
+        expect(parser.Values.size).toBe(0)
+    })
+
+    test('deep search only fires at root — drilled user does not jump out', () => {
+        const tree = argBranch({
+            outer: argBranch({
+                inner: argBranch({ deep: argLeaf({}) }),
+            }),
+            other: argLeaf({}),
+        })
+        const parser = withSlice(tree, 'args')
+        // Drill into outer/inner, then try to reference `other` at the
+        // root — deep search MUST NOT pluck it from root and commit.
+        // (root-only deep search is the design guard.)
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'outer' })
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'inner' })
+        expect(parser.Path).toEqual(['outer', 'inner'])
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'other' })
+        // No match within the current branch ⇒ deep-search-skip ⇒ none.
+        expect(parser.Values.size).toBe(0)
+        // Path unchanged: we did not jump out.
+        expect(parser.Path).toEqual(['outer', 'inner'])
+    })
+
+    test('--config token (legacy ceremony) is a no-op in the flat model', () => {
+        const parser = withSlice(flatBuildTree(), 'args')
+        const lexer = new Lexer()
+        lexer.setInput('Адвокат --config --city СПб')
+        for (const tkn of lexer.tokenizeCurrent()) parser.parseNextToken(tkn)
+        // --config doesn't name anything in the tree → silently dropped.
+        // Subsequent --city still resolves correctly.
+        expect(parser.Values.get('query')).toBe('Адвокат')
+        expect(parser.Values.get('city')).toBe('СПб')
+    })
+
+    test('intercom slice prefix on the wire when descriptor.slice === intercom', () => {
+        const intercomTree = argBranch({
+            pause: argLeaf({ standalone: true }),
+            stop: argLeaf({ standalone: true }),
+        })
+        const parser = withSlice(intercomTree, 'intercom')
+        const lexer = new Lexer()
+        lexer.setInput('-stop')
+        for (const tkn of lexer.tokenizeCurrent()) parser.parseNextToken(tkn)
+        expect(parser.Values.get('stop')).toBe('true')
+        // Wire view ships intercom/stop, matching cmd-node-app's sliceArgsByPrefix expectations.
+        expect(parser.effectiveValues().get('intercom/stop')).toBe('true')
+    })
+
+    test('one-shot (no slice) emits bare wire keys', () => {
+        const tree = argBranch({ name: argLeaf({ position: 1 }) })
+        const parser = new CBParser({
+            command: 'echo',
+            descriptor: { tree }, // no slice
+        })
+        const lexer = new Lexer()
+        lexer.setInput('hello')
+        for (const tkn of lexer.tokenizeCurrent()) parser.parseNextToken(tkn)
+        expect(parser.Values.get('name')).toBe('hello')
+        expect(parser.effectiveValues().get('name')).toBe('hello')
+    })
+
+    test('the `now` filter blocks `now` from the wire (replacement for old args/now filter)', () => {
+        const tree = argBranch({ now: argLeaf({ standalone: true }), city: argLeaf({}) })
+        const parser = withSlice(tree, 'args')
+        // Simulate that `now` got committed somehow (UI toggle, etc.).
+        parser.seedValues(new Map([['now', 'true'], ['city', 'СПб']]))
+        const wire = parser.effectiveValues()
+        expect(wire.has('args/now')).toBe(false)
+        expect(wire.has('now')).toBe(false)
+        expect(wire.get('args/city')).toBe('СПб')
+    })
+})
+
 describe('Parser — long token streams do not throw on snapshot rollover', () => {
     test('30 sequential tokens parse without overflowing the snap stack', () => {
         const tree = argBranch({

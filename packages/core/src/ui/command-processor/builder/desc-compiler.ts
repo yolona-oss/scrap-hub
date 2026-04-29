@@ -14,24 +14,30 @@ type AnyDispatcher = CmdDispatcher<any>
 type AnyEntry = IUICommandEntry<any>
 
 /**
- * Synthesize an `ArgTree` for a command, regardless of whether it
+ * Synthesize a `ArgTree` for a command, regardless of whether it
  * lives in the local registry (one-shot, built-in, service) or on a
- * remote cmd-node (manifest-aggregated).
+ * remote cmd-node (manifest-aggregated). Returns the descriptor with
+ * the user-facing tree at the root and a `slice` that names the wire
+ * prefix the parser must reapply when emitting committed values.
  *
  * The tree shape depends on the command's kind:
  *
- *   - **service**: root branch with two children — `args`, `intercom` —
- *     each tree built from the corresponding `@CmdService` data class.
- *     While the service is active, only `intercom` is populated (the
- *     user has already configured the rest); otherwise `args` carries
- *     the full configuration surface.
+ *   - **service (build phase)**: the args-class tree as the root,
+ *     `slice: 'args'`. The user's --foo --bar resolve directly against
+ *     the args tree; no `args →` wrapper button.
+ *
+ *   - **service (active phase)**: the intercom-class tree as the root,
+ *     `slice: 'intercom'`. Pause / resume / stop / export show as root
+ *     buttons; no `intercom →` wrapper.
  *
  *   - **local one-shot / built-in**: `buildArgTreeFromClass(args)` where
  *     `args` is the `@CmdArg`-decorated class on the command's
- *     `args` slot. Argless commands get an empty branch.
+ *     `args` slot. `slice: undefined` — values ride bare on the wire.
+ *     Argless commands get an empty branch.
  *
  *   - **remote**: `protoToTree(command.options)` — the proto already
  *     carries an `ArgTree` per task #391-#393's wire schema.
+ *     `slice: undefined`.
  */
 export class CBDescriptorCompiler {
     constructor() {}
@@ -45,9 +51,10 @@ export class CBDescriptorCompiler {
         const local = dispatcher.tryGetInvokable(command)
         if (local) {
             const isService = dispatcher.isService(command)
-            return isService
-                ? { tree: this.buildServiceOptions(local.invokable as ICmdService, userId, dispatcher) }
-                : { tree: this.buildOneShotOptions(local) }
+            if (isService) {
+                return this.buildServiceDescriptor(local.invokable as ICmdService, userId, dispatcher)
+            }
+            return { tree: this.buildOneShotOptions(local) }
         }
         const remote = dispatcher.tryGetRemoteCommand(command)
         if (remote) {
@@ -58,19 +65,21 @@ export class CBDescriptorCompiler {
         )
     }
 
-    /** Service tree: root branch with `args` / `intercom` children.
-     *  While the service is active, the `args` branch collapses to empty
-     *  so the markuper only renders the `intercom` slice — matching the
-     *  old `selectReadingContexts` active/inactive split. */
-    private buildServiceOptions(
+    /** Service descriptor: the active slice's tree IS the root. While
+     *  inactive (build phase) the user picks build-time arguments off
+     *  the args tree directly; while active they pick intercom commands
+     *  off the intercom tree directly. The wire prefix (`args/` or
+     *  `intercom/`) is reapplied at the parser→wire boundary so the
+     *  routing in `cmd-node-app.ts` (`sliceArgsByPrefix`) keeps working. */
+    private buildServiceDescriptor(
         service: ICmdService,
         userId: string,
         dispatcher: AnyDispatcher,
-    ): ArgTree {
+    ): IUICommandDescriptor {
         const isActive = dispatcher.isServiceActive(userId, service.name)
-        const args = isActive ? argBranch({}) : service.argsTree()
-        const intercom = service.intercomTree()
-        return argBranch({ args, intercom })
+        return isActive
+            ? { tree: service.intercomTree(), slice: 'intercom' }
+            : { tree: service.argsTree(), slice: 'args' }
     }
 
     private buildOneShotOptions(entry: AnyEntry): ArgTree {

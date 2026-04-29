@@ -57,4 +57,80 @@ describe('CBDescriptorCompiler — remote command path', () => {
             /not registered locally and not served by any attached node/,
         )
     })
+
+    test('remote / one-shot descriptors carry no slice — values ride bare on the wire', async () => {
+        const remoteTree: ArgTree = argBranch({ x: argLeaf() })
+        const dispatcher = new CmdDispatcher() as any
+        dispatcher.attachManifestAggregator({
+            listManifests: () => [{
+                nodeId: 'n1', nodeName: 'n', version: '1.0.0',
+                commands: [{ name: 'foo', description: '', args: remoteTree }],
+                services: [{ command: { name: 'foo' }, intercomActions: [], caps: {} }],
+                configs: [], hardware: {}, metrics: {},
+            }],
+            findCommand: (n: string) => n === 'foo' ? { name: 'foo', description: '', args: remoteTree } : undefined,
+            configModuleOwners: () => [],
+        })
+        const desc = await new CBDescriptorCompiler().compile('foo', 'u', dispatcher, {} as any)
+        expect(desc.slice).toBeUndefined()
+    })
+})
+
+describe('CBDescriptorCompiler — service descriptor (flat-tree model)', () => {
+    /** Build a fake dispatcher whose `tryGetInvokable` returns a service
+     *  with the given args/intercom trees, and whose `isServiceActive`
+     *  returns the configured value. */
+    function fakeServiceDispatcher(opts: {
+        argsTree: ArgTree
+        intercomTree: ArgTree
+        active: boolean
+    }) {
+        const dispatcher = new CmdDispatcher() as any
+        dispatcher.tryGetInvokable = (name: string) =>
+            name === 'svc'
+                ? {
+                    invokable: {
+                        name: 'svc',
+                        argsTree: () => opts.argsTree,
+                        intercomTree: () => opts.intercomTree,
+                    },
+                }
+                : undefined
+        dispatcher.isService = (name: string) => name === 'svc'
+        dispatcher.isServiceActive = () => opts.active
+        return dispatcher
+    }
+
+    test('inactive service: descriptor.tree === argsTree exactly, slice === args', async () => {
+        const args = argBranch({ query: argLeaf({ position: 1 }) })
+        const intercom = argBranch({ stop: argLeaf({ standalone: true }) })
+        const dispatcher = fakeServiceDispatcher({ argsTree: args, intercomTree: intercom, active: false })
+        const desc = await new CBDescriptorCompiler().compile('svc', 'u', dispatcher, {} as any)
+        expect(desc.tree).toBe(args)
+        expect(desc.slice).toBe('args')
+    })
+
+    test('active service: descriptor.tree === intercomTree exactly, slice === intercom', async () => {
+        const args = argBranch({ query: argLeaf({ position: 1 }) })
+        const intercom = argBranch({ stop: argLeaf({ standalone: true }) })
+        const dispatcher = fakeServiceDispatcher({ argsTree: args, intercomTree: intercom, active: true })
+        const desc = await new CBDescriptorCompiler().compile('svc', 'u', dispatcher, {} as any)
+        expect(desc.tree).toBe(intercom)
+        expect(desc.slice).toBe('intercom')
+    })
+
+    test('inactive service tree has no `args` or `intercom` wrapper at root', async () => {
+        const args = argBranch({ query: argLeaf({ position: 1 }), city: argLeaf() })
+        const intercom = argBranch({ stop: argLeaf({ standalone: true }) })
+        const dispatcher = fakeServiceDispatcher({ argsTree: args, intercomTree: intercom, active: false })
+        const desc = await new CBDescriptorCompiler().compile('svc', 'u', dispatcher, {} as any)
+        expect(desc.tree.node).toBe('branch')
+        if (desc.tree.node === 'branch') {
+            // Root children are the actual args (no wrapper).
+            expect(desc.tree.children.has('query')).toBe(true)
+            expect(desc.tree.children.has('city')).toBe(true)
+            expect(desc.tree.children.has('args')).toBe(false)
+            expect(desc.tree.children.has('intercom')).toBe(false)
+        }
+    })
 })
