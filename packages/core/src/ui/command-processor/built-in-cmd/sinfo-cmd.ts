@@ -2,13 +2,13 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { CmdArgument } from "../../../ui/types/command"
+import { CmdArg } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
 import { TableDesigner } from "@cmd-hub/common"
 import { CAP_ManagerRepo, CAP_AccountRepo } from "@cmd-hub/common"
 
 class SInfoArgs {
-    @CmdArgument({
+    @CmdArg({
         required: false,
         position: 1,
         description: 'Service name',

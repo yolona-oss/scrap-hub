@@ -1,10 +1,10 @@
-import { WithNeighbors, type OptionsTree, CmdArgumentProxy } from "@cmd-hub/common"
+import { WithNeighbors, type ArgTree, CmdArgumentProxy } from "@cmd-hub/common"
 import { BaseCommandService } from './service'
 import { BaseUIContext, IUI } from "../../../ui"
 
-/** Constructable data class decorated with `@CmdArgument` properties.
+/** Constructable data class decorated with `@CmdArg` properties.
  *  Built-ins reference one of these on `CommandSklet.args` so the
- *  desc-compiler can synthesize an `OptionsTree` via `buildTreeFromClass`. */
+ *  desc-compiler can synthesize an `ArgTree` via `buildArgTreeFromClass`. */
 export type CmdArgsClass = new () => object
 
 /** Hub UI routing metadata. Intentionally NOT extending
@@ -25,7 +25,7 @@ export type IUICommand = CommandSklet
  *  tree is the canonical source of truth for what arguments the command
  *  accepts; UIs render it directly. */
 export interface IUICommandProcessed extends IUICommand {
-    readonly options: OptionsTree
+    readonly options: ArgTree
 }
 
 export interface ICommandCompiled {
@@ -78,9 +78,9 @@ export interface IUI_InvokableCommand<Ctx extends BaseUIContext> extends IUIComm
 
 /** @description Describes the option tree the parser walks for one
  *  command. The root is whatever the desc-compiler synthesized: a
- *  branch with `config` / `params` / `messages` children for services,
+ *  branch with `args` / `intercom` children for services,
  *  the args-class tree for one-shots and built-ins, or a single leaf
  *  for argless commands. */
 export interface IUICommandDescriptor {
-    options: OptionsTree
+    options: ArgTree
 }

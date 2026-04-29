@@ -2,35 +2,35 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { CmdArgument } from "../../../ui/types/command"
+import { CmdArg } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
 import { TableDesigner } from "@cmd-hub/common"
 import { isValidConfigPath } from "@cmd-hub/common"
 import { CAP_ManagerRepo, CAP_AccountRepo } from '@cmd-hub/common'
 
-class SConfigArgs {
-    @CmdArgument({
+class SArgsArgs {
+    @CmdArg({
         required: false,
         position: 1,
         description: 'Service name',
     })
     service?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
         position: 2,
         description: 'Config key to set',
     })
     key?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
         position: 3,
         description: 'New value',
     })
     value?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
         standalone: true,
         description: 'Clear all saved config for the service',
@@ -62,13 +62,13 @@ function maskSensitive(key: string, value: unknown): string {
     return str
 }
 
-export const SConfigCommand: BuiltInCommand = {
-    command: BuiltInUiCommandsEnum.SCONFIG,
-    description: "View or edit the account-layer baseline config (session overlays still take precedence at runtime)",
-    args: SConfigArgs,
+export const SArgsCommand: BuiltInCommand = {
+    command: BuiltInUiCommandsEnum.SARGS,
+    description: "View or edit the account-layer baseline args (session overlays still take precedence at runtime)",
+    args: SArgsArgs,
     requires: [CAP_ManagerRepo, CAP_AccountRepo],
     invokable: async function(this: CmdDispatcher<any>, args: CmdArgumentProxy, ctx) {
-        const repos = this.requireRepos('sconfig')
+        const repos = this.requireRepos('sargs')
         const serviceName = args.getPos(1) ?? args.get('service')
         const key = args.getPos(2) ?? args.get('key')
         const doClear = args.has('clear')
@@ -109,7 +109,7 @@ export const SConfigCommand: BuiltInCommand = {
             for (const name of serviceNames) {
                 try {
                     const { module } = await account.getModuleByNameOrCreate(name)
-                    const config = (module.record.data.config ?? {}) as Record<string, unknown>
+                    const config = (module.record.data.args ?? {}) as Record<string, unknown>
                     if (Object.keys(config).length > 0) {
                         const fields = flattenObject(config)
                         text += ` ${UiUnicodeSymbols.arrowRight} ${name} (${fields.length} fields)\n`
@@ -121,7 +121,7 @@ export const SConfigCommand: BuiltInCommand = {
             if (!hasAny) {
                 text += ` ${UiUnicodeSymbols.info} No saved configs yet. Start a service to create one.\n`
             }
-            text += `\nUse /sconfig <service> to view details.`
+            text += `\nUse /sargs <service> to view details.`
             await ctx.reply(text)
             return
         }
@@ -129,7 +129,7 @@ export const SConfigCommand: BuiltInCommand = {
         const { module } = await account.getModuleByNameOrCreate(serviceName)
 
         if (doClear) {
-            await module.replaceConfig({})
+            await module.replaceArgs({})
             await ctx.reply(`${UiUnicodeSymbols.success} Cleared ${serviceName} config. Defaults will be used on next start.`)
             return
         }
@@ -147,14 +147,14 @@ export const SConfigCommand: BuiltInCommand = {
                 await ctx.reply(`${UiUnicodeSymbols.error} Value too large`)
                 return
             }
-            await module.setDataPath(`config.${key}`, parsedValue)
+            await module.setDataPath(`args.${key}`, parsedValue)
             const display = typeof parsedValue === 'object' ? JSON.stringify(parsedValue).slice(0, 100) : String(parsedValue)
             await ctx.reply(`${UiUnicodeSymbols.success} Set account-layer ${serviceName}.${key} = ${maskSensitive(key, display)}\n${UiUnicodeSymbols.info} Active session overlays (if any) still take precedence.`)
             return
         }
 
         // Show config
-        const config = (module.record.data.config ?? {}) as Record<string, unknown>
+        const config = (module.record.data.args ?? {}) as Record<string, unknown>
         if (Object.keys(config).length === 0) {
             await ctx.reply(`${UiUnicodeSymbols.info} No saved config for "${serviceName}". Start the service to create one.`)
             return
@@ -168,6 +168,6 @@ export const SConfigCommand: BuiltInCommand = {
             body: fields.map(({ key: k, value: v }) => [k, maskSensitive(k, v)]),
         }, ctx.manager?.messageWidth ?? 72)
 
-        await ctx.reply(`<pre>${table}</pre>Use /sconfig ${serviceName} &lt;key&gt; &lt;value&gt; to update.`, { parse_mode: 'HTML' })
+        await ctx.reply(`<pre>${table}</pre>Use /sargs ${serviceName} &lt;key&gt; &lt;value&gt; to update.`, { parse_mode: 'HTML' })
     }
 }

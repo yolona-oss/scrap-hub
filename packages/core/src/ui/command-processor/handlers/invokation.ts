@@ -12,7 +12,7 @@ export class HandleInvokation<Ctx extends BaseUIContext> extends AbstractCmdHand
 
         // Two-tier dispatch:
         //  1. If `command` is in the dispatcher's local registry (built-ins
-        //     like /help, /alias, /sconfig, /invite, plus any command added
+        //     like /help, /alias, /sargs, /invite, plus any command added
         //     via `dispatcher.register()`), compile against the local
         //     descriptor and call its invokable in-process.
         //  2. Otherwise route to a cmd-node via RemoteCmdInvoker, using

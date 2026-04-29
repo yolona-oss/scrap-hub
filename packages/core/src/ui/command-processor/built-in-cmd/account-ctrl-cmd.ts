@@ -1,4 +1,4 @@
-import { CmdArgument } from "../../../ui/types/command"
+import { CmdArg } from "../../../ui/types/command"
 import { BuiltInAccountCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdDispatcher } from "../dispatcher"
@@ -11,21 +11,21 @@ import { isValidConfigPath } from "@cmd-hub/common"
 import { CAP_ManagerRepo, CAP_AccountRepo } from "@cmd-hub/common"
 
 class SetVariableArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 1,
         description: "Module name",
     })
     module?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: true,
         description: "Variable path",
         position: 2,
     })
     path?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 3,
         description: "Variable value",
@@ -65,14 +65,14 @@ const SetVariableCommand: BuiltInCommand = {
 }
 
 class RemoveVariableArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         description: "Module name",
         position: 1,
     })
     module?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: true,
         description: "Variable path",
         position: 2,
@@ -110,14 +110,14 @@ const RemoveVariableCommand: BuiltInCommand = {
 }
 
 class GetVariableArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 1,
         description: "Module name",
     })
     module?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 2,
         description: "Variable path",

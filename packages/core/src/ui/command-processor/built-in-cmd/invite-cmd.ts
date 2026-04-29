@@ -2,24 +2,24 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { CmdArgument } from "../../../ui/types/command"
+import { CmdArg } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
 import { TableDesigner } from "@cmd-hub/common"
 import { CAP_InvitationLinkRepo } from '@cmd-hub/common'
 import crypto from 'crypto'
 
 class InviteArgs {
-    @CmdArgument({
+    @CmdArg({
         required: false,
         standalone: true,
         description: "List all invitation links",
     })
     list?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
         description: "Expiration time (e.g. 1h, 24h, 7d). Empty = no expiry",
-        options: ['1h', '24h', '7d', '30d'],
+        choices: ['1h', '24h', '7d', '30d'],
     })
     expires?: string
 }

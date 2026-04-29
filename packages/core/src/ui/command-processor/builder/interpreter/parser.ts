@@ -2,13 +2,13 @@ import {
     Chain,
     chainHandlerFactory,
     createChainFallbackHandler,
-    nodeAtPath,
-    walkLeaves,
-    PAIR_PATH_DELIMITER,
+    argNodeAtPath,
+    walkArgLeaves,
+    ARG_PATH_DELIMITER,
     type IChainHandler,
-    type LeafSpec,
-    type BranchSpec,
-    type OptionsTree,
+    type ArgLeaf,
+    type ArgBranch,
+    type ArgTree,
 } from '@cmd-hub/common'
 import { IUICommandDescriptor } from '../../../../ui/types'
 import { StateSnaper, type StateSnap } from './state-span'
@@ -61,7 +61,7 @@ export type Pending = { readonly leafPath: readonly string[] } | null
 
 export interface ICBParserStateRaw {
     readonly command: string
-    readonly tree: OptionsTree
+    readonly tree: ArgTree
     readonly path: readonly string[]
     readonly pending: Pending
     /** Snapshot copy of committed values (slash-delimited path → string). */
@@ -79,7 +79,7 @@ export interface CBParserConfig {
 
 export class CBParser<PChainResGType extends ParserPerformedAction | string = ParserPerformedAction> {
     private readonly _command: string
-    private readonly _tree: OptionsTree
+    private readonly _tree: ArgTree
     private _path: string[] = []
     private _pending: Pending = null
     private _values = new Map<string, string>()
@@ -206,7 +206,7 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
     /* -- value commit ----------------------------------------------- */
 
     private commitLeaf(leafPath: readonly string[], rawValue: string): void {
-        const key = leafPath.join(PAIR_PATH_DELIMITER)
+        const key = leafPath.join(ARG_PATH_DELIMITER)
         this._values.set(key, rawValue)
         this._readFlags = undefined
     }
@@ -247,14 +247,14 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
         return 'await-value'
     }
 
-    /** Search the canonical service-tree slices `config`, `params`,
-     *  `messages` (in that priority order) for a direct child named `name`.
+    /** Search the canonical service-tree slices `args`, `intercom` (in
+     *  that priority order) for a direct child named `name`.
      *  First match wins. Returns `undefined` when none of the slices
      *  contains the name. Slice names not present in the tree are skipped
      *  silently (allows non-service trees to be parsed unaffected). */
-    private findInRootSlices(name: string): { slice: string; node: OptionsTree } | undefined {
+    private findInRootSlices(name: string): { slice: string; node: ArgTree } | undefined {
         if (this._tree.node !== 'branch') return undefined
-        for (const sliceName of ['config', 'params', 'messages']) {
+        for (const sliceName of ['args', 'intercom']) {
             const slice = this._tree.children.get(sliceName)
             if (!slice || slice.node !== 'branch') continue
             const child = slice.children.get(name)
@@ -264,10 +264,10 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
     }
 
     /** Toggle a `standalone:true` leaf at the current branch level.
-     *  Stored as `'true'` so `unflattenValue(type:'bool')` coerces to
+     *  Stored as `'true'` so `unflattenArgs(type:'bool')` coerces to
      *  `true` and `proxy.has()` reports the flag as set. */
     private toggleStandalone(name: string): ParserPerformedAction {
-        const key = [...this._path, name].join(PAIR_PATH_DELIMITER)
+        const key = [...this._path, name].join(ARG_PATH_DELIMITER)
         this._readFlags = undefined
         if (this._values.has(key)) {
             this._values.delete(key)
@@ -282,17 +282,17 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
     /** Read-only view of the tree node at the parser's current path.
      *  Markupers render this node's children (for branches) or its
      *  options/prompt (for leaves on a focused re-prompt). */
-    nodeAtCurrent(): OptionsTree | undefined {
-        return nodeAtPath(this._tree, this._path)
+    nodeAtCurrent(): ArgTree | undefined {
+        return argNodeAtPath(this._tree, this._path)
     }
 
-    private currentBranch(): BranchSpec | undefined {
-        const node = nodeAtPath(this._tree, this._path)
+    private currentBranch(): ArgBranch | undefined {
+        const node = argNodeAtPath(this._tree, this._path)
         if (!node || node.node !== 'branch') return undefined
         return node
     }
 
-    private childOfCurrentBranch(name: string): OptionsTree | undefined {
+    private childOfCurrentBranch(name: string): ArgTree | undefined {
         const branch = this.currentBranch()
         if (!branch) return undefined
         return branch.children.get(name)
@@ -319,12 +319,12 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
      *  No-op when `leafPath` doesn't resolve to a leaf in the tree. */
     focusLeaf(leafPath: readonly string[]): boolean {
         if (leafPath.length === 0) return false
-        const target = nodeAtPath(this._tree, leafPath)
+        const target = argNodeAtPath(this._tree, leafPath)
         if (!target || target.node !== 'leaf') return false
         this._path = leafPath.slice(0, -1)
         // Drop any in-progress committed value for that leaf so the
         // user's next input replaces it; pending is a re-prompt marker.
-        this._values.delete(leafPath.join(PAIR_PATH_DELIMITER))
+        this._values.delete(leafPath.join(ARG_PATH_DELIMITER))
         this._pending = { leafPath: [...leafPath] }
         this._readFlags = undefined
         return true
@@ -333,9 +333,9 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
     /** Walk every leaf and return the lowest-position positional whose
      *  value isn't yet committed. Used by non-mandatory mode to bind a
      *  bare TEXT token to "the next positional." */
-    private nextUnfilledPositional(): { path: string[]; leaf: LeafSpec } | undefined {
-        let best: { path: string[]; leaf: LeafSpec } | undefined
-        for (const { path, pathKey, leaf } of walkLeaves(this._tree)) {
+    private nextUnfilledPositional(): { path: string[]; leaf: ArgLeaf } | undefined {
+        let best: { path: string[]; leaf: ArgLeaf } | undefined
+        for (const { path, pathKey, leaf } of walkArgLeaves(this._tree)) {
             if (leaf.position <= 0) continue
             if (this._values.has(pathKey)) continue
             if (!best || leaf.position < best.leaf.position) {
@@ -385,7 +385,7 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
     get Command(): string {
         return this._command
     }
-    get Tree(): OptionsTree {
+    get Tree(): ArgTree {
         return this._tree
     }
     get Path(): readonly string[] {
@@ -424,12 +424,12 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
     effectiveValues(): Map<string, string> {
         const out = new Map<string, string>()
         for (const [k, v] of this._values) {
-            if (k === 'params/now') continue
+            if (k === 'args/now') continue
             out.set(k, v)
         }
         if (this._savedSources) {
             for (const [k, entry] of this._savedSources) {
-                if (k === 'params/now') continue
+                if (k === 'args/now') continue
                 if (out.has(k)) continue
                 out.set(k, entry.value)
             }
@@ -467,7 +467,7 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
         if (this._readFlags) return this._readFlags
         let required = true
         let every = true
-        for (const { pathKey, leaf } of walkLeaves(this._tree)) {
+        for (const { pathKey, leaf } of walkArgLeaves(this._tree)) {
             const v = this._values.get(pathKey)
             const set = v !== undefined && v !== ''
             if (!set) {

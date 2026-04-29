@@ -31,7 +31,7 @@ export const BuiltInAliasCommandsEnum = {
 export const BuiltInUiCommandsEnum = {
     CALIBRATE: "calibrate",
     DASHBOARD: "dashboard",
-    SCONFIG: "sconfig",
+    SARGS: "sargs",
     CONFIG: "config",
     SINFO: "sinfo",
     INVITE: "invite",

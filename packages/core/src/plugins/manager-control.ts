@@ -1,5 +1,5 @@
 import {
-    CmdArgument,
+    CmdArg,
     CAP_ManagerRepo,
     type IUIPlugin,
     type BaseUIContext,
@@ -23,7 +23,7 @@ import { UiUnicodeSymbols } from '../ui/ui-unicode-symbols'
  */
 
 class SetNameArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 1,
         description: 'Your new name (4–32 chars, latin/digits/space)',
@@ -34,12 +34,12 @@ class SetNameArgs {
 }
 
 class SetGreetingArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 1,
         description: 'Toggle startup greeting',
         validator: (arg: string) => ['on', 'off'].includes(arg),
-        options: ['on', 'off'],
+        choices: ['on', 'off'],
     })
     greeting?: string
 }

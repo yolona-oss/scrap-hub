@@ -5,7 +5,7 @@ jest.mock('../../../application/logger', () => ({ __esModule: true, default: moc
 jest.mock('../../../config-registry', () => ({ ConfigRegistry: { register: jest.fn() } }))
 
 import { CmdDispatcher } from '../dispatcher'
-import { branch } from '@cmd-hub/common'
+import { argBranch } from '@cmd-hub/common'
 
 function makeAggregatorWithRemoteService(name: string, isService: boolean) {
     const command = {
@@ -14,8 +14,8 @@ function makeAggregatorWithRemoteService(name: string, isService: boolean) {
         compatibilityId: 'cmd-hub.test',
         version: '1.0.0',
         // The aggregator decodes proto on attach; the dispatcher receives
-        // OptionsTree, not the proto shape.
-        options: branch({}),
+        // ArgTree, not the proto shape.
+        options: argBranch({}),
         aliases: [],
     }
     const services = isService

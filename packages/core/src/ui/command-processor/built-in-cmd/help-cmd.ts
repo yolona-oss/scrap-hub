@@ -1,9 +1,9 @@
-import { CmdArgument, ICmdService, isService, IUICommandProcessed } from "../../../ui/types/command"
+import { CmdArg, ICmdService, isService, IUICommandProcessed } from "../../../ui/types/command"
 import { BuiltInHelpCommandsEnum } from "../constants"
 import { CmdDispatcher } from "../dispatcher"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { IUICommandEntry } from "../types"
-import { anyToString, walkLeaves, type OptionsTree } from "@cmd-hub/common"
+import { anyToString, walkArgLeaves, type ArgTree } from "@cmd-hub/common"
 import { BaseUIContext, UiUnicodeSymbols } from "../../../ui"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { TableDesigner } from "@cmd-hub/common"
@@ -14,9 +14,9 @@ const DEFAULT_WIDTH = 72
 /** Render every leaf of `tree` as a `[name, required, description]` row.
  *  `name` is the slash-delimited dot-path so nested options like
  *  `aiAgent/model` are still legible in the help table. */
-function treeToRows(tree: OptionsTree): string[][] {
+function treeToRows(tree: ArgTree): string[][] {
     const rows: string[][] = []
-    for (const { pathKey, leaf } of walkLeaves(tree)) {
+    for (const { pathKey, leaf } of walkArgLeaves(tree)) {
         rows.push([pathKey, leaf.required ? 'yes' : 'no', leaf.description])
     }
     return rows
@@ -27,21 +27,12 @@ export const serviceToString = <Ctx extends BaseUIContext>(cmdName: string, cmdC
     const executor = cmdCb.invokable as ICmdService
     let text = `Service /${cmdName}\n  ${cmdCb.description}\n\n`
 
-    const configRows = treeToRows(executor.configTree())
-    if (configRows.length > 0) {
+    const argsRows = treeToRows(executor.argsTree())
+    if (argsRows.length > 0) {
         text += designer.make({
-            title: 'Config',
+            title: 'Args',
             header: ['Name', 'Req', 'Description'],
-            body: configRows,
-        }, w)
-    }
-
-    const paramRows = treeToRows(executor.paramsTree())
-    if (paramRows.length > 0) {
-        text += designer.make({
-            title: 'Params',
-            header: ['Name', 'Req', 'Description'],
-            body: paramRows,
+            body: argsRows,
         }, w)
     }
 
@@ -97,7 +88,7 @@ const CommonHelp: BuiltInCommand = {
 /////////////////////////
 
 class ConcreetHelpArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 1,
         description: 'Command name',

@@ -6,7 +6,7 @@ import { CmdDispatcher } from "../dispatcher"
 import log from '../../../application/logger'
 import { IUICommandDescriptor, IUI } from "../../../ui/types"
 import { isOneShot, formatEffectiveArgs } from "../../types/command"
-import { walkLeaves, type OptionsTree } from "@cmd-hub/common"
+import { walkArgLeaves, type ArgTree } from "@cmd-hub/common"
 import { loadSavedSources, type SavedSources } from "../saved-sources"
 import { CBParser } from "../builder/interpreter/parser"
 import { Lexer } from "../builder/interpreter/lexer"
@@ -36,7 +36,7 @@ function extractNowFlag(args: string[]): { rest: string[]; nowSet: boolean } {
  *  appear in `typedArgs` (a flat dot-path map) OR in `saved`. Returns
  *  the merged args map and the list of any missing required keys. */
 function computeNowCoverage(
-    tree: OptionsTree,
+    tree: ArgTree,
     typedArgs: ReadonlyMap<string, string>,
     saved: SavedSources,
 ): CoverageResult {
@@ -45,7 +45,7 @@ function computeNowCoverage(
     for (const [k, v] of typedArgs) merged[k] = v
 
     const missing: string[] = []
-    for (const { pathKey, leaf } of walkLeaves(tree)) {
+    for (const { pathKey, leaf } of walkArgLeaves(tree)) {
         if (!leaf.required) continue
         if (merged[pathKey] === undefined || merged[pathKey] === '') {
             missing.push(pathKey)
@@ -75,7 +75,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
      *  fully-decoded proto descriptor. */
     private parseTypedArgs(
         command: string,
-        tree: OptionsTree,
+        tree: ArgTree,
         args: string[],
     ): Map<string, string> {
         if (args.length === 0) return new Map()
