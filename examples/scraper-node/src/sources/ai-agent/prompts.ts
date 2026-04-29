@@ -22,7 +22,7 @@ Quality bar — every emitted organization must have:
 - source (string — where you found it)
 - url (optional)
 
-Global rule: do not repeat the same tool call with identical arguments. Each (tool, args) pair is invoked once per run; duplicates return an error and waste a turn.
+Tool-call cache: every (tool, args) pair is invoked at most once per run; subsequent calls with identical args return the prior cached result for free (no tool budget cost, no recon-budget cost). Use this to re-read earlier results that scrolled out of recent context — but don't spam duplicates as a "thinking" device, the cache hit still consumes an LLM turn. Note: report_results is non-idempotent and is never cached.
 
 Target query: "${query.query}"
 Target count: ${query.maxResults}

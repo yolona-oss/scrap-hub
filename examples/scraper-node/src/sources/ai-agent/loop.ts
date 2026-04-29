@@ -1,10 +1,54 @@
 import { OpenAI } from "openai"
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"
-import { Tool, toOpenAISchema } from "./tools"
+import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions"
+import { Tool, toOpenAISchema, buildTools, AgentPhase } from "./tools"
 import { ResolvedAIAgentConfig } from "./config"
-import { buildSystemPrompt, buildUserPrompt } from "./prompts"
-import { SearchQuery } from "../../types"
+import {
+    buildRolePrompt,
+    buildReconInstructions,
+    buildPlanInstructions,
+    buildExecuteInstructions,
+    buildPlanPin,
+    buildUserPrompt,
+} from "./prompts"
+import { SearchQuery, OrgData } from "../../types"
+import { AsyncQueue } from "./async-queue"
+import type { ReportState } from "./tools"
 import { log } from "@cmd-hub/common"
+
+const RECON_BUDGET = 10
+const REVISE_MIN_EXECUTE_TURNS = 2
+/** Tools whose calls always run fresh — never replayed from cache.
+ *  - report_results: emits to the user queue; replaying would re-emit duplicates.
+ *  - end_recon, revise_plan: signaling tools whose effect is the phase transition,
+ *    not the returned payload. */
+const NON_CACHEABLE_TOOLS = new Set(['report_results', 'end_recon', 'revise_plan'])
+
+interface ProgressFields {
+    yielded: number
+    target: number
+    toolsUsed: number
+    toolBudget: number
+}
+
+function buildProgress(state: ReportState, query: SearchQuery, toolsUsed: number, cfg: ResolvedAIAgentConfig): ProgressFields {
+    return {
+        yielded: state.yielded,
+        target: query.maxResults,
+        toolsUsed,
+        toolBudget: cfg.maxToolCalls,
+    }
+}
+
+function buildSystemMessage(query: SearchQuery, phase: AgentPhase): ChatCompletionMessageParam {
+    const role = buildRolePrompt(query)
+    let phaseBlock: string
+    switch (phase) {
+        case 'recon': phaseBlock = buildReconInstructions(query); break
+        case 'plan': phaseBlock = buildPlanInstructions(); break
+        case 'execute': phaseBlock = buildExecuteInstructions(query); break
+    }
+    return { role: 'system', content: `${role}\n\n${phaseBlock}` }
+}
 
 export interface AgentToolCallInfo {
     name: string
@@ -40,23 +84,50 @@ function isAbortError(e: any, signal?: AbortSignal): boolean {
 export async function runAgentLoop(
     client: OpenAI,
     query: SearchQuery,
-    tools: Tool[],
+    queue: AsyncQueue<OrgData>,
+    state: ReportState,
     cfg: ResolvedAIAgentConfig,
     hooks?: AgentLoopHooks,
 ): Promise<void> {
-    const toolByName = new Map(tools.map(t => [t.name, t]))
-    const openAITools = tools.map(toOpenAISchema)
+    const signal = hooks?.signal
+
+    let phase: AgentPhase = 'recon'
+    let toolCallsUsed = 0
+    let reconSearches = 0
+    let executePhaseTurnsSinceLastPlan = 0
+    let turn = 0
+    const startTime = Date.now()
+    /** Per-run cache of (tool, args) → successful result. Cache hits are
+     *  free: they don't increment toolCallsUsed or reconSearches. Errors
+     *  are not cached so transient blips stay retriable. */
+    const seenResults = new Map<string, unknown>()
+    let planPinned = false
 
     const messages: ChatCompletionMessageParam[] = [
-        { role: 'system', content: buildSystemPrompt(query) },
+        buildSystemMessage(query, 'recon'),
         { role: 'user', content: buildUserPrompt(query) },
     ]
 
-    const signal = hooks?.signal
-    let toolCallsUsed = 0
-    let turn = 0
-    const startTime = Date.now()
-    log.debug(`ai-agent.loop: starting model=${cfg.model} maxToolCalls=${cfg.maxToolCalls}`)
+    let tools = await buildTools(query, queue, state, phase)
+    let toolByName = new Map(tools.map(t => [t.name, t]))
+
+    function pushToolResult(id: string, result: any) {
+        const progress = buildProgress(state, query, toolCallsUsed, cfg)
+        const wrapped = { ...(result ?? {}), progress }
+        messages.push({ role: 'tool', tool_call_id: id, content: JSON.stringify(wrapped) })
+    }
+    function pushToolError(id: string, error: string) {
+        pushToolResult(id, { error })
+    }
+    async function transitionToPlan(reason: string) {
+        log.info(`ai-agent.loop: recon→plan after ${reconSearches} searches (${reason})`)
+        phase = 'plan'
+        messages[0] = buildSystemMessage(query, 'plan')
+        tools = await buildTools(query, queue, state, 'plan')
+        toolByName = new Map(tools.map(t => [t.name, t]))
+    }
+
+    log.debug(`ai-agent.loop: starting phase=recon model=${cfg.model} maxToolCalls=${cfg.maxToolCalls}`)
 
     while (true) {
         if (signal?.aborted) return
@@ -65,122 +136,192 @@ export async function runAgentLoop(
             return
         }
 
-        turn++
-        log.trace(`ai-agent.loop: turn ${turn} request (messages=${messages.length})`)
-        let response
-        const reqStart = Date.now()
-        try {
-            response = await client.chat.completions.create(
-                {
-                    model: cfg.model,
-                    temperature: cfg.temperature,
-                    messages,
-                    tools: openAITools,
-                    tool_choice: 'auto',
-                },
-                { signal },
-            )
-        } catch (e: any) {
-            if (isAbortError(e, signal)) return
-            log.error(`ai-agent.loop: LLM request failed (turn ${turn}): ${e.message ?? e}`)
-            return
-        }
-        log.trace(`ai-agent.loop: turn ${turn} response in ${Date.now() - reqStart}ms`)
-
-        const choice = response.choices?.[0]
-        if (!choice) {
-            log.warn('ai-agent.loop: LLM returned no choices')
-            return
-        }
-
-        const assistantMsg = choice.message
-        messages.push(assistantMsg as ChatCompletionMessageParam)
-
-        const toolCalls = assistantMsg.tool_calls ?? []
-        if (toolCalls.length === 0) {
-            log.info(`ai-agent.loop: agent finished after ${turn} turns, ${toolCallsUsed} tool calls`)
-            return
-        }
-
-        log.debug(`ai-agent.loop: turn ${turn} agent requested ${toolCalls.length} tool call(s)`)
-
-        for (const call of toolCalls) {
-            if (call.type !== 'function') {
-                log.debug(`ai-agent.loop: skipping non-function tool call type=${call.type}`)
-                messages.push({
-                    role: 'tool',
-                    tool_call_id: call.id,
-                    content: JSON.stringify({ error: 'unsupported tool call type' }),
-                })
-                continue
-            }
-
-            if (toolCallsUsed >= cfg.maxToolCalls) {
-                log.warn(`ai-agent.loop: max tool calls (${cfg.maxToolCalls}) reached, asking agent to wrap up`)
-                messages.push({
-                    role: 'tool',
-                    tool_call_id: call.id,
-                    content: JSON.stringify({ error: 'max tool calls reached, wrap up with report_results' }),
-                })
-                continue
-            }
-            toolCallsUsed++
-
-            const tool = toolByName.get(call.function.name)
-            if (!tool) {
-                log.warn(`ai-agent.loop: agent called unknown tool "${call.function.name}"`)
-                messages.push({
-                    role: 'tool',
-                    tool_call_id: call.id,
-                    content: JSON.stringify({ error: `unknown tool "${call.function.name}"` }),
-                })
-                continue
-            }
-
-            let parsed: any
+        if ((phase as AgentPhase) === 'recon') {
+            turn++
+            const requestTools: ChatCompletionTool[] = tools.map(toOpenAISchema)
+            const reqStart = Date.now()
+            let response
             try {
-                parsed = call.function.arguments ? JSON.parse(call.function.arguments) : {}
+                response = await client.chat.completions.create(
+                    {
+                        model: cfg.model,
+                        temperature: cfg.temperature,
+                        messages,
+                        tools: requestTools,
+                        tool_choice: 'required',
+                    },
+                    { signal },
+                )
             } catch (e: any) {
-                log.warn(`ai-agent.loop: invalid JSON in tool call "${call.function.name}": ${e.message ?? e}`)
-                messages.push({
-                    role: 'tool',
-                    tool_call_id: call.id,
-                    content: JSON.stringify({ error: `invalid arguments: ${e.message ?? e}` }),
-                })
+                if (isAbortError(e, signal)) return
+                log.error(`ai-agent.loop: LLM request failed (recon turn ${turn}): ${e.message ?? e}`)
+                return
+            }
+            log.trace(`ai-agent.loop: recon turn ${turn} response in ${Date.now() - reqStart}ms`)
+
+            const choice = response.choices?.[0]
+            if (!choice) { log.warn('ai-agent.loop: LLM returned no choices'); return }
+            const assistantMsg = choice.message
+            messages.push(assistantMsg as ChatCompletionMessageParam)
+
+            const toolCalls = assistantMsg.tool_calls ?? []
+            if (toolCalls.length === 0) {
+                log.warn(`ai-agent.loop: recon turn ${turn} produced no tool call — forcing transition to plan`)
+                await transitionToPlan('recon-no-tool-call')
                 continue
             }
 
-            log.debug(`ai-agent.loop: invoke ${tool.name} args=${JSON.stringify(parsed).slice(0, 200)}`)
-            const callStart = Date.now()
-            const result = await executeWithTimeout(tool, parsed, cfg.toolTimeoutMs, signal)
-            if (signal?.aborted) return
-            const durationMs = Date.now() - callStart
-            log.trace(`ai-agent.loop: ${tool.name} returned in ${durationMs}ms`)
-            if (result?.error) {
-                log.warn(`ai-agent.loop: ${tool.name} returned error: ${result.error}`)
+            for (const call of toolCalls) {
+                if (call.type !== 'function') {
+                    pushToolError(call.id, 'unsupported tool call type')
+                    continue
+                }
+                const name = call.function.name
+                if (name !== 'web_search' && name !== 'end_recon') {
+                    log.warn(`ai-agent.loop: recon phase rejected tool ${name}`)
+                    pushToolError(call.id, 'recon phase: only web_search and end_recon allowed')
+                    continue
+                }
+
+                let parsed: any
+                try { parsed = call.function.arguments ? JSON.parse(call.function.arguments) : {} }
+                catch (e: any) { pushToolError(call.id, `invalid arguments: ${e.message ?? e}`); continue }
+
+                if (name === 'end_recon') {
+                    const tool = toolByName.get('end_recon')!
+                    const result = await tool.handler(parsed, signal)
+                    pushToolResult(call.id, result)
+                    await transitionToPlan('end_recon-called')
+                    break
+                }
+
+                // web_search in recon — check cache first (free hit, no budget cost).
+                const dedupKey = `${name}:${canonicalJson(parsed)}`
+                if (seenResults.has(dedupKey)) {
+                    const cached = seenResults.get(dedupKey)
+                    log.debug(`ai-agent.loop: ${name} cache hit (recon), replaying`)
+                    hooks?.onToolCall?.({ name, args: JSON.stringify(parsed), durationMs: 0, ok: true })
+                    pushToolResult(call.id, cached)
+                    continue
+                }
+
+                if (toolCallsUsed >= cfg.maxToolCalls) {
+                    pushToolError(call.id, 'max tool calls reached, transition to plan')
+                    await transitionToPlan('budget-exhausted-in-recon')
+                    break
+                }
+                toolCallsUsed++
+                reconSearches++
+
+                const tool = toolByName.get('web_search')!
+                const callStart = Date.now()
+                const result = await executeWithTimeout(tool, parsed, cfg.toolTimeoutMs, signal)
+                if (signal?.aborted) return
+                const durationMs = Date.now() - callStart
+                if (!result?.error) seenResults.set(dedupKey, result)
+                hooks?.onToolCall?.({ name, args: JSON.stringify(parsed), durationMs, ok: !result?.error, error: result?.error })
+                pushToolResult(call.id, result)
+
+                if (reconSearches >= RECON_BUDGET) {
+                    log.warn(`ai-agent.loop: recon budget (${RECON_BUDGET}) exhausted, forcing plan phase`)
+                    messages.push({ role: 'user', content: 'Recon budget exhausted. Write your plan now.' })
+                    await transitionToPlan('recon-budget-exhausted')
+                    break
+                }
+            }
+            continue
+        }
+
+        if ((phase as AgentPhase) === 'plan') {
+            turn++
+            const reqStart = Date.now()
+            let response
+            try {
+                response = await client.chat.completions.create(
+                    {
+                        model: cfg.model,
+                        temperature: cfg.temperature,
+                        messages,
+                        tool_choice: 'none',
+                    },
+                    { signal },
+                )
+            } catch (e: any) {
+                if (isAbortError(e, signal)) return
+                log.error(`ai-agent.loop: LLM request failed (plan turn ${turn}): ${e.message ?? e}`)
+                return
+            }
+            log.trace(`ai-agent.loop: plan turn ${turn} response in ${Date.now() - reqStart}ms`)
+
+            const choice = response.choices?.[0]
+            if (!choice) { log.warn('ai-agent.loop: LLM returned no choices'); return }
+            const assistantMsg = choice.message
+            messages.push(assistantMsg as ChatCompletionMessageParam)
+
+            const content = (typeof assistantMsg.content === 'string' ? assistantMsg.content : '') ?? ''
+            let planText = extractPlan(content)
+            if (!planText) {
+                messages.push({ role: 'user', content: 'Wrap your plan in <plan>...</plan> tags. Output the plan now.' })
+                let retry
+                try {
+                    retry = await client.chat.completions.create(
+                        { model: cfg.model, temperature: cfg.temperature, messages, tool_choice: 'none' },
+                        { signal },
+                    )
+                } catch (e: any) {
+                    if (isAbortError(e, signal)) return
+                    log.error(`ai-agent.loop: plan re-prompt failed: ${e.message ?? e}`)
+                    return
+                }
+                const retryChoice = retry.choices?.[0]
+                if (!retryChoice) return
+                const retryMsg = retryChoice.message
+                messages.push(retryMsg as ChatCompletionMessageParam)
+                const retryContent = (typeof retryMsg.content === 'string' ? retryMsg.content : '') ?? ''
+                planText = extractPlan(retryContent) || retryContent || ''
             }
 
-            hooks?.onToolCall?.({
-                name: tool.name,
-                args: JSON.stringify(parsed),
-                durationMs,
-                ok: !result?.error,
-                error: result?.error,
-            })
+            const pin = buildPlanPin(planText)
+            if (planPinned) {
+                messages[1] = pin as ChatCompletionMessageParam
+                log.debug(`ai-agent.loop: plan pin replaced`)
+            } else {
+                messages.splice(1, 0, pin as ChatCompletionMessageParam)
+                planPinned = true
+                log.debug(`ai-agent.loop: plan pin inserted`)
+            }
+            log.info(`ai-agent.loop: plan→execute, plan ${planText.length} chars`)
 
-            // Inject a budget reminder once the agent has burned half its
-            // tool-call budget, so it self-regulates the wrap-up.
-            const remaining = cfg.maxToolCalls - toolCallsUsed
-            const budgetPrefix = remaining <= Math.floor(cfg.maxToolCalls / 2)
-                ? `[budget: ${remaining}/${cfg.maxToolCalls} tool calls left] `
-                : ''
-            messages.push({
-                role: 'tool',
-                tool_call_id: call.id,
-                content: budgetPrefix + JSON.stringify(result),
-            })
+            phase = 'execute'
+            executePhaseTurnsSinceLastPlan = 0
+            messages[0] = buildSystemMessage(query, 'execute')
+            tools = await buildTools(query, queue, state, 'execute')
+            toolByName = new Map(tools.map(t => [t.name, t]))
+            continue
         }
+
+        // execute phase — implemented in Task 11
+        log.error('ai-agent.loop: execute phase not yet implemented')
+        return
     }
+}
+
+function extractPlan(content: string): string {
+    const match = /<plan>([\s\S]+?)<\/plan>/i.exec(content)
+    if (match) return match[1].trim()
+    return ''
+}
+
+export { NON_CACHEABLE_TOOLS }
+
+/** Stable JSON serialization with object keys sorted recursively. Two
+ *  argument objects that differ only in key order produce the same string,
+ *  so the dedup set treats them as the same call. */
+function canonicalJson(v: unknown): string {
+    if (v === null || typeof v !== 'object') return JSON.stringify(v)
+    if (Array.isArray(v)) return '[' + v.map(canonicalJson).join(',') + ']'
+    const keys = Object.keys(v as Record<string, unknown>).sort()
+    return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJson((v as any)[k])).join(',') + '}'
 }
 
 async function executeWithTimeout(tool: Tool, args: any, timeoutMs: number, signal?: AbortSignal): Promise<any> {

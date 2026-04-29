@@ -4,14 +4,14 @@ import type { ServiceContext } from "../../exporters/types"
 import { resolveAIAgentConfig } from "./config"
 import { createClient } from "./client"
 import { AsyncQueue } from "./async-queue"
-import { buildTools, ReportState } from "./tools"
+import { ReportState } from "./tools"
 import { runAgentLoop, AgentToolCallInfo } from "./loop"
 import { log } from "@cmd-hub/common"
 
 export class AIAgentSource implements IScraperSource {
     async availability(context?: ServiceContext): Promise<SourceAvailability> {
         const cfg = await resolveAIAgentConfig(context)
-        if (!cfg) return { ok: false, reason: 'aiAgent.baseUrl / model is empty (use /sconfig scraper aiAgent.baseUrl <url> or set via the builder)' }
+        if (!cfg) return { ok: false, reason: 'aiAgent.baseUrl / model is empty (set via the /scraper builder under --config --aiAgent --baseUrl/--model)' }
         return { ok: true }
     }
 
@@ -30,8 +30,6 @@ export class AIAgentSource implements IScraperSource {
         const client = createClient(cfg)
         const queue = new AsyncQueue<OrgData>()
         const reportState: ReportState = { yielded: 0 }
-        const tools = await buildTools(query, queue, reportState)
-        log.trace(`ai-agent.search: tools=[${tools.map(t => t.name).join(', ')}]`)
 
         // The agent loop blocks on AsyncQueue.next(); when the outer scrape
         // cancels, close the queue so the consumer loop below also exits.
@@ -45,7 +43,7 @@ export class AIAgentSource implements IScraperSource {
             ])
             : undefined
 
-        const loopPromise = runAgentLoop(client, query, tools, cfg, { onToolCall, signal })
+        const loopPromise = runAgentLoop(client, query, queue, reportState, cfg, { onToolCall, signal })
             .catch(e => log.error(`ai-agent.search: loop error: ${e?.message ?? e}`))
             .finally(() => {
                 queue.close()

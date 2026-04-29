@@ -11,8 +11,7 @@ jest.mock('../../../../scraper-service/system-config', () => {
             chromePath: '',
             requestDelayMs: 0,
             userAgent: 'test-ua',
-            braveSearchApiKey: '',
-            tavilyApiKey: '',
+            searxngUrl: '',
         })),
     }
 })
@@ -34,109 +33,109 @@ beforeEach(() => {
 
 const tool = makeWebSearchTool()
 
-const braveBody = (n: number) => ({
-    web: {
-        results: Array.from({ length: n }, (_, i) => ({
-            title: `brave ${i}`,
-            url: `https://brave.example/${i}`,
-            description: `snippet ${i}`,
-        })),
-    },
-})
-
-const tavilyBody = (n: number) => ({
+const searxngBody = (n: number) => ({
+    query: 'test',
+    number_of_results: n,
     results: Array.from({ length: n }, (_, i) => ({
-        title: `tav ${i}`,
-        url: `https://tav.example/${i}`,
-        content: `content ${i}`,
+        title: `r${i}`,
+        url: `https://example.com/${i}`,
+        content: `snippet ${i}`,
+        engine: 'duckduckgo',
     })),
 })
 
-const ddgHtml = (n: number) => `<html><body>${
-    Array.from({ length: n }, (_, i) =>
-        `<div class="result"><a class="result__a" href="https://ddg.example/${i}">ddg ${i}</a><div class="result__snippet">s${i}</div></div>`,
-    ).join('')
-}</body></html>`
-
-const anomalyHtml = '<html><body><div class="anomaly-modal"></div></body></html>'
-
 describe('web_search tool', () => {
-    it('returns empty result on empty query without hitting any provider', async () => {
+    it('returns empty result on empty query without hitting searxng', async () => {
         const out = await tool.handler({ query: '' })
         expect(out).toEqual({ results: [], error: 'empty query' })
         expect(mockedAxios.request).not.toHaveBeenCalled()
     })
 
-    it('uses Brave first when its key is configured', async () => {
-        mockedConfig.mockResolvedValueOnce({
-            chromePath: '', requestDelayMs: 0, userAgent: 'test-ua',
-            braveSearchApiKey: 'brave-key', tavilyApiKey: 'tav-key',
-        })
-        mockedAxios.request.mockResolvedValueOnce({ status: 200, data: braveBody(3) } as any)
-        const out = await tool.handler({ query: 'foo', limit: 5 })
-        expect(out.provider).toBe('brave')
-        expect(out.results).toHaveLength(3)
-        expect(out.results[0].url).toBe('https://brave.example/0')
-        expect(mockedAxios.request).toHaveBeenCalledTimes(1)
-        const cfg = mockedAxios.request.mock.calls[0][0]!
-        expect(cfg.url).toContain('api.search.brave.com')
-        expect((cfg.headers as any)['X-Subscription-Token']).toBe('brave-key')
-    })
-
-    it('falls through to Tavily when Brave returns 0 results', async () => {
-        mockedConfig.mockResolvedValueOnce({
-            chromePath: '', requestDelayMs: 0, userAgent: 'test-ua',
-            braveSearchApiKey: 'brave-key', tavilyApiKey: 'tav-key',
-        })
-        mockedAxios.request
-            .mockResolvedValueOnce({ status: 200, data: braveBody(0) } as any)
-            .mockResolvedValueOnce({ status: 200, data: tavilyBody(2) } as any)
-        const out = await tool.handler({ query: 'foo' })
-        expect(out.provider).toBe('tavily')
-        expect(out.results.map((r: { url: string }) => r.url)).toEqual([
-            'https://tav.example/0', 'https://tav.example/1',
-        ])
-        expect(mockedAxios.request).toHaveBeenCalledTimes(2)
-    })
-
-    it('falls through to Tavily when Brave throws', async () => {
-        mockedConfig.mockResolvedValueOnce({
-            chromePath: '', requestDelayMs: 0, userAgent: 'test-ua',
-            braveSearchApiKey: 'brave-key', tavilyApiKey: 'tav-key',
-        })
-        mockedAxios.request
-            .mockResolvedValueOnce({ status: 500, data: '' } as any) // brave -> handler throws
-            .mockResolvedValueOnce({ status: 200, data: tavilyBody(1) } as any)
-        const out = await tool.handler({ query: 'foo' })
-        expect(out.provider).toBe('tavily')
-        expect(out.results).toHaveLength(1)
-    })
-
-    it('skips unconfigured Brave/Tavily and uses DuckDuckGo', async () => {
-        mockedAxios.request.mockResolvedValueOnce({ status: 200, data: ddgHtml(2) } as any)
-        const out = await tool.handler({ query: 'foo' })
-        expect(out.provider).toBe('duckduckgo')
-        expect(out.results.map((r: { url: string }) => r.url)).toEqual([
-            'https://ddg.example/0', 'https://ddg.example/1',
-        ])
-        expect(mockedAxios.request).toHaveBeenCalledTimes(1)
-    })
-
-    it('treats DuckDuckGo anomaly page as a failure (no results, error reported)', async () => {
-        mockedAxios.request.mockResolvedValueOnce({ status: 202, data: anomalyHtml } as any)
+    it('returns an explanatory error when searxngUrl is not configured', async () => {
         const out = await tool.handler({ query: 'foo' })
         expect(out.results).toEqual([])
-        expect(out.error).toContain('duckduckgo')
-        expect(out.error).toContain('anomaly')
+        expect(out.error).toMatch(/searxngUrl not configured/)
+        expect(mockedAxios.request).not.toHaveBeenCalled()
+    })
+
+    it('queries searxng JSON API and maps results', async () => {
+        mockedConfig.mockResolvedValueOnce({
+            chromePath: '', requestDelayMs: 0, userAgent: 'test-ua',
+            searxngUrl: 'http://127.0.0.1:8080',
+        })
+        mockedAxios.request.mockResolvedValueOnce({ status: 200, data: searxngBody(3) } as any)
+
+        const out = await tool.handler({ query: 'Адвокат', limit: 5 })
+
+        expect(out.results).toEqual([
+            { title: 'r0', url: 'https://example.com/0', snippet: 'snippet 0' },
+            { title: 'r1', url: 'https://example.com/1', snippet: 'snippet 1' },
+            { title: 'r2', url: 'https://example.com/2', snippet: 'snippet 2' },
+        ])
+        expect(mockedAxios.request).toHaveBeenCalledTimes(1)
+        const cfg = mockedAxios.request.mock.calls[0][0]!
+        expect(cfg.url).toMatch(/^http:\/\/127\.0\.0\.1:8080\/search\?/)
+        expect(cfg.url).toContain('format=json')
+        expect(cfg.url).toContain('language=ru-RU')
+        expect((cfg.headers as any).Accept).toBe('application/json')
     })
 
     it('caps results at the requested limit', async () => {
         mockedConfig.mockResolvedValueOnce({
             chromePath: '', requestDelayMs: 0, userAgent: 'test-ua',
-            braveSearchApiKey: 'brave-key',
+            searxngUrl: 'http://127.0.0.1:8080',
         })
-        mockedAxios.request.mockResolvedValueOnce({ status: 200, data: braveBody(15) } as any)
+        mockedAxios.request.mockResolvedValueOnce({ status: 200, data: searxngBody(15) } as any)
+
         const out = await tool.handler({ query: 'foo', limit: 5 })
         expect(out.results).toHaveLength(5)
+    })
+
+    it('strips trailing slashes from searxngUrl', async () => {
+        mockedConfig.mockResolvedValueOnce({
+            chromePath: '', requestDelayMs: 0, userAgent: 'test-ua',
+            searxngUrl: 'http://127.0.0.1:8080///',
+        })
+        mockedAxios.request.mockResolvedValueOnce({ status: 200, data: searxngBody(1) } as any)
+
+        await tool.handler({ query: 'foo' })
+        const cfg = mockedAxios.request.mock.calls[0][0]!
+        expect(cfg.url).toMatch(/^http:\/\/127\.0\.0\.1:8080\/search\?/)
+    })
+
+    it('returns error on HTTP 4xx/5xx from searxng', async () => {
+        mockedConfig.mockResolvedValueOnce({
+            chromePath: '', requestDelayMs: 0, userAgent: 'test-ua',
+            searxngUrl: 'http://127.0.0.1:8080',
+        })
+        mockedAxios.request.mockResolvedValueOnce({ status: 500, data: '' } as any)
+
+        const out = await tool.handler({ query: 'foo' })
+        expect(out.results).toEqual([])
+        expect(out.error).toMatch(/searxng http 500/)
+    })
+
+    it('drops items missing title or url', async () => {
+        mockedConfig.mockResolvedValueOnce({
+            chromePath: '', requestDelayMs: 0, userAgent: 'test-ua',
+            searxngUrl: 'http://127.0.0.1:8080',
+        })
+        mockedAxios.request.mockResolvedValueOnce({
+            status: 200,
+            data: {
+                results: [
+                    { title: 'ok', url: 'https://x.com', content: 'c' },
+                    { title: '', url: 'https://no-title.com', content: 'c' },
+                    { title: 'no url', url: '', content: 'c' },
+                    { title: 'ok2', url: 'https://y.com' }, // no content
+                ],
+            },
+        } as any)
+
+        const out = await tool.handler({ query: 'foo' })
+        expect(out.results).toEqual([
+            { title: 'ok', url: 'https://x.com', snippet: 'c' },
+            { title: 'ok2', url: 'https://y.com', snippet: '' },
+        ])
     })
 })
