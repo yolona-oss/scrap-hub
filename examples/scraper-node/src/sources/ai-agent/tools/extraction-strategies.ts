@@ -37,6 +37,22 @@ function isLocalBusinessType(t: unknown): boolean {
     return false
 }
 
+export function parseJsonLdBlobs($: cheerio.CheerioAPI): unknown[] {
+    const blobs: unknown[] = []
+    $('script[type="application/ld+json"]').each((_, el) => {
+        const raw = $(el).contents().text().trim()
+        if (!raw) return
+        try {
+            const parsed = JSON.parse(raw)
+            if (Array.isArray(parsed)) blobs.push(...parsed)
+            else blobs.push(parsed)
+        } catch {
+            // Malformed JSON-LD is common in the wild; ignore broken blocks.
+        }
+    })
+    return blobs
+}
+
 export function extractFromJsonLd(blobs: unknown[]): PartialExtraction {
     const phones = new Set<string>()
     const emails = new Set<string>()

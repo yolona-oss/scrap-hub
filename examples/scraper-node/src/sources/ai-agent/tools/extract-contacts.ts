@@ -2,6 +2,7 @@ import * as cheerio from "cheerio"
 import { Tool } from "./types"
 import { log } from "@cmd-hub/common"
 import {
+    parseJsonLdBlobs,
     extractFromJsonLd,
     extractFromMicrodata,
     extractFromSemanticHtml,
@@ -31,20 +32,6 @@ function mergeInto(
     for (const x of p.addresses ?? []) if (!acc.addresses.has(x)) { acc.addresses.add(x); contributed = true }
     if (!acc.name && p.candidateName) { acc.name = p.candidateName; contributed = true }
     return contributed
-}
-
-function parseJsonLdBlobs($: cheerio.CheerioAPI): unknown[] {
-    const blobs: unknown[] = []
-    $('script[type="application/ld+json"]').each((_, el) => {
-        const raw = $(el).contents().text().trim()
-        if (!raw) return
-        try {
-            const parsed = JSON.parse(raw)
-            if (Array.isArray(parsed)) blobs.push(...parsed)
-            else blobs.push(parsed)
-        } catch { /* ignore broken JSON-LD */ }
-    })
-    return blobs
 }
 
 function pickCandidateName($: cheerio.CheerioAPI, current: string): string {

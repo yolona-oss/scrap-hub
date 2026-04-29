@@ -4,6 +4,7 @@ import { matchAggregator } from './aggregator-registry'
 import { scoreContactLink, scoreAggregatorLink } from './link-scorers'
 import { log } from '@cmd-hub/common'
 import type { ClassifiedPage, PageType, ScoredLink, Block } from './page-types'
+import { parseJsonLdBlobs } from './tools/extraction-strategies'
 
 const TOP_K_LINKS = 5
 
@@ -11,22 +12,6 @@ interface ClassificationDraft {
     pageType: PageType
     confidence: number
     signals: string[]
-}
-
-function parseJsonLd($: cheerio.CheerioAPI): unknown[] {
-    const blobs: unknown[] = []
-    $('script[type="application/ld+json"]').each((_, el) => {
-        const raw = $(el).contents().text().trim()
-        if (!raw) return
-        try {
-            const parsed = JSON.parse(raw)
-            if (Array.isArray(parsed)) blobs.push(...parsed)
-            else blobs.push(parsed)
-        } catch {
-            // Malformed JSON-LD is common in the wild; we ignore and proceed.
-        }
-    })
-    return blobs
 }
 
 function isLocalBusiness(blob: unknown): boolean {
@@ -169,7 +154,7 @@ function classifyShape(
 /** Pure function over an HTML string — easy to unit-test against fixtures. */
 export function classifyPageFromHtml(url: string, html: string): ClassifiedPage {
     const $ = cheerio.load(html)
-    const jsonLd = parseJsonLd($)
+    const jsonLd = parseJsonLdBlobs($)
     const nextData = parseNextData($)
     const draft = classifyShape(url, $, jsonLd)
     const cleanedText = buildCleanedText($)
