@@ -527,3 +527,200 @@ describe('Interpreter compile — saved values fold into effective args', () => 
         expect(compiled.raw.get('depth')).toBe('7')
     })
 })
+
+describe('CommandBuilder.startBuild — seededValues priority chain', () => {
+    test('seeded user input outranks session, session outranks module, module fills the rest', async () => {
+        const builder = new CommandBuilder()
+        const tree = branch({
+            config: branch({
+                query: leaf({ position: 1 }),
+                city: leaf({}),
+                limit: leaf({}),
+                requestDelayMs: leaf({}),
+            }),
+        })
+        const desc = descriptorFromTree(tree)
+
+        // Module saved: query="Стоматология", limit="100000", requestDelayMs="1000".
+        // Session saved (overrides module): city="Moscow", limit="10000".
+        // Combined SavedSources is exactly what loadSavedSources would produce —
+        // session entries overwrite module entries on shared keys.
+        const saved: SavedSources = new Map([
+            ['config/query', { value: 'Стоматология', source: 'module' }],
+            ['config/limit', { value: '10000', source: 'session' }],
+            ['config/city', { value: 'Moscow', source: 'session' }],
+            ['config/requestDelayMs', { value: '1000', source: 'module' }],
+        ])
+        // User typed: query="Адвокат" (positional), city="Санкт-Петербург".
+        const seeded = new Map<string, string>([
+            ['config/query', 'Адвокат'],
+            ['config/city', 'Санкт-Петербург'],
+        ])
+
+        await builder.startBuild('u-priority', 'scraper', desc, 'incremental', saved, seeded)
+        expect(builder.isUserOnBuild('u-priority')).toBe(true)
+
+        // Press execute and inspect compiled raw map. Priority must be:
+        //  1. seeded user input  (query, city)
+        //  2. session            (limit)
+        //  3. module             (requestDelayMs)
+        const ev = builder.handle('u-priority', BuilderActionSigns.execute)
+        expect(ev.IsCompiled).toBe(true)
+        const raw = ev.Result.raw
+        expect(raw.get('config/query')).toBe('Адвокат')           // user > session > module
+        expect(raw.get('config/city')).toBe('Санкт-Петербург')    // user wins over session
+        expect(raw.get('config/limit')).toBe('10000')             // no user input → session
+        expect(raw.get('config/requestDelayMs')).toBe('1000')     // no user/session → module
+    })
+
+    test('absent or empty seededValues does not change saved-only behavior', async () => {
+        const builder = new CommandBuilder()
+        const tree = branch({ city: leaf({}) })
+        const desc = descriptorFromTree(tree)
+        const saved: SavedSources = new Map([
+            ['city', { value: 'Moscow', source: 'module' }],
+        ])
+
+        await builder.startBuild('u-empty', 'svc', desc, 'incremental', saved, new Map())
+        const ev = builder.handle('u-empty', BuilderActionSigns.execute)
+        expect(ev.IsCompiled).toBe(true)
+        expect(ev.Result.raw.get('city')).toBe('Moscow')
+    })
+})
+
+// Regression: snapshotter would throw on the 15th token because Stack.push's
+// capacity check used >= instead of >. Real-world repro: the user's full
+// /scraper invocation has 21+ tokens, which exceeded the cap and made
+// HandleCmdBuilder.parseTypedArgs silently fall back to an empty seed map.
+describe('Parser — top-level flag auto-descends into config|params|messages slice', () => {
+    function serviceTree(): OptionsTree {
+        return branch({
+            config: branch({
+                query: leaf({ position: 1 }),
+                city: leaf({}),
+                limit: leaf({}),
+                aiAgent: branch({
+                    model: leaf({}),
+                    baseUrl: leaf({}),
+                }),
+            }),
+            params: branch({
+                quiet: leaf({ standalone: true }),
+            }),
+            messages: branch({
+                stop: leaf({ standalone: true }),
+            }),
+        })
+    }
+
+    test('--city at root auto-descends into config and commits config/city', () => {
+        const parser = createParser(serviceTree())
+        const lexer = new Lexer()
+        lexer.setInput('Адвокат --city Санкт-Петербург')
+        for (const tkn of lexer.tokenizeCurrent()) {
+            parser.parseNextToken(tkn)
+        }
+        expect(parser.Values.get('config/query')).toBe('Адвокат')
+        expect(parser.Values.get('config/city')).toBe('Санкт-Петербург')
+    })
+
+    test('--limit at root auto-descends into config and commits config/limit', () => {
+        const parser = createParser(serviceTree())
+        const lexer = new Lexer()
+        lexer.setInput('--limit 1000')
+        for (const tkn of lexer.tokenizeCurrent()) {
+            parser.parseNextToken(tkn)
+        }
+        expect(parser.Values.get('config/limit')).toBe('1000')
+    })
+
+    test('multiple top-level flags + explicit --aiAgent group all wire correctly', () => {
+        const parser = createParser(serviceTree())
+        const lexer = new Lexer()
+        lexer.setInput('Адвокат --city СПб --limit 1000 --config --aiAgent --model qwen3.5:9b --baseUrl http://x/v1')
+        for (const tkn of lexer.tokenizeCurrent()) {
+            parser.parseNextToken(tkn)
+        }
+        expect(parser.Values.get('config/query')).toBe('Адвокат')
+        expect(parser.Values.get('config/city')).toBe('СПб')
+        expect(parser.Values.get('config/limit')).toBe('1000')
+        expect(parser.Values.get('config/aiAgent/model')).toBe('qwen3.5:9b')
+        expect(parser.Values.get('config/aiAgent/baseUrl')).toBe('http://x/v1')
+    })
+
+    test('a -standalone flag declared in params auto-resolves to params/quiet', () => {
+        const parser = createParser(serviceTree())
+        const lexer = new Lexer()
+        lexer.setInput('-quiet')
+        for (const tkn of lexer.tokenizeCurrent()) {
+            parser.parseNextToken(tkn)
+        }
+        expect(parser.Values.get('params/quiet')).toBe('true')
+    })
+
+    test('after auto-descending, subsequent flags continue resolving in the same slice', () => {
+        // User typed `--city ... --limit ...` (both in config). After the
+        // first auto-descent, parser is positioned at config/. The second
+        // --limit should match a child of config (no second descent needed).
+        const parser = createParser(serviceTree())
+        const lexer = new Lexer()
+        lexer.setInput('--city СПб --limit 1000')
+        for (const tkn of lexer.tokenizeCurrent()) {
+            parser.parseNextToken(tkn)
+        }
+        expect(parser.Values.get('config/city')).toBe('СПб')
+        expect(parser.Values.get('config/limit')).toBe('1000')
+    })
+
+    test('a flag that exists in NEITHER config NOR params NOR messages is silently dropped', () => {
+        const parser = createParser(serviceTree())
+        const lexer = new Lexer()
+        // The bare `value` after `--unknownFlag` would auto-bind to the
+        // `query` positional, but we're checking that --unknownFlag itself
+        // doesn't commit anywhere.
+        lexer.setInput('--unknownFlag')
+        for (const tkn of lexer.tokenizeCurrent()) {
+            parser.parseNextToken(tkn)
+        }
+        expect(parser.Values.size).toBe(0)
+    })
+})
+
+describe('Parser — long token streams do not throw on snapshot rollover', () => {
+    test('30 sequential tokens parse without overflowing the snap stack', () => {
+        const tree = branch({
+            config: branch({
+                query: leaf({ position: 1 }),
+                city: leaf({}),
+                limit: leaf({}),
+                aiAgent: branch({
+                    model: leaf({}),
+                    baseUrl: leaf({}),
+                }),
+            }),
+        })
+        const parser = createParser(tree)
+
+        const tokens = [
+            'Адвокат',
+            '--config',
+            '--city', 'СПб',
+            '--limit', '1000',
+            '--aiAgent',
+            '--model', 'qwen3.5:9b',
+            '--baseUrl', 'http://x/v1',
+        ]
+        // Drive ~30 raw tokens by stepping each multiple times. The bug
+        // manifested on the 15th memorize, so any long sequence is enough.
+        const lexer = new Lexer()
+        for (let pass = 0; pass < 3; pass++) {
+            lexer.setInput(tokens.join(' '))
+            for (const tkn of lexer.tokenizeCurrent()) {
+                expect(() => parser.parseNextToken(tkn)).not.toThrow()
+            }
+        }
+        expect(parser.Values.get('config/query')).toBe('Адвокат')
+        expect(parser.Values.get('config/city')).toBe('СПб')
+        expect(parser.Values.get('config/aiAgent/model')).toBe('qwen3.5:9b')
+    })
+})

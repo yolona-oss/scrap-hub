@@ -141,7 +141,17 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
         const handleStandalone = chainHandlerFactory<PChainReq, PChainResGType>((req) => {
             const { tkn } = req
             if (tkn.type !== 'SINGLE_DASH') return
-            const node = this.childOfCurrentBranch(tkn.value!)
+            let node = this.childOfCurrentBranch(tkn.value!)
+            // At root, allow `-flag` to auto-descend into the slice that
+            // owns the flag (same fallback as DOUBLE_DASH navigation).
+            if (!node && this._path.length === 0) {
+                const sliceMatch = this.findInRootSlices(tkn.value!)
+                if (sliceMatch) {
+                    this._path = [sliceMatch.slice]
+                    node = sliceMatch.node
+                    log.debug(`SINGLE_DASH "${tkn.value}" auto-descended into slice "${sliceMatch.slice}"`)
+                }
+            }
             if (!node || node.node !== 'leaf' || !node.standalone) {
                 log.debug(`SINGLE_DASH "${tkn.value}" — child is not a standalone leaf`)
                 return 'none' as PChainResGType
@@ -204,9 +214,24 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
     /** Resolve a navigation token (TEXT or DOUBLE_DASH naming a child of
      *  the current branch) to its action. Returns `null` when the token
      *  doesn't name a child — TEXT callers fall back to positional
-     *  auto-bind, DOUBLE_DASH callers report `'none'`. */
+     *  auto-bind, DOUBLE_DASH callers report `'none'`.
+     *
+     *  At the root of a service tree (`config|params|messages` slices),
+     *  if `name` doesn't name an immediate child but DOES name a unique
+     *  child of one of the slices, we auto-descend into that slice first
+     *  and then resolve there. This lets a CLI user type
+     *  `/scraper Адвокат --city СПб` without having to know that `city`
+     *  lives under `config/`. */
     private handleNavigationToken(name: string): ParserPerformedAction | null {
-        const node = this.childOfCurrentBranch(name)
+        let node = this.childOfCurrentBranch(name)
+        if (!node && this._path.length === 0) {
+            const sliceMatch = this.findInRootSlices(name)
+            if (sliceMatch) {
+                this._path = [sliceMatch.slice]
+                node = sliceMatch.node
+                log.debug(`navigation "${name}" auto-descended into slice "${sliceMatch.slice}"`)
+            }
+        }
         if (!node) {
             log.debug(`navigation "${name}" — no matching child of branch [${this._path.join('/')}]`)
             return null
@@ -220,6 +245,22 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
         }
         this._pending = { leafPath: [...this._path, name] }
         return 'await-value'
+    }
+
+    /** Search the canonical service-tree slices `config`, `params`,
+     *  `messages` (in that priority order) for a direct child named `name`.
+     *  First match wins. Returns `undefined` when none of the slices
+     *  contains the name. Slice names not present in the tree are skipped
+     *  silently (allows non-service trees to be parsed unaffected). */
+    private findInRootSlices(name: string): { slice: string; node: OptionsTree } | undefined {
+        if (this._tree.node !== 'branch') return undefined
+        for (const sliceName of ['config', 'params', 'messages']) {
+            const slice = this._tree.children.get(sliceName)
+            if (!slice || slice.node !== 'branch') continue
+            const child = slice.children.get(name)
+            if (child) return { slice: sliceName, node: child }
+        }
+        return undefined
     }
 
     /** Toggle a `standalone:true` leaf at the current branch level.
