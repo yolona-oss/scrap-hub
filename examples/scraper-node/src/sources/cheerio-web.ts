@@ -1,4 +1,4 @@
-import { IScraperSource, SourceAvailability } from "./types"
+import { IScraperSource, SourceAvailability, wrapAsOrgData } from "./types"
 import { OrgData, SearchQuery } from "../types"
 import type { ServiceContext } from "../exporters/types"
 import type { ScraperArgs } from "../scraper-service/args-tree"
@@ -125,18 +125,16 @@ export class CheerioWebSource implements IScraperSource {
 
                     const rawText = $item.text()
 
-                    const org: OrgData = {
+                    found++
+                    onProgress(found)
+                    yield wrapAsOrgData({
                         name,
                         source: this.name,
                         email: sel.email ? extractFromElement($item, sel.email, mode.email) : extractEmail(rawText),
                         phone: sel.phone ? extractFromElement($item, sel.phone, mode.phone) : extractPhone(rawText),
                         address: sel.address ? extractFromElement($item, sel.address, mode.address) : null,
                         url: (sel.url ? extractFromElement($item, sel.url, mode.url) : undefined) ?? undefined,
-                    }
-
-                    found++
-                    onProgress(found)
-                    yield org
+                    }, { kind: 'org-site' })
 
                     if (found >= query.maxResults) return
                 }

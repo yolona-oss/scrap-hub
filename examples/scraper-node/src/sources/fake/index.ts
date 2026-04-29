@@ -1,4 +1,5 @@
 import type { IScraperSource, SourceAvailability } from "../types"
+import { wrapAsOrgData } from "../types"
 import type { OrgData, SearchQuery } from "../../types"
 import type { ServiceContext } from "../../exporters/types"
 import { log, sleep } from "@cmd-hub/common"
@@ -35,16 +36,15 @@ export class FakeSource implements IScraperSource {
                 await sleep(this.cfg.delayMs)
             }
             const n = String(i).padStart(3, '0')
-            const org: OrgData = {
+            onProgress(i)
+            yield wrapAsOrgData({
                 name: `Fake Org ${n}`,
                 source: 'fake',
                 email: `org${n}@example.test`,
                 phone: `+1${String(i).padStart(10, '0')}`,
                 address: `${i} Fake Street`,
                 url: `https://fake.test/${n}`,
-            }
-            onProgress(i)
-            yield org
+            })
         }
     }
 }

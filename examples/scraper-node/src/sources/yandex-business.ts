@@ -1,4 +1,4 @@
-import { IScraperSource, SourceAvailability } from "./types"
+import { IScraperSource, SourceAvailability, wrapAsOrgData } from "./types"
 import { OrgData, SearchQuery } from "../types"
 import type { ServiceContext } from "../exporters/types"
 import { SCRAPER_LANGUAGE, SCRAPER_COUNTRY } from "../scraper-service/system-config"
@@ -149,18 +149,9 @@ export class YandexBusinessSource implements IScraperSource {
                     }
                 }
 
-                const org: OrgData = {
-                    name,
-                    source: 'Yandex Business',
-                    email,
-                    phone,
-                    address,
-                    url,
-                }
-
                 found++
                 onProgress(found)
-                yield org
+                yield wrapAsOrgData({ name, phone, email, address, source: 'Yandex Business', url: url ?? undefined })
 
                 if (found >= query.maxResults) break
             }
