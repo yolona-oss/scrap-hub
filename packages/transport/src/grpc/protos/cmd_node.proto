@@ -55,10 +55,10 @@ message Command {
   string compatibility_id = 2;
   string version = 3;
   string description = 4;
-  // Single root tree describing every option this command accepts.
+  // Single root tree describing every argument this command accepts.
   // The root may be a leaf (single-arg commands like `/log <sessionId>`)
-  // or a branch (commands with multiple options).
-  CommandOptionsTree options = 5;
+  // or a branch (commands with multiple arguments).
+  CommandArgTree args = 5;
   repeated string aliases = 6;
   // Capability keys this command needs at run time. Populated from the
   // @CmdService.requires / CmdCommand.requires declaration. Advisory
@@ -67,13 +67,13 @@ message Command {
   // cross-node compatibilityId consistency check.
   repeated string requires = 7;
 }
-message CommandOptionsTree {
+message CommandArgTree {
   oneof node {
-    LeafNode leaf = 1;
-    BranchNode branch = 2;
+    ArgLeafNode leaf = 1;
+    ArgBranchNode branch = 2;
   }
 }
-message LeafNode {
+message ArgLeafNode {
   // 'string' | 'number' | 'bool'
   string type = 1;
   bool required = 2;
@@ -81,17 +81,19 @@ message LeafNode {
   uint32 position = 3;
   bool standalone = 4;
   string default = 5;
-  // Static option list. Empty means free-form input.
-  repeated string options = 6;
+  // Static choice list. Empty means free-form input.
+  repeated string choices = 6;
   string description = 7;
   // Author-supplied UI hint; UIs MAY ignore it.
   string display_hint = 8;
+  // Whether the framework reads/writes this leaf to the layered store.
+  bool persistent = 9;
 }
-message BranchNode {
+message ArgBranchNode {
   // Map of child name → child tree. Order is not guaranteed in proto3 maps;
   // the hub-side desc-compiler doesn't rely on iteration order for
   // correctness.
-  map<string, CommandOptionsTree> children = 1;
+  map<string, CommandArgTree> children = 1;
   string description = 2;
   string display_hint = 3;
 }

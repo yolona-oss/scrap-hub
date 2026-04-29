@@ -108,11 +108,11 @@ export interface Command {
   version: string;
   description: string;
   /**
-   * Single root tree describing every option this command accepts.
+   * Single root tree describing every argument this command accepts.
    * The root may be a leaf (single-arg commands like `/log <sessionId>`)
-   * or a branch (commands with multiple options).
+   * or a branch (commands with multiple arguments).
    */
-  options?: CommandOptionsTree | undefined;
+  args?: CommandArgTree | undefined;
   aliases: string[];
   /**
    * Capability keys this command needs at run time. Populated from the
@@ -124,12 +124,12 @@ export interface Command {
   requires: string[];
 }
 
-export interface CommandOptionsTree {
-  leaf?: LeafNode | undefined;
-  branch?: BranchNode | undefined;
+export interface CommandArgTree {
+  leaf?: ArgLeafNode | undefined;
+  branch?: ArgBranchNode | undefined;
 }
 
-export interface LeafNode {
+export interface ArgLeafNode {
   /** 'string' | 'number' | 'bool' */
   type: string;
   required: boolean;
@@ -137,27 +137,29 @@ export interface LeafNode {
   position: number;
   standalone: boolean;
   default: string;
-  /** Static option list. Empty means free-form input. */
-  options: string[];
+  /** Static choice list. Empty means free-form input. */
+  choices: string[];
   description: string;
   /** Author-supplied UI hint; UIs MAY ignore it. */
   displayHint: string;
+  /** Whether the framework reads/writes this leaf to the layered store. */
+  persistent: boolean;
 }
 
-export interface BranchNode {
+export interface ArgBranchNode {
   /**
    * Map of child name → child tree. Order is not guaranteed in proto3 maps;
    * the hub-side desc-compiler doesn't rely on iteration order for
    * correctness.
    */
-  children: { [key: string]: CommandOptionsTree };
+  children: { [key: string]: CommandArgTree };
   description: string;
   displayHint: string;
 }
 
-export interface BranchNode_ChildrenEntry {
+export interface ArgBranchNode_ChildrenEntry {
   key: string;
-  value?: CommandOptionsTree | undefined;
+  value?: CommandArgTree | undefined;
 }
 
 export interface Service {
@@ -825,7 +827,7 @@ export const NodeManifest: MessageFns<NodeManifest> = {
 };
 
 function createBaseCommand(): Command {
-  return { name: "", compatibilityId: "", version: "", description: "", options: undefined, aliases: [], requires: [] };
+  return { name: "", compatibilityId: "", version: "", description: "", args: undefined, aliases: [], requires: [] };
 }
 
 export const Command: MessageFns<Command> = {
@@ -842,8 +844,8 @@ export const Command: MessageFns<Command> = {
     if (message.description !== "") {
       writer.uint32(34).string(message.description);
     }
-    if (message.options !== undefined) {
-      CommandOptionsTree.encode(message.options, writer.uint32(42).fork()).join();
+    if (message.args !== undefined) {
+      CommandArgTree.encode(message.args, writer.uint32(42).fork()).join();
     }
     for (const v of message.aliases) {
       writer.uint32(50).string(v!);
@@ -898,7 +900,7 @@ export const Command: MessageFns<Command> = {
             break;
           }
 
-          message.options = CommandOptionsTree.decode(reader, reader.uint32());
+          message.args = CommandArgTree.decode(reader, reader.uint32());
           continue;
         }
         case 6: {
@@ -936,7 +938,7 @@ export const Command: MessageFns<Command> = {
         : "",
       version: isSet(object.version) ? globalThis.String(object.version) : "",
       description: isSet(object.description) ? globalThis.String(object.description) : "",
-      options: isSet(object.options) ? CommandOptionsTree.fromJSON(object.options) : undefined,
+      args: isSet(object.args) ? CommandArgTree.fromJSON(object.args) : undefined,
       aliases: globalThis.Array.isArray(object?.aliases) ? object.aliases.map((e: any) => globalThis.String(e)) : [],
       requires: globalThis.Array.isArray(object?.requires) ? object.requires.map((e: any) => globalThis.String(e)) : [],
     };
@@ -956,8 +958,8 @@ export const Command: MessageFns<Command> = {
     if (message.description !== "") {
       obj.description = message.description;
     }
-    if (message.options !== undefined) {
-      obj.options = CommandOptionsTree.toJSON(message.options);
+    if (message.args !== undefined) {
+      obj.args = CommandArgTree.toJSON(message.args);
     }
     if (message.aliases?.length) {
       obj.aliases = message.aliases;
@@ -977,8 +979,8 @@ export const Command: MessageFns<Command> = {
     message.compatibilityId = object.compatibilityId ?? "";
     message.version = object.version ?? "";
     message.description = object.description ?? "";
-    message.options = (object.options !== undefined && object.options !== null)
-      ? CommandOptionsTree.fromPartial(object.options)
+    message.args = (object.args !== undefined && object.args !== null)
+      ? CommandArgTree.fromPartial(object.args)
       : undefined;
     message.aliases = object.aliases?.map((e) => e) || [];
     message.requires = object.requires?.map((e) => e) || [];
@@ -986,25 +988,25 @@ export const Command: MessageFns<Command> = {
   },
 };
 
-function createBaseCommandOptionsTree(): CommandOptionsTree {
+function createBaseCommandArgTree(): CommandArgTree {
   return { leaf: undefined, branch: undefined };
 }
 
-export const CommandOptionsTree: MessageFns<CommandOptionsTree> = {
-  encode(message: CommandOptionsTree, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const CommandArgTree: MessageFns<CommandArgTree> = {
+  encode(message: CommandArgTree, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.leaf !== undefined) {
-      LeafNode.encode(message.leaf, writer.uint32(10).fork()).join();
+      ArgLeafNode.encode(message.leaf, writer.uint32(10).fork()).join();
     }
     if (message.branch !== undefined) {
-      BranchNode.encode(message.branch, writer.uint32(18).fork()).join();
+      ArgBranchNode.encode(message.branch, writer.uint32(18).fork()).join();
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): CommandOptionsTree {
+  decode(input: BinaryReader | Uint8Array, length?: number): CommandArgTree {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseCommandOptionsTree();
+    const message = createBaseCommandArgTree();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1013,7 +1015,7 @@ export const CommandOptionsTree: MessageFns<CommandOptionsTree> = {
             break;
           }
 
-          message.leaf = LeafNode.decode(reader, reader.uint32());
+          message.leaf = ArgLeafNode.decode(reader, reader.uint32());
           continue;
         }
         case 2: {
@@ -1021,7 +1023,7 @@ export const CommandOptionsTree: MessageFns<CommandOptionsTree> = {
             break;
           }
 
-          message.branch = BranchNode.decode(reader, reader.uint32());
+          message.branch = ArgBranchNode.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -1033,52 +1035,55 @@ export const CommandOptionsTree: MessageFns<CommandOptionsTree> = {
     return message;
   },
 
-  fromJSON(object: any): CommandOptionsTree {
+  fromJSON(object: any): CommandArgTree {
     return {
-      leaf: isSet(object.leaf) ? LeafNode.fromJSON(object.leaf) : undefined,
-      branch: isSet(object.branch) ? BranchNode.fromJSON(object.branch) : undefined,
+      leaf: isSet(object.leaf) ? ArgLeafNode.fromJSON(object.leaf) : undefined,
+      branch: isSet(object.branch) ? ArgBranchNode.fromJSON(object.branch) : undefined,
     };
   },
 
-  toJSON(message: CommandOptionsTree): unknown {
+  toJSON(message: CommandArgTree): unknown {
     const obj: any = {};
     if (message.leaf !== undefined) {
-      obj.leaf = LeafNode.toJSON(message.leaf);
+      obj.leaf = ArgLeafNode.toJSON(message.leaf);
     }
     if (message.branch !== undefined) {
-      obj.branch = BranchNode.toJSON(message.branch);
+      obj.branch = ArgBranchNode.toJSON(message.branch);
     }
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<CommandOptionsTree>, I>>(base?: I): CommandOptionsTree {
-    return CommandOptionsTree.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<CommandArgTree>, I>>(base?: I): CommandArgTree {
+    return CommandArgTree.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<CommandOptionsTree>, I>>(object: I): CommandOptionsTree {
-    const message = createBaseCommandOptionsTree();
-    message.leaf = (object.leaf !== undefined && object.leaf !== null) ? LeafNode.fromPartial(object.leaf) : undefined;
+  fromPartial<I extends Exact<DeepPartial<CommandArgTree>, I>>(object: I): CommandArgTree {
+    const message = createBaseCommandArgTree();
+    message.leaf = (object.leaf !== undefined && object.leaf !== null)
+      ? ArgLeafNode.fromPartial(object.leaf)
+      : undefined;
     message.branch = (object.branch !== undefined && object.branch !== null)
-      ? BranchNode.fromPartial(object.branch)
+      ? ArgBranchNode.fromPartial(object.branch)
       : undefined;
     return message;
   },
 };
 
-function createBaseLeafNode(): LeafNode {
+function createBaseArgLeafNode(): ArgLeafNode {
   return {
     type: "",
     required: false,
     position: 0,
     standalone: false,
     default: "",
-    options: [],
+    choices: [],
     description: "",
     displayHint: "",
+    persistent: false,
   };
 }
 
-export const LeafNode: MessageFns<LeafNode> = {
-  encode(message: LeafNode, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const ArgLeafNode: MessageFns<ArgLeafNode> = {
+  encode(message: ArgLeafNode, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.type !== "") {
       writer.uint32(10).string(message.type);
     }
@@ -1094,7 +1099,7 @@ export const LeafNode: MessageFns<LeafNode> = {
     if (message.default !== "") {
       writer.uint32(42).string(message.default);
     }
-    for (const v of message.options) {
+    for (const v of message.choices) {
       writer.uint32(50).string(v!);
     }
     if (message.description !== "") {
@@ -1103,13 +1108,16 @@ export const LeafNode: MessageFns<LeafNode> = {
     if (message.displayHint !== "") {
       writer.uint32(66).string(message.displayHint);
     }
+    if (message.persistent !== false) {
+      writer.uint32(72).bool(message.persistent);
+    }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): LeafNode {
+  decode(input: BinaryReader | Uint8Array, length?: number): ArgLeafNode {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseLeafNode();
+    const message = createBaseArgLeafNode();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1158,7 +1166,7 @@ export const LeafNode: MessageFns<LeafNode> = {
             break;
           }
 
-          message.options.push(reader.string());
+          message.choices.push(reader.string());
           continue;
         }
         case 7: {
@@ -1177,6 +1185,14 @@ export const LeafNode: MessageFns<LeafNode> = {
           message.displayHint = reader.string();
           continue;
         }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.persistent = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1186,24 +1202,25 @@ export const LeafNode: MessageFns<LeafNode> = {
     return message;
   },
 
-  fromJSON(object: any): LeafNode {
+  fromJSON(object: any): ArgLeafNode {
     return {
       type: isSet(object.type) ? globalThis.String(object.type) : "",
       required: isSet(object.required) ? globalThis.Boolean(object.required) : false,
       position: isSet(object.position) ? globalThis.Number(object.position) : 0,
       standalone: isSet(object.standalone) ? globalThis.Boolean(object.standalone) : false,
       default: isSet(object.default) ? globalThis.String(object.default) : "",
-      options: globalThis.Array.isArray(object?.options) ? object.options.map((e: any) => globalThis.String(e)) : [],
+      choices: globalThis.Array.isArray(object?.choices) ? object.choices.map((e: any) => globalThis.String(e)) : [],
       description: isSet(object.description) ? globalThis.String(object.description) : "",
       displayHint: isSet(object.displayHint)
         ? globalThis.String(object.displayHint)
         : isSet(object.display_hint)
         ? globalThis.String(object.display_hint)
         : "",
+      persistent: isSet(object.persistent) ? globalThis.Boolean(object.persistent) : false,
     };
   },
 
-  toJSON(message: LeafNode): unknown {
+  toJSON(message: ArgLeafNode): unknown {
     const obj: any = {};
     if (message.type !== "") {
       obj.type = message.type;
@@ -1220,8 +1237,8 @@ export const LeafNode: MessageFns<LeafNode> = {
     if (message.default !== "") {
       obj.default = message.default;
     }
-    if (message.options?.length) {
-      obj.options = message.options;
+    if (message.choices?.length) {
+      obj.choices = message.choices;
     }
     if (message.description !== "") {
       obj.description = message.description;
@@ -1229,34 +1246,38 @@ export const LeafNode: MessageFns<LeafNode> = {
     if (message.displayHint !== "") {
       obj.displayHint = message.displayHint;
     }
+    if (message.persistent !== false) {
+      obj.persistent = message.persistent;
+    }
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<LeafNode>, I>>(base?: I): LeafNode {
-    return LeafNode.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<ArgLeafNode>, I>>(base?: I): ArgLeafNode {
+    return ArgLeafNode.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<LeafNode>, I>>(object: I): LeafNode {
-    const message = createBaseLeafNode();
+  fromPartial<I extends Exact<DeepPartial<ArgLeafNode>, I>>(object: I): ArgLeafNode {
+    const message = createBaseArgLeafNode();
     message.type = object.type ?? "";
     message.required = object.required ?? false;
     message.position = object.position ?? 0;
     message.standalone = object.standalone ?? false;
     message.default = object.default ?? "";
-    message.options = object.options?.map((e) => e) || [];
+    message.choices = object.choices?.map((e) => e) || [];
     message.description = object.description ?? "";
     message.displayHint = object.displayHint ?? "";
+    message.persistent = object.persistent ?? false;
     return message;
   },
 };
 
-function createBaseBranchNode(): BranchNode {
+function createBaseArgBranchNode(): ArgBranchNode {
   return { children: {}, description: "", displayHint: "" };
 }
 
-export const BranchNode: MessageFns<BranchNode> = {
-  encode(message: BranchNode, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    globalThis.Object.entries(message.children).forEach(([key, value]: [string, CommandOptionsTree]) => {
-      BranchNode_ChildrenEntry.encode({ key: key as any, value }, writer.uint32(10).fork()).join();
+export const ArgBranchNode: MessageFns<ArgBranchNode> = {
+  encode(message: ArgBranchNode, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    globalThis.Object.entries(message.children).forEach(([key, value]: [string, CommandArgTree]) => {
+      ArgBranchNode_ChildrenEntry.encode({ key: key as any, value }, writer.uint32(10).fork()).join();
     });
     if (message.description !== "") {
       writer.uint32(18).string(message.description);
@@ -1267,10 +1288,10 @@ export const BranchNode: MessageFns<BranchNode> = {
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): BranchNode {
+  decode(input: BinaryReader | Uint8Array, length?: number): ArgBranchNode {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseBranchNode();
+    const message = createBaseArgBranchNode();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1279,7 +1300,7 @@ export const BranchNode: MessageFns<BranchNode> = {
             break;
           }
 
-          const entry1 = BranchNode_ChildrenEntry.decode(reader, reader.uint32());
+          const entry1 = ArgBranchNode_ChildrenEntry.decode(reader, reader.uint32());
           if (entry1.value !== undefined) {
             message.children[entry1.key] = entry1.value;
           }
@@ -1310,12 +1331,12 @@ export const BranchNode: MessageFns<BranchNode> = {
     return message;
   },
 
-  fromJSON(object: any): BranchNode {
+  fromJSON(object: any): ArgBranchNode {
     return {
       children: isObject(object.children)
         ? (globalThis.Object.entries(object.children) as [string, any][]).reduce(
-          (acc: { [key: string]: CommandOptionsTree }, [key, value]: [string, any]) => {
-            acc[key] = CommandOptionsTree.fromJSON(value);
+          (acc: { [key: string]: CommandArgTree }, [key, value]: [string, any]) => {
+            acc[key] = CommandArgTree.fromJSON(value);
             return acc;
           },
           {},
@@ -1330,14 +1351,14 @@ export const BranchNode: MessageFns<BranchNode> = {
     };
   },
 
-  toJSON(message: BranchNode): unknown {
+  toJSON(message: ArgBranchNode): unknown {
     const obj: any = {};
     if (message.children) {
-      const entries = globalThis.Object.entries(message.children) as [string, CommandOptionsTree][];
+      const entries = globalThis.Object.entries(message.children) as [string, CommandArgTree][];
       if (entries.length > 0) {
         obj.children = {};
         entries.forEach(([k, v]) => {
-          obj.children[k] = CommandOptionsTree.toJSON(v);
+          obj.children[k] = CommandArgTree.toJSON(v);
         });
       }
     }
@@ -1350,15 +1371,15 @@ export const BranchNode: MessageFns<BranchNode> = {
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<BranchNode>, I>>(base?: I): BranchNode {
-    return BranchNode.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<ArgBranchNode>, I>>(base?: I): ArgBranchNode {
+    return ArgBranchNode.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<BranchNode>, I>>(object: I): BranchNode {
-    const message = createBaseBranchNode();
-    message.children = (globalThis.Object.entries(object.children ?? {}) as [string, CommandOptionsTree][]).reduce(
-      (acc: { [key: string]: CommandOptionsTree }, [key, value]: [string, CommandOptionsTree]) => {
+  fromPartial<I extends Exact<DeepPartial<ArgBranchNode>, I>>(object: I): ArgBranchNode {
+    const message = createBaseArgBranchNode();
+    message.children = (globalThis.Object.entries(object.children ?? {}) as [string, CommandArgTree][]).reduce(
+      (acc: { [key: string]: CommandArgTree }, [key, value]: [string, CommandArgTree]) => {
         if (value !== undefined) {
-          acc[key] = CommandOptionsTree.fromPartial(value);
+          acc[key] = CommandArgTree.fromPartial(value);
         }
         return acc;
       },
@@ -1370,25 +1391,25 @@ export const BranchNode: MessageFns<BranchNode> = {
   },
 };
 
-function createBaseBranchNode_ChildrenEntry(): BranchNode_ChildrenEntry {
+function createBaseArgBranchNode_ChildrenEntry(): ArgBranchNode_ChildrenEntry {
   return { key: "", value: undefined };
 }
 
-export const BranchNode_ChildrenEntry: MessageFns<BranchNode_ChildrenEntry> = {
-  encode(message: BranchNode_ChildrenEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const ArgBranchNode_ChildrenEntry: MessageFns<ArgBranchNode_ChildrenEntry> = {
+  encode(message: ArgBranchNode_ChildrenEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.key !== "") {
       writer.uint32(10).string(message.key);
     }
     if (message.value !== undefined) {
-      CommandOptionsTree.encode(message.value, writer.uint32(18).fork()).join();
+      CommandArgTree.encode(message.value, writer.uint32(18).fork()).join();
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): BranchNode_ChildrenEntry {
+  decode(input: BinaryReader | Uint8Array, length?: number): ArgBranchNode_ChildrenEntry {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseBranchNode_ChildrenEntry();
+    const message = createBaseArgBranchNode_ChildrenEntry();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1405,7 +1426,7 @@ export const BranchNode_ChildrenEntry: MessageFns<BranchNode_ChildrenEntry> = {
             break;
           }
 
-          message.value = CommandOptionsTree.decode(reader, reader.uint32());
+          message.value = CommandArgTree.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -1417,32 +1438,32 @@ export const BranchNode_ChildrenEntry: MessageFns<BranchNode_ChildrenEntry> = {
     return message;
   },
 
-  fromJSON(object: any): BranchNode_ChildrenEntry {
+  fromJSON(object: any): ArgBranchNode_ChildrenEntry {
     return {
       key: isSet(object.key) ? globalThis.String(object.key) : "",
-      value: isSet(object.value) ? CommandOptionsTree.fromJSON(object.value) : undefined,
+      value: isSet(object.value) ? CommandArgTree.fromJSON(object.value) : undefined,
     };
   },
 
-  toJSON(message: BranchNode_ChildrenEntry): unknown {
+  toJSON(message: ArgBranchNode_ChildrenEntry): unknown {
     const obj: any = {};
     if (message.key !== "") {
       obj.key = message.key;
     }
     if (message.value !== undefined) {
-      obj.value = CommandOptionsTree.toJSON(message.value);
+      obj.value = CommandArgTree.toJSON(message.value);
     }
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<BranchNode_ChildrenEntry>, I>>(base?: I): BranchNode_ChildrenEntry {
-    return BranchNode_ChildrenEntry.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<ArgBranchNode_ChildrenEntry>, I>>(base?: I): ArgBranchNode_ChildrenEntry {
+    return ArgBranchNode_ChildrenEntry.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<BranchNode_ChildrenEntry>, I>>(object: I): BranchNode_ChildrenEntry {
-    const message = createBaseBranchNode_ChildrenEntry();
+  fromPartial<I extends Exact<DeepPartial<ArgBranchNode_ChildrenEntry>, I>>(object: I): ArgBranchNode_ChildrenEntry {
+    const message = createBaseArgBranchNode_ChildrenEntry();
     message.key = object.key ?? "";
     message.value = (object.value !== undefined && object.value !== null)
-      ? CommandOptionsTree.fromPartial(object.value)
+      ? CommandArgTree.fromPartial(object.value)
       : undefined;
     return message;
   },

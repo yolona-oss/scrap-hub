@@ -1,5 +1,5 @@
 import { ManifestAggregator, AggregatedManifest } from '../manifest-aggregator'
-import { branch } from '@cmd-hub/common'
+import { argBranch } from '@cmd-hub/common'
 
 const mf = (
     nodeId: string,
@@ -9,7 +9,7 @@ const mf = (
     configs: AggregatedManifest['configs'] = [],
 ): AggregatedManifest => ({
     nodeId, nodeName: nodeId, version: '1.0.0',
-    commands: [{ name, compatibilityId: cid, version: v, description: '', options: branch({}), aliases: [] }],
+    commands: [{ name, compatibilityId: cid, version: v, description: '', args: argBranch({}), aliases: [] }],
     services: [],
     configs,
     hardware: {},

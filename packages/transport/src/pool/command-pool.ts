@@ -1,9 +1,9 @@
-import type { BaseCommandIdentity, OptionsTree } from '@cmd-hub/common'
+import type { BaseCommandIdentity, ArgTree } from '@cmd-hub/common'
 
 export interface PoolCommand extends BaseCommandIdentity {
-    /** Single root tree describing the command's options. May be a leaf
-     *  (single-arg commands) or a branch (multi-option commands). */
-    options: OptionsTree
+    /** Single root tree describing the command's arguments. May be a leaf
+     *  (single-arg commands) or a branch (multi-argument commands). */
+    args: ArgTree
     aliases: string[]
     /** Capability keys this command needs at run time. Carried through from
      *  the node's manifest for operator tooling and Phase C eligibility. */
