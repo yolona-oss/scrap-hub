@@ -223,7 +223,7 @@ Once issued, a `node.token` is valid until the row is deleted (`node-remove`) or
 
 ### 🟡 7. MongoDB has no auth in the example
 
-`config.storage.url = "mongodb://127.0.0.1:27017/..."`. Anyone with access to the host can read every `node_records` row (cleartext nodeId + bcrypt(token) + cert fingerprint), every `system_config` blob (which holds API keys, bot tokens, anything saved via `/sconfig`), and every `manager` row (Telegram user IDs).
+`config.storage.url = "mongodb://127.0.0.1:27017/..."`. Anyone with access to the host can read every `node_records` row (cleartext nodeId + bcrypt(token) + cert fingerprint), every `system_config` blob (which holds API keys, bot tokens, anything saved via `/sargs`), and every `manager` row (Telegram user IDs).
 
 **Fix:** Mongo auth + IP-bind to loopback or a private subnet. The framework doesn't help here; it's pure operational config.
 

@@ -10,7 +10,7 @@ npm workspaces. Framework packages under `packages/`, distributed plugins under 
 
 | Path | npm name | Role |
 |---|---|---|
-| `packages/common/` | `@cmd-hub/common` | Shared primitives: `Application`, `Phase`, capability registry, command decorators (`@CmdService`, `@CmdArgument`, `@CmdCommand`), logger, base service, manifest types, utils, types |
+| `packages/common/` | `@cmd-hub/common` | Shared primitives: `Application`, `Phase`, capability registry, command decorators (`@CmdService`, `@CmdArg`, `@CmdCommand`), logger, base service, manifest types, utils, types |
 | `packages/core/` | `@cmd-hub/core` | Hub-side: `CmdHubApp`, `CmdDispatcher`, command processor, builder/interpreter, dashboard, built-in commands, `RemoteCmdInvoker`, hub CLI |
 | `packages/transport/` | `@cmd-hub/transport` | gRPC bindings, `ManifestAggregator`, `CommandPool`, `FileService`, `CmdNodeRegistry`, server impl |
 | `packages/node/` | `@cmd-hub/node` | Node-side: `CmdNodeApp`, `HubClientMiddleware`, `InvokeServerMiddleware`, executor |
@@ -104,20 +104,22 @@ npx cmd-hub node-list / node-approve / node-remove
 
 ## Command argument model
 
-Commands declare arguments via `@CmdArgument` properties on a data class. The decorator desugars each property into a node of an `OptionsTree`:
+Commands declare arguments via `@CmdArg` properties on a data class. The decorator desugars each property into a node of an `ArgTree`:
 
 - a property whose `design:type` is a constructable class becomes a **branch**, walked recursively;
-- everything else becomes a **leaf** carrying `type` / `required` / `position` / `standalone` / `default` / `options[]` / `validator` / `displayHint`.
+- everything else becomes a **leaf** carrying `type` / `required` / `position` / `standalone` / `default` / `choices[]` / `validator` / `displayHint` / `persistent`.
 
-The same tree feeds the hub-side builder UI, the wire (`treeToProto` in transport, `protoToTree` on the way back), and node-side `unflattenValue` (which reconstructs the typed nested object from the flat dot-path map). Wire keys are slash-delimited: services use slice prefixes (`config/aiAgent/model`, `params/sessionId`, `messages/...`); one-shots use bare paths.
+The same tree feeds the hub-side builder UI, the wire (`treeToProto` in transport, `protoToTree` on the way back), and node-side `unflattenArgs` (which reconstructs the typed nested object from the flat dot-path map). Wire keys are slash-delimited: services use two slice prefixes (`args/aiAgent/model`, `intercom/pause`); one-shots use bare paths. The `args` slice is a real tree; the `intercom` slice is flat by construction (no nested branches).
 
-Static `options: string[]` is the only declarative way to constrain values — runtime resolvers can't ride the wire. Validators run **node-side** after `unflattenValue`; on failure the node emits a `ValidationFailed` envelope and the hub re-prompts only the failed leaf via `CBParser.focusLeaf`.
+Static `choices: string[]` is the only declarative way to constrain values — runtime resolvers can't ride the wire. Validators run **node-side** after `unflattenArgs`; on failure the node emits a `ValidationFailed` envelope and the hub re-prompts only the failed leaf via `CBParser.focusLeaf`.
+
+Per-leaf `persistent: true` opts a leaf into the layered account/session store (the framework reads it during `initSession()` and writes it back to the session layer). Without the flag (default), the leaf is per-invocation only — it's read from input and never persisted. `/sargs` filters its render and write paths by this flag.
 
 ## Testing notes
 
 - Test mocks for ESM-only deps live under `packages/common/src/__mocks__/` (e.g. `chalk`).
 - `jest.config.js` in each package wires `moduleNameMapper` for those mocks.
-- 322 unit tests across common (94) + transport (27) + core (94) + node (54) + storage-mongo (19) + scraper-node (34).
+- ~500 unit tests across common (~104) + transport (27) + core (~140) + node (54) + storage-mongo (23) + scraper-node (154).
 
 ## Documentation
 
