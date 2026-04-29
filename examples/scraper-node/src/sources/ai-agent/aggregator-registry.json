@@ -1,0 +1,10 @@
+[
+    { "domain": "zoon.ru", "confidence": 1.0, "notes": "Russia-wide multi-category org directory" },
+    { "domain": "yandex.ru/maps", "confidence": 1.0, "notes": "Yandex Maps; structured business listings" },
+    { "domain": "2gis.ru", "confidence": 0.9, "notes": "Russia + CIS local directory" },
+    { "domain": "flamp.ru", "confidence": 0.9, "notes": "Russian review aggregator" },
+    { "domain": "yell.ru", "confidence": 0.8, "notes": "Russian Yellow Pages" },
+    { "domain": "spr.ru", "confidence": 0.8, "notes": "Russian business directory" },
+    { "domain": "orgpage.ru", "confidence": 0.8, "notes": "Russian org directory" },
+    { "domain": "rusprofile.ru", "confidence": 0.7, "notes": "Russian legal-entity registry; partial contacts" }
+]
