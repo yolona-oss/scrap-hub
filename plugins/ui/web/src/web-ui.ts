@@ -14,8 +14,8 @@ import {
     LockManager,
     log,
     registerBuiltinRenderers,
-    walkLeaves,
-    type OptionsTree,
+    walkArgLeaves,
+    type ArgTree,
     BUILTIN_COMPAT_PREFIX,
     BUILTIN_VERSION,
     type MessageOptions,
@@ -34,12 +34,12 @@ interface SerializedLeaf {
     required: boolean
     description: string
     default?: string
-    options: string[]
+    choices: string[]
 }
 
-function flattenTree(tree: OptionsTree): SerializedLeaf[] {
+function flattenTree(tree: ArgTree): SerializedLeaf[] {
     const out: SerializedLeaf[] = []
-    for (const { pathKey, leaf } of walkLeaves(tree)) {
+    for (const { pathKey, leaf } of walkArgLeaves(tree)) {
         out.push({
             path: pathKey,
             type: leaf.position > 0 ? 'positional' : leaf.standalone ? 'standalone' : 'pair',
@@ -47,7 +47,7 @@ function flattenTree(tree: OptionsTree): SerializedLeaf[] {
             required: leaf.required,
             description: leaf.description,
             default: leaf.default,
-            options: [...leaf.options],
+            choices: [...leaf.choices],
         })
     }
     return out
@@ -520,7 +520,7 @@ export class WebUI extends BaseUI<WebContext> {
                     const compiler = new CBDescriptorCompiler()
                     const descriptor = await compiler.compile(data.command, userId, this.dispatcher, ctx)
 
-                    const fields = flattenTree(descriptor.options)
+                    const fields = flattenTree(descriptor.tree)
 
                     let savedConfig: Record<string, unknown> = {}
                     if (isService) {
@@ -530,7 +530,7 @@ export class WebUI extends BaseUI<WebContext> {
                                 const account = await repos.account.handleById(owner.accountId)
                                 if (account) {
                                     const { module } = await account.getModuleByNameOrCreate(data.command)
-                                    savedConfig = (module.record.data.config ?? {}) as Record<string, unknown>
+                                    savedConfig = (module.record.data.args ?? {}) as Record<string, unknown>
                                 }
                             }
                         } catch (_) {}
@@ -593,7 +593,7 @@ export class WebUI extends BaseUI<WebContext> {
             command: c.command,
             description: c.description,
             isService: this.dispatcher.isService(c.command),
-            args: flattenTree(c.options),
+            args: flattenTree(c.argsTree),
         }))
     }
 

@@ -16,8 +16,8 @@ import {
     BUILTIN_COMPAT_PREFIX,
     BUILTIN_VERSION,
     severityIconPrefix,
-    nodeAtPath,
-    type OptionsTree,
+    argNodeAtPath,
+    type ArgTree,
     type UiSeverity,
     type UiUiMessageKindPlugin,
 } from '@cmd-hub/common';
@@ -219,7 +219,7 @@ export class CLIUI extends BaseUI<CLIContext> {
      *   1. Empty / single token: complete command names (plus any
      *      plugin-supplied extras).
      *   2. After `/cmd ... --branch --leaf` partials: walk the command's
-     *      `OptionsTree` along the `--name` tokens already on the line
+     *      `ArgTree` along the `--name` tokens already on the line
      *      and suggest the current branch's children (or a pending leaf's
      *      `options[]`) prefixed with `--` / `-` to match the parser
      *      grammar.
@@ -245,7 +245,7 @@ export class CLIUI extends BaseUI<CLIContext> {
         for (let i = 1; i < parts.length - 1; i++) {
             const seg = parts[i].replace(/^--?/, '')
             if (!seg) continue
-            const here = nodeAtPath(tree, path)
+            const here = argNodeAtPath(tree, path)
             if (!here || here.node !== 'branch') break
             const child = here.children.get(seg)
             if (!child) continue
@@ -256,11 +256,11 @@ export class CLIUI extends BaseUI<CLIContext> {
             }
             if (child.node === 'branch') path.push(seg)
         }
-        const here = nodeAtPath(tree, path)
+        const here = argNodeAtPath(tree, path)
         if (!here) return [[], tail]
         if (here.node === 'leaf') {
-            // Suggest options for the pending leaf's value.
-            const matches = here.options.filter(o => o.startsWith(tail))
+            // Suggest choices for the pending leaf's value.
+            const matches = here.choices.filter(o => o.startsWith(tail))
             return [matches, tail]
         }
         const suggestions: string[] = []
@@ -272,7 +272,7 @@ export class CLIUI extends BaseUI<CLIContext> {
         return [matches, tail]
     }
 
-    private _treeForCommand(command: string): OptionsTree | undefined {
+    private _treeForCommand(command: string): ArgTree | undefined {
         const stripped = command.startsWith('/') ? command.slice(1) : command
         return this.dispatcher.getCommandTree(stripped)
     }
