@@ -349,6 +349,11 @@ export async function runAgentLoop(
                 catch (e: any) { pushToolError(call.id, `invalid arguments: ${e.message ?? e}`); continue }
 
                 if (name === 'revise_plan') {
+                    if (executePhaseTurnsSinceLastPlan < REVISE_MIN_EXECUTE_TURNS) {
+                        log.debug(`ai-agent.loop: revise_plan rejected (only ${executePhaseTurnsSinceLastPlan} execute turns elapsed)`)
+                        pushToolError(call.id, `revise_plan unavailable: give the current plan at least ${REVISE_MIN_EXECUTE_TURNS} execute turns before revising. Try the plan; if it still fails, revise then.`)
+                        continue
+                    }
                     const tool = toolByName.get('revise_plan')!
                     const result = await tool.handler(parsed, signal)
                     pushToolResult(call.id, result)
