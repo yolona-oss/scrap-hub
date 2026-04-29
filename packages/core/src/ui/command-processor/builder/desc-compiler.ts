@@ -46,12 +46,12 @@ export class CBDescriptorCompiler {
         if (local) {
             const isService = dispatcher.isService(command)
             return isService
-                ? { options: this.buildServiceOptions(local.invokable as ICmdService, userId, dispatcher) }
-                : { options: this.buildOneShotOptions(local) }
+                ? { tree: this.buildServiceOptions(local.invokable as ICmdService, userId, dispatcher) }
+                : { tree: this.buildOneShotOptions(local) }
         }
         const remote = dispatcher.tryGetRemoteCommand(command)
         if (remote) {
-            return { options: this.buildRemoteOptions(remote) }
+            return { tree: this.buildRemoteOptions(remote) }
         }
         throw new Error(
             `CBDescriptorCompiler: command "${command}" is not registered locally and not served by any attached node`,
@@ -74,7 +74,7 @@ export class CBDescriptorCompiler {
     }
 
     private buildOneShotOptions(entry: AnyEntry): ArgTree {
-        return entry.options
+        return entry.argsTree
     }
 
     private buildRemoteOptions(remote: RemoteCommandSpec): ArgTree {

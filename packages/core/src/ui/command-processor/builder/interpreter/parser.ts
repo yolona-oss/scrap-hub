@@ -96,7 +96,7 @@ export class CBParser<PChainResGType extends ParserPerformedAction | string = Pa
 
     constructor(config: CBParserConfig) {
         this._command = config.command
-        this._tree = config.descriptor.options
+        this._tree = config.descriptor.tree
         log.trace(`Parser created for command: ${this._command}`)
     }
 

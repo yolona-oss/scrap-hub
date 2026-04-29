@@ -21,11 +21,13 @@ interface CommandSklet extends Partial<WithNeighbors> {
 /** @description Describes the UI bound command base definition */
 export type IUICommand = CommandSklet
 
-/** @description IUICommand with the parsed options tree attached. The
+/** @description IUICommand with the parsed arg tree attached. The
  *  tree is the canonical source of truth for what arguments the command
- *  accepts; UIs render it directly. */
+ *  accepts; UIs render it directly. The field is named `argsTree` (not
+ *  `args`) because `CommandSklet.args` already names the args *class*
+ *  reference at the manifest level. */
 export interface IUICommandProcessed extends IUICommand {
-    readonly options: ArgTree
+    readonly argsTree: ArgTree
 }
 
 export interface ICommandCompiled {
@@ -76,11 +78,11 @@ export interface IUI_InvokableCommand<Ctx extends BaseUIContext> extends IUIComm
     readonly invokable: IvokeableType<Ctx>
 }
 
-/** @description Describes the option tree the parser walks for one
+/** @description Describes the arg tree the parser walks for one
  *  command. The root is whatever the desc-compiler synthesized: a
  *  branch with `args` / `intercom` children for services,
  *  the args-class tree for one-shots and built-ins, or a single leaf
  *  for argless commands. */
 export interface IUICommandDescriptor {
-    options: ArgTree
+    tree: ArgTree
 }

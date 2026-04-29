@@ -14,7 +14,7 @@ import { BuilderActionSigns } from '../ui/command-processor/builder/default-call
  *  the parser positioned at the resulting state — most markuper tests
  *  need this two-step (build + drive) shape. */
 function parserAt(tree: ArgTree, ...tokens: CBLexerToken[]): CBParser {
-    const parser = new CBParser({ command: 'test', descriptor: { options: tree } })
+    const parser = new CBParser({ command: 'test', descriptor: { tree } })
     for (const tkn of tokens) parser.parseNextToken(tkn)
     return parser
 }
@@ -37,7 +37,7 @@ describe('Markuper — Tree-native rendering', () => {
     test('descending into a branch re-renders that branch\'s children', async () => {
         const tree = argBranch({
             aiAgent: argBranch({
-                model: argLeaf({ options: ['qwen2.5:7b', 'gpt-4o'] }),
+                model: argLeaf({ choices: ['qwen2.5:7b', 'gpt-4o'] }),
                 temperature: argLeaf({}),
             }),
         })
@@ -115,7 +115,7 @@ describe('BuilderMarkuper — saved-source tags', () => {
     }
 
     test('intro lists saved entries with source tag', async () => {
-        const parser = new CBParser({ command: 'svc', descriptor: { options: tree() } })
+        const parser = new CBParser({ command: 'svc', descriptor: { tree: tree() } })
         const saved: SavedSources = new Map([
             ['city', { value: 'Moscow', source: 'module' }],
             ['depth', { value: '5', source: 'session' }],
@@ -128,7 +128,7 @@ describe('BuilderMarkuper — saved-source tags', () => {
     })
 
     test('user-committed leaf is unmarked; only unset leaves show source tag', async () => {
-        const parser = new CBParser({ command: 'svc', descriptor: { options: tree() } })
+        const parser = new CBParser({ command: 'svc', descriptor: { tree: tree() } })
         const saved: SavedSources = new Map([
             ['city', { value: 'Moscow', source: 'module' }],
             ['depth', { value: '5', source: 'session' }],
@@ -149,7 +149,7 @@ describe('BuilderMarkuper — saved-source tags', () => {
     })
 
     test('no SavedSources renders no saved-defaults block', async () => {
-        const parser = new CBParser({ command: 'svc', descriptor: { options: tree() } })
+        const parser = new CBParser({ command: 'svc', descriptor: { tree: tree() } })
         const markup = await BuilderMarkuper.markup(parser, { text: { info: '' } })
         expect(markup.text).not.toContain('Saved defaults')
     })

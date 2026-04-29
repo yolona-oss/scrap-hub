@@ -305,7 +305,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             {
                 invokable: invokable,
                 description: command.description,
-                options,
+                argsTree: options,
                 next: command.next,
                 prev: command.prev,
                 seqBounded: bounded,
@@ -620,7 +620,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
      *  pass-through for both. Returns `undefined` for unknown commands. */
     getCommandTree(command: string): ArgTree | undefined {
         const local = this.cmd_registry.get(command)
-        if (local) return local.options
+        if (local) return local.argsTree
         const remote = this.tryGetRemoteCommand(command)
         return remote?.options
     }
@@ -651,7 +651,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             out.push({
                 command: name,
                 description: entry.description,
-                options: entry.options,
+                argsTree: entry.argsTree,
             })
         }
 
@@ -664,7 +664,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
                     out.push({
                         command: c.name,
                         description: c.description,
-                        options: c.options ?? argBranch({}),
+                        argsTree: c.options ?? argBranch({}),
                     })
                     localNames.add(c.name)
                 }

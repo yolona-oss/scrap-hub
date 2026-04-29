@@ -17,7 +17,7 @@ import { IUICommandDescriptor } from '../ui/types'
 // --- Test Helpers ---
 
 function descriptorFromTree(tree: ArgTree): IUICommandDescriptor {
-    return { options: tree }
+    return { tree }
 }
 
 function createParser(tree: ArgTree) {

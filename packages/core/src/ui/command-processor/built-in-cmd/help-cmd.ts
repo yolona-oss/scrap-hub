@@ -45,7 +45,7 @@ export const commonToString = <Ctx extends BaseUIContext>(cmdName: string, cmdCb
     const w = maxWidth ?? DEFAULT_WIDTH
     let text = `Command /${cmdName}\n  ${cmdCb.description}\n\n`
 
-    const rows = treeToRows(cmdCb.options)
+    const rows = treeToRows(cmdCb.argsTree)
     if (rows.length > 0) {
         text += designer.make({
             title: 'Arguments',

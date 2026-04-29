@@ -55,7 +55,7 @@ export class CommandBuilder {
         if (this.usersBuild.has(userId)) {
             throw new Error('User already has active build.')
         }
-        if (desc.options.node === 'branch' && desc.options.children.size === 0) {
+        if (desc.tree.node === 'branch' && desc.tree.children.size === 0) {
             throw new Error('No arguments in descriptor. Nothing to build.')
         }
 

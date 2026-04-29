@@ -80,7 +80,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
     ): Map<string, string> {
         if (args.length === 0) return new Map()
         try {
-            const parser = new CBParser({ command, descriptor: { options: tree } })
+            const parser = new CBParser({ command, descriptor: { tree } })
             const lexer = new Lexer()
             lexer.setInput(args.join(' '))
             for (const tkn of lexer.tokenizeCurrent()) {
