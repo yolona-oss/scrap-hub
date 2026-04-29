@@ -11,7 +11,6 @@ import { registerSources } from './sources'
 import { registerExporters } from './exporters'
 import { registerCsvExporter } from './plugins/csv'
 import { registerGoogleSheetsPlugin } from './plugins/google-sheets'
-import { registerBuiltInCheerioSources } from './plugins/cheerio-sources'
 import { OrgKind } from './ui-messages/org'
 import { SourceFailedKind } from './ui-messages/source-failed'
 
@@ -24,7 +23,6 @@ registerSources()
 registerExporters()
 registerCsvExporter()
 registerGoogleSheetsPlugin()
-// registerBuiltInCheerioSources()
 
 async function bootstrap() {
     const app = new CmdNodeApp({
