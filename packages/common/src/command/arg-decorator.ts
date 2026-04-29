@@ -1,47 +1,40 @@
 import { defineDecoratorMeta, readDecoratorMeta, makeMetaKey } from './metadata'
 import {
-    branch,
-    leaf,
-    type LeafOptions,
-    type BranchOptions,
-    type LeafSpec,
-    type OptionsTree,
-    type LeafType,
-    type LeafValidator,
+    argBranch,
+    argLeaf,
+    type ArgLeafDef,
+    type ArgBranchDef,
+    type ArgLeaf,
+    type ArgTree,
+    type ArgValueType,
+    type ArgValidator,
 } from './tree'
 
 /**
- * Decorator that marks a property as a node in the command's options tree.
+ * Decorator that marks a property as a node in the command's arg tree.
  *
  * - Properties whose `design:type` is a constructable class become `branch`
  *   nodes; their inner class is walked recursively.
  * - All other properties become `leaf` nodes; the decorator's options
- *   (type / required / position / standalone / default / options /
- *   validator / displayHint / description) populate the leaf.
+ *   (type / required / position / standalone / default / choices /
+ *   validator / displayHint / description / persistent) populate the leaf.
  *
- * Leaves with a static `options: string[]` are the only declarative way
+ * Leaves with a static `choices: string[]` are the only declarative way
  * to constrain values — runtime resolvers can't cross the wire.
+ *
+ * Leaves with `persistent: true` participate in the layered account/session
+ * store; without it (default), the leaf is per-invocation only.
  */
 
-export const COMMAND_ARG_DESC_KEY = makeMetaKey('CmdArgument')
+export const CMD_ARG_META_KEY = makeMetaKey('CmdArg')
 const DESIGN_TYPE_KEY = 'design:type'
 
-/** Public input shape. Everything is optional; the desugarer fills defaults
- *  per `tree.ts:leaf()` / `tree.ts:branch()`. Provide `branch: true` (or
- *  `branch: { ... }`) only when the property's design-time type is a class
- *  AND you want to override branch metadata; otherwise the decorator infers
- *  branch-vs-leaf from the property's reflected class type. */
-export interface CmdArgumentDef extends LeafOptions {
-    /** Override branch metadata. When `true`, treats the property as a
-     *  branch even if reflect-metadata didn't see a class type (rare). */
-    branch?: boolean | BranchOptions
-    /** When the decorator can't reflect the class type (e.g. forward
-     *  references), supply it explicitly. The class is walked at build
-     *  time. */
+export interface ArgDef extends ArgLeafDef {
+    branch?: boolean | ArgBranchDef
     childClass?: new () => object
 }
 
-export function CmdArgument(metadata: CmdArgumentDef = {}) {
+export function CmdArg(metadata: ArgDef = {}) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (target: any, propertyKey: string) => {
         const reflected = (target && target[DESIGN_TYPE_KEY])
@@ -49,91 +42,85 @@ export function CmdArgument(metadata: CmdArgumentDef = {}) {
         const explicitBranch = metadata.branch !== undefined && metadata.branch !== false
         const isBranch = explicitBranch || isConstructable(metadata.childClass) || isConstructable(reflected)
 
-        const bag = readDecoratorMeta<DecoratorBag>(COMMAND_ARG_DESC_KEY, target) ?? {}
+        const bag = readDecoratorMeta<DecoratorBag>(CMD_ARG_META_KEY, target) ?? {}
         if (isBranch) {
-            const branchOpts: BranchOptions =
+            const branchOpts: ArgBranchDef =
                 metadata.branch && typeof metadata.branch === 'object'
                     ? metadata.branch
                     : { description: metadata.description, displayHint: metadata.displayHint }
             const childClass = metadata.childClass ?? reflected as (new () => object) | undefined
             if (!childClass) {
                 throw new Error(
-                    `@CmdArgument on "${String(propertyKey)}": branch nodes require either a class-typed property ` +
+                    `@CmdArg on "${String(propertyKey)}": branch nodes require either a class-typed property ` +
                     `(emitMetadata + class type) or an explicit \`childClass\` option.`,
                 )
             }
             bag[propertyKey] = { kind: 'branch', branch: branchOpts, childClass }
         } else {
-            const leafOpts: LeafOptions & { type: LeafType } = {
+            const leafOpts: ArgLeafDef & { type: ArgValueType } = {
                 type: metadata.type ?? inferLeafType(reflected) ?? 'string',
                 required: metadata.required,
                 position: metadata.position,
                 standalone: metadata.standalone,
                 default: metadata.default,
                 description: metadata.description,
-                options: metadata.options,
+                choices: metadata.choices,
                 validator: metadata.validator,
                 displayHint: metadata.displayHint,
+                persistent: metadata.persistent,
             }
             bag[propertyKey] = { kind: 'leaf', leaf: leafOpts }
         }
-        defineDecoratorMeta(COMMAND_ARG_DESC_KEY, target, bag)
+        defineDecoratorMeta(CMD_ARG_META_KEY, target, bag)
     }
 }
 
 /* -- introspection ---------------------------------------------------- */
 
 type DecoratorEntry =
-    | { kind: 'leaf'; leaf: LeafOptions & { type: LeafType } }
-    | { kind: 'branch'; branch: BranchOptions; childClass: new () => object }
+    | { kind: 'leaf'; leaf: ArgLeafDef & { type: ArgValueType } }
+    | { kind: 'branch'; branch: ArgBranchDef; childClass: new () => object }
 
 type DecoratorBag = Record<string, DecoratorEntry>
 
-/** Build an `OptionsTree` from a class decorated with `@CmdArgument`.
- *  The class's properties become children of a single `branch` node;
- *  branch-typed properties recurse into their inner classes. */
-export function buildTreeFromClass(cls: new () => object): OptionsTree {
+export function buildArgTreeFromClass(cls: new () => object): ArgTree {
     return walkClass(cls)
 }
 
-function walkClass(cls: new () => object): OptionsTree {
+function walkClass(cls: new () => object): ArgTree {
     const bag = collectBag(cls)
-    const children: Record<string, OptionsTree> = {}
+    const children: Record<string, ArgTree> = {}
     for (const [propertyKey, entry] of Object.entries(bag)) {
         if (entry.kind === 'leaf') {
-            children[propertyKey] = leaf(entry.leaf) as LeafSpec
+            children[propertyKey] = argLeaf(entry.leaf) as ArgLeaf
         } else {
-            const sub = walkClass(entry.childClass) as OptionsTree
-            // Inherit description/displayHint from the decorator if it
-            // overrode them; otherwise keep what the inner class produced.
+            const sub = walkClass(entry.childClass) as ArgTree
             children[propertyKey] = sub.node === 'branch' && (entry.branch.description || entry.branch.displayHint)
-                ? branch(mapBranchChildren(sub), entry.branch)
+                ? argBranch(mapBranchChildren(sub), entry.branch)
                 : sub
         }
     }
-    return branch(children)
+    return argBranch(children)
 }
 
-function mapBranchChildren(b: OptionsTree): Record<string, OptionsTree> {
+function mapBranchChildren(b: ArgTree): Record<string, ArgTree> {
     if (b.node !== 'branch') {
         throw new Error('mapBranchChildren: expected a branch node')
     }
-    const out: Record<string, OptionsTree> = {}
+    const out: Record<string, ArgTree> = {}
     for (const [k, v] of b.children) out[k] = v
     return out
 }
 
-/** Walk the prototype chain so subclass overrides win. */
 function collectBag(cls: new () => object): DecoratorBag {
     const merged: DecoratorBag = {}
     let proto = cls.prototype
     const stack: DecoratorBag[] = []
     while (proto && proto !== Object.prototype) {
-        const bag = readDecoratorMeta<DecoratorBag>(COMMAND_ARG_DESC_KEY, proto)
+        const bag = readDecoratorMeta<DecoratorBag>(CMD_ARG_META_KEY, proto)
         if (bag) stack.push(bag)
         proto = Object.getPrototypeOf(proto)
     }
-    // Walk parent → child so child entries overwrite parent ones.
     for (let i = stack.length - 1; i >= 0; i--) {
         const bag = stack[i]
         for (const [k, v] of Object.entries(bag)) merged[k] = v
@@ -142,10 +129,6 @@ function collectBag(cls: new () => object): DecoratorBag {
 }
 
 function readDesignType(target: unknown, propertyKey: string): unknown {
-    // reflect-metadata exposes design:type via Reflect.getMetadata, which
-    // is monkey-patched onto Reflect at module load. Using an indirection
-    // so this file doesn't import reflect-metadata directly (the host app
-    // does, before any decorators run).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const r = (Reflect as any)
     if (typeof r?.getMetadata === 'function') {
@@ -156,18 +139,14 @@ function readDesignType(target: unknown, propertyKey: string): unknown {
 
 function isConstructable(v: unknown): v is new () => object {
     if (typeof v !== 'function') return false
-    // Primitive constructors (String / Number / Boolean) are constructable
-    // but represent leaf types. Filter them out so a property declared as
-    // `string` doesn't accidentally turn into a branch.
     return v !== String && v !== Number && v !== Boolean && v !== Object && v !== Array
 }
 
-function inferLeafType(reflected: unknown): LeafType | undefined {
+function inferLeafType(reflected: unknown): ArgValueType | undefined {
     if (reflected === String) return 'string'
     if (reflected === Number) return 'number'
     if (reflected === Boolean) return 'bool'
     return undefined
 }
 
-/** Re-export the validator type so consumers don't have to dig into tree.ts. */
-export type { LeafValidator }
+export type { ArgValidator }

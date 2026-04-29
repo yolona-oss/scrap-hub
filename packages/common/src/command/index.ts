@@ -1,5 +1,5 @@
 export * from './arg-proxy'
-export * from './argument-decorator'
+export * from './arg-decorator'
 export * from './identity'
 export * from './metadata'
 export * from './service-decorator'

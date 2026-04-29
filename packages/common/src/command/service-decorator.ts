@@ -8,7 +8,7 @@ import { defineDecoratorMeta, readDecoratorMeta, makeMetaKey } from './metadata'
 const META_KEY = makeMetaKey('CmdService')
 
 /** Zero-arg data-class constructor for the config/params/messages buckets
- *  declared on `@CmdService`. Walked by `buildTreeFromClass` to produce
+ *  declared on `@CmdService`. Walked by `buildArgTreeFromClass` to produce
  *  the leaf/branch tree that rides over the wire. */
 export type CmdDataClass = new () => object
 

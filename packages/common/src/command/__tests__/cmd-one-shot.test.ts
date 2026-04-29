@@ -5,16 +5,16 @@ import {
     getCmdOneShotMeta,
     bindArgsForSpec,
 } from '../cmd-one-shot'
-import { CmdArgument } from '../argument-decorator'
+import { CmdArg } from '../arg-decorator'
 import { defineCapability } from '../../application/capability'
 
 const CAP_TEST = defineCapability<string>('test.cmdOneShot')
 
 class HealthArgs {
-    @CmdArgument({ required: false, position: 1, description: 'verbose flag', default: 'no' })
+    @CmdArg({ required: false, position: 1, description: 'verbose flag', default: 'no' })
     verbose?: string
 
-    @CmdArgument({ required: false, description: 'target host', default: 'localhost' })
+    @CmdArg({ required: false, description: 'target host', default: 'localhost' })
     target?: string
 }
 
