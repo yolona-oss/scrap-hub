@@ -20,7 +20,7 @@ function normalizeHost(host: string): string {
  * entry by `domain` (which may include a path prefix like `yandex.ru/maps`),
  * or null if no entry matches.
  */
-export function matchAggregator(url: string): AggregatorEntry | null {
+export function matchAggregator(url: string): Readonly<AggregatorEntry> | null {
     if (!url) return null
     let parsed: URL
     try {
@@ -38,7 +38,10 @@ export function matchAggregator(url: string): AggregatorEntry | null {
         } else {
             const entryHost = entry.domain.slice(0, slash)
             const entryPath = entry.domain.slice(slash) // includes leading '/'
-            if (host === entryHost && pathname.startsWith(entryPath)) return entry
+            if (
+                host === entryHost &&
+                (pathname === entryPath || pathname.startsWith(entryPath + '/'))
+            ) return entry
         }
     }
     return null

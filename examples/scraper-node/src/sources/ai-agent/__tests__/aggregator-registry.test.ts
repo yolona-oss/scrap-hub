@@ -45,4 +45,9 @@ describe('aggregator-registry', () => {
         expect(matchAggregator('not-a-url')).toBeNull()
         expect(matchAggregator('')).toBeNull()
     })
+
+    it('does not match a path that shares a prefix but a different segment', () => {
+        // entry: yandex.ru/maps must NOT match yandex.ru/mapsomething/...
+        expect(matchAggregator('https://yandex.ru/mapsomething/foo')).toBeNull()
+    })
 })
