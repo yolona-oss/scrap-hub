@@ -126,6 +126,17 @@ class ExtractorSettings {
         validator: positiveInt,
     })
     timeoutMs?: number
+
+    @CmdArg({
+        required: false,
+        persistent: true,
+        description: 'Max distinct refetch attempts per URL during extraction. Total fetch volume is bounded by maxToolCallsPerPage.',
+        type: 'number',
+        choices: ['1', '2', '3', '5'],
+        default: '3',
+        validator: positiveInt,
+    })
+    maxRefetches?: number
 }
 
 /** AI-agent settings as a nested branch class. Defaults preserved from
