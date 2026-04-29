@@ -214,6 +214,17 @@ class AIAgentSettings {
     @CmdArg({
         required: false,
         persistent: true,
+        description: 'Per-org deepening budget — max classify+extract operations the queue spends on a single record before freezing it.',
+        type: 'number',
+        choices: ['3', '5', '8', '12'],
+        default: '5',
+        validator: positiveInt,
+    })
+    maxToolCallsPerOrg?: number
+
+    @CmdArg({
+        required: false,
+        persistent: true,
         description: 'Extractor sub-agent settings (one-shot LLM extraction on hostile pages)',
         childClass: ExtractorSettings,
     })

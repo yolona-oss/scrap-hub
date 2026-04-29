@@ -35,6 +35,7 @@ const cfg: ResolvedAIAgentConfig = {
     maxToolCalls: 50,
     toolTimeoutMs: 1000,
     totalTimeoutMs: 60_000,
+    maxToolCallsPerOrg: 5,
     extractor: null,
 }
 

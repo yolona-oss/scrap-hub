@@ -24,6 +24,7 @@ const baseQuery: SearchQuery = { query: 'q', city: 'СПб', sources: [], maxRes
 const cfg: ResolvedAIAgentConfig = {
     model: 'test', temperature: 0, baseUrl: 'http://x', apiKey: '',
     maxToolCalls: 25, toolTimeoutMs: 1000, totalTimeoutMs: 60_000,
+    maxToolCallsPerOrg: 5,
     extractor: null,
 }
 

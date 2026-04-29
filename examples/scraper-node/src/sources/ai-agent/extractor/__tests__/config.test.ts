@@ -9,6 +9,7 @@ const PARENT: ResolvedAIAgentConfig = {
     maxToolCalls: 100,
     toolTimeoutMs: 60000,
     totalTimeoutMs: 3600000,
+    maxToolCallsPerOrg: 5,
     extractor: null,
 }
 
