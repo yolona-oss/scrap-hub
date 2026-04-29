@@ -30,10 +30,13 @@ export class StateSnaper {
     }
 
     memorize(snap: StateSnap): void {
-        this.snaps.push(snap)
-        if (this.snaps.size() > this.maxSnaps) {
+        // Evict BEFORE pushing — Stack's capacity is a hard cap, so pushing
+        // when full would throw. The undo stack only needs the most-recent
+        // ~maxSnaps states; older snaps are out of reach for `back()` anyway.
+        if (this.snaps.size() >= this.maxSnaps) {
             this.snaps.pop(this.batchClean)
         }
+        this.snaps.push(snap)
     }
 
     /** Pop the previous snapshot (skipping the current one). Returns

@@ -146,17 +146,3 @@ export async function httpPostForm(
         },
     })
 }
-
-export async function httpPostJson(
-    url: string,
-    body: unknown,
-    opts?: HttpRequestOpts,
-): Promise<AxiosResponse> {
-    log.trace(`http.POST(json) ${url}`)
-    return execute('POST', url, body, opts, {
-        headers: {
-            'Content-Type': 'application/json',
-            ...(opts?.headers ?? {}),
-        },
-    })
-}

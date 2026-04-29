@@ -23,22 +23,18 @@ export const DashboardCommand: BuiltInCommand = {
         const serviceName = args.getPos(1)
 
         if (!serviceName) {
-            // List all active services with dashboard status
-            const active = this.UserActiveServices(userId)
-            if (active.length === 0) {
-                await ctx.reply(`${UiUnicodeSymbols.info} No active services.`)
+            const dashboards = this.listUserDashboards(userId)
+            if (dashboards.length === 0) {
+                await ctx.reply(`${UiUnicodeSymbols.info} No active dashboards.`)
                 return
             }
 
-            let text = `${UiUnicodeSymbols.gear} Active services:\n`
-            for (const s of active) {
-                const dash = this.getDashboard(userId, s.name)
-                const status = dash
-                    ? dash.isAttached
-                        ? `${UiUnicodeSymbols.success} dashboard live`
-                        : `${UiUnicodeSymbols.info} dashboard ended`
-                    : `${UiUnicodeSymbols.warning} no dashboard`
-                text += ` ${UiUnicodeSymbols.arrowRight} ${s.name}  [${status}]\n`
+            let text = `${UiUnicodeSymbols.gear} Active dashboards:\n`
+            for (const { serviceName: name, dashboard } of dashboards) {
+                const status = dashboard.isAttached
+                    ? `${UiUnicodeSymbols.success} live`
+                    : `${UiUnicodeSymbols.info} ended`
+                text += ` ${UiUnicodeSymbols.arrowRight} ${name}  [${status}]\n`
             }
             text += `\nUse /dashboard <name> to foreground a dashboard.`
             await ctx.reply(text)

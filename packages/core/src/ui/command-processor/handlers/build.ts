@@ -142,7 +142,14 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
         if (!dispatcher.isAllArgsPassed(command, argsNoFlag)) {
             log.debug(`startNewBuild: opening builder for ${command}`)
             const desc: IUICommandDescriptor = await descCompiler.compile(command, userId, dispatcher, ctx)
-            const res = await builder.startBuild(userId, command, desc, undefined, savedSources)
+            // Parse the user's typed args against the service tree and seed
+            // them into the builder so they outrank session/module saved
+            // sources (priority: user input → session → module). Without
+            // this seed, the builder hydrates from savedSources only and
+            // ignores everything the user typed alongside `/scraper`.
+            const tree = dispatcher.getCommandTree(command)
+            const typed = tree ? this.parseTypedArgs(command, tree, argsNoFlag) : new Map<string, string>()
+            const res = await builder.startBuild(userId, command, desc, undefined, savedSources, typed)
             return {
                 success: true,
                 markup: res,
@@ -209,7 +216,7 @@ export class HandleCmdBuilder<UICtx extends BaseUIContext> extends AbstractCmdHa
                     }
                 }
                 const compiled = stepRes.Result
-                const invokeRes = await invoker.invokeLegacy(userId, compiled, ctx, uiImpl)
+                const invokeRes = await invoker.invokeLegacy(userId, compiled, ctx, uiImpl, dispatcher)
                 if (invokeRes.validationFailed) {
                     const desc = await descCompiler.compile(compiled.command, userId, dispatcher, ctx)
                     const failedPath = invokeRes.validationFailed.argPath

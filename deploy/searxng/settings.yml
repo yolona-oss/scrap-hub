@@ -1,0 +1,22 @@
+# SearXNG settings for scrap-hub. Mounted at /etc/searxng/settings.yml.
+#
+# Two changes from upstream defaults:
+#   - search.formats includes `json` so the scraper-node ai-agent's
+#     `web_search` tool can consume the JSON API.
+#   - server.limiter is disabled — the rate-limiter assumes per-IP human
+#     traffic and would block the scraper after a handful of queries.
+#
+# Everything else (engine list, UI, etc.) inherits from upstream defaults
+# via `use_default_settings: true`.
+use_default_settings: true
+
+server:
+  # Override before going to production: any non-empty unique string works.
+  secret_key: "scrap-hub-dev-change-me"
+  limiter: false
+  image_proxy: false
+
+search:
+  formats:
+    - html
+    - json

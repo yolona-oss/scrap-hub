@@ -1,4 +1,5 @@
 import { Tool } from "./types"
+import { log } from "@cmd-hub/common"
 
 export function makeRevisePlanTool(): Tool {
     return {
@@ -12,9 +13,11 @@ export function makeRevisePlanTool(): Tool {
             required: ['reason'],
         },
         async handler(args): Promise<{ ok: boolean, reasonAccepted: string, hint: string }> {
+            const reason = String(args?.reason ?? '').slice(0, 500)
+            log.info(`ai-agent.revise_plan: requested — reason="${reason.slice(0, 200)}"`)
             return {
                 ok: true,
-                reasonAccepted: String(args?.reason ?? '').slice(0, 500),
+                reasonAccepted: reason,
                 hint: 'next turn is planning. Output a new <plan>...</plan> reflecting why the current plan failed',
             }
         },

@@ -262,16 +262,15 @@ export class TelegramUI extends BaseUI<TgContext> {
         this.bot.action(RegExp("svc_dash_*"), async (ctx) => {
             const action = ctx.match.input.slice("svc_dash_".length)
             const userId = String(ctx.from!.id)
-            const activeServices = this.dispatcher.UserActiveServices(userId)
-            for (const svc of activeServices) {
-                const dashboard = this.dispatcher.getDashboard(userId, svc.name)
-                if (dashboard) {
-                    await dashboard.handleCallback(action)
-                    await ctx.answerCbQuery()
-                    return
-                }
+            const dashboards = this.dispatcher.listUserDashboards(userId)
+            if (dashboards.length === 0) {
+                await ctx.answerCbQuery('Dashboard not found')
+                return
             }
-            await ctx.answerCbQuery('Dashboard not found')
+            for (const { dashboard } of dashboards) {
+                await dashboard.handleCallback(action)
+            }
+            await ctx.answerCbQuery()
         })
 
         this.bot.action(RegExp("builder_*"), async (ctx) => {

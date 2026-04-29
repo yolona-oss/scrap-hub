@@ -13,6 +13,7 @@ import {
 import { SearchQuery, OrgData } from "../../types"
 import { AsyncQueue } from "./async-queue"
 import type { ReportState } from "./tools"
+import { SourceRegistry } from "../registry"
 import { log } from "@cmd-hub/common"
 
 const RECON_BUDGET = 10
@@ -39,13 +40,18 @@ function buildProgress(state: ReportState, query: SearchQuery, toolsUsed: number
     }
 }
 
-function buildSystemMessage(query: SearchQuery, phase: AgentPhase): ChatCompletionMessageParam {
-    const role = buildRolePrompt(query)
+function buildSystemMessage(
+    query: SearchQuery,
+    phase: AgentPhase,
+    cfg: ResolvedAIAgentConfig,
+    availableSources: readonly string[],
+): ChatCompletionMessageParam {
+    const role = buildRolePrompt(query, cfg)
     let phaseBlock: string
     switch (phase) {
         case 'recon': phaseBlock = buildReconInstructions(query); break
         case 'plan': phaseBlock = buildPlanInstructions(); break
-        case 'execute': phaseBlock = buildExecuteInstructions(query); break
+        case 'execute': phaseBlock = buildExecuteInstructions(query, availableSources); break
     }
     return { role: 'system', content: `${role}\n\n${phaseBlock}` }
 }
@@ -102,9 +108,10 @@ export async function runAgentLoop(
      *  are not cached so transient blips stay retriable. */
     const seenResults = new Map<string, unknown>()
     let planPinned = false
+    const availableSources = SourceRegistry.available()
 
     const messages: ChatCompletionMessageParam[] = [
-        buildSystemMessage(query, 'recon'),
+        buildSystemMessage(query, 'recon', cfg, availableSources),
         { role: 'user', content: buildUserPrompt(query) },
     ]
 
@@ -122,7 +129,7 @@ export async function runAgentLoop(
     async function transitionToPlan(reason: string) {
         log.info(`ai-agent.loop: recon→plan after ${reconSearches} searches (${reason})`)
         phase = 'plan'
-        messages[0] = buildSystemMessage(query, 'plan')
+        messages[0] = buildSystemMessage(query, 'plan', cfg, availableSources)
         tools = await buildTools(query, queue, state, 'plan')
         toolByName = new Map(tools.map(t => [t.name, t]))
     }
@@ -261,6 +268,7 @@ export async function runAgentLoop(
             const content = (typeof assistantMsg.content === 'string' ? assistantMsg.content : '') ?? ''
             let planText = extractPlan(content)
             if (!planText) {
+                log.warn(`ai-agent.loop: planning turn produced no <plan>...</plan> tags (content len=${content.length}); re-prompting`)
                 messages.push({ role: 'user', content: 'Wrap your plan in <plan>...</plan> tags. Output the plan now.' })
                 let retry
                 try {
@@ -279,6 +287,9 @@ export async function runAgentLoop(
                 messages.push(retryMsg as ChatCompletionMessageParam)
                 const retryContent = (typeof retryMsg.content === 'string' ? retryMsg.content : '') ?? ''
                 planText = extractPlan(retryContent) || retryContent || ''
+                if (!extractPlan(retryContent)) {
+                    log.warn(`ai-agent.loop: plan re-prompt also returned no tags; using raw content as plan (len=${retryContent.length})`)
+                }
             }
 
             const pin = buildPlanPin(planText)
@@ -291,10 +302,14 @@ export async function runAgentLoop(
                 log.debug(`ai-agent.loop: plan pin inserted`)
             }
             log.info(`ai-agent.loop: plan→execute, plan ${planText.length} chars`)
+            // Full plan dump — multi-line so log readers see the whole text
+            // verbatim. Use an explicit divider so the plan stands out from
+            // the surrounding tool-call lines.
+            log.info(`ai-agent.loop: ── plan ──\n${planText}\n── /plan ──`)
 
             phase = 'execute'
             executePhaseTurnsSinceLastPlan = 0
-            messages[0] = buildSystemMessage(query, 'execute')
+            messages[0] = buildSystemMessage(query, 'execute', cfg, availableSources)
             tools = await buildTools(query, queue, state, 'execute')
             toolByName = new Map(tools.map(t => [t.name, t]))
             continue
@@ -359,7 +374,7 @@ export async function runAgentLoop(
                     pushToolResult(call.id, result)
                     log.warn(`ai-agent.loop: execute→plan via revise_plan after ${executePhaseTurnsSinceLastPlan} turns. reason: ${parsed?.reason ?? '(none)'}`)
                     phase = 'plan'
-                    messages[0] = buildSystemMessage(query, 'plan')
+                    messages[0] = buildSystemMessage(query, 'plan', cfg, availableSources)
                     tools = await buildTools(query, queue, state, 'plan')
                     toolByName = new Map(tools.map(t => [t.name, t]))
                     revisedThisTurn = true

@@ -43,3 +43,16 @@ services:
     tmpfs:
       - /tmp
     restart: unless-stopped
+
+  # Self-hosted SearXNG meta-search. Used by the scraper-node ai-agent's
+  # `web_search` tool. Reachable from scraper-node at `http://searxng:8080`
+  # (matches `scraper.searxngUrl` in examples/scraper-node/config.docker.json).
+  # JSON output and the rate limiter are configured in
+  # ./deploy/searxng/settings.yml (mounted read-only below).
+  searxng:
+    image: searxng/searxng:latest
+    volumes:
+      - ./deploy/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

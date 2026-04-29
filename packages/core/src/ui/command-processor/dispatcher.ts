@@ -94,6 +94,18 @@ import { HandleCommandAlias } from "./handlers/alias";
 import { ICommandHandlerChain } from "./handlers/abstract-handler";
 import { ServiceDashboard } from "./dashboard";
 
+/** Hub-side index of live dashboards keyed by (userId, serviceName).
+ *  RemoteCmdInvoker registers each dashboard it spawns so UI callback
+ *  handlers (telegram, web) and built-ins (`/dashboard`, `/wipe_chat`)
+ *  can find them — local `active_services` only ever holds in-process
+ *  services, so it can't be the lookup table for remote dashboards. */
+export interface IDashboardRegistry<UICtx extends BaseUIContext = BaseUIContext> {
+    setDashboard(userId: string, serviceName: string, dashboard: ServiceDashboard<UICtx>): void
+    getDashboard(userId: string, serviceName: string): ServiceDashboard<UICtx> | undefined
+    removeDashboard(userId: string, serviceName: string): void
+    listUserDashboards(userId: string): Array<{ serviceName: string; dashboard: ServiceDashboard<UICtx> }>
+}
+
 function countRequiredLeaves(tree: OptionsTree): number {
     let n = 0
     for (const { leaf } of walkLeaves(tree)) {
@@ -102,7 +114,8 @@ function countRequiredLeaves(tree: OptionsTree): number {
     return n
 }
 
-export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit {
+export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
+    implements IDashboardRegistry<UIContextType> {
     private active_services: Map<string, Array<BaseCommandService<any>>>
     private dashboards: Map<string, ServiceDashboard<UIContextType>> = new Map()
     private cmd_registry: Map<string, IUICommandEntry<UIContextType>>
@@ -529,6 +542,17 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
 
     removeDashboard(userId: string, serviceName: string) {
         this.dashboards.delete(this.dashboardKey(userId, serviceName))
+    }
+
+    listUserDashboards(userId: string): Array<{ serviceName: string; dashboard: ServiceDashboard<UIContextType> }> {
+        const prefix = userId + ':'
+        const out: Array<{ serviceName: string; dashboard: ServiceDashboard<UIContextType> }> = []
+        for (const [key, dashboard] of this.dashboards) {
+            if (key.startsWith(prefix)) {
+                out.push({ serviceName: key.slice(prefix.length), dashboard })
+            }
+        }
+        return out
     }
 
     async UserServiceSessions(userId: string, serviceName: string): Promise<string[]> {

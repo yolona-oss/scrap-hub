@@ -162,6 +162,84 @@ describe('RemoteCmdInvoker', () => {
         expect(appended[0].payload).toEqual({ text: 'live-1' })
     })
 
+    it('registers the dashboard with the registry and removes it on success', async () => {
+        const agg = new ManifestAggregator()
+        agg.attach(fakeManifest('A', 'echo'))
+
+        const dashboard: any = {
+            attach: async () => {},
+            detach: async () => {},
+            onEvent: jest.fn(),
+            sendIntercom: async () => {},
+        }
+        const client: ICmdNodeClient = {
+            invoke: async () => ({
+                sessionId: 's1',
+                send: async () => {},
+                cancel: async () => {},
+                async *events() {
+                    yield { seq: 1, done: { finalMessage: 'ok' } } as any
+                },
+            }),
+        }
+        const invoker = new RemoteCmdInvoker({
+            aggregator: agg, client, createDashboard: () => dashboard,
+        })
+        const setSpy = jest.fn()
+        const removeSpy = jest.fn()
+        const registry = {
+            setDashboard: setSpy,
+            getDashboard: () => undefined,
+            removeDashboard: removeSpy,
+            listUserDashboards: () => [],
+        }
+
+        await invoker.invoke({
+            command: 'echo', args: {}, userId: 'u',
+            uiHandle: { ctx: {}, uiImpl: {} as any },
+            dashboardRegistry: registry,
+        })
+
+        expect(setSpy).toHaveBeenCalledWith('u', 'echo', dashboard)
+        expect(removeSpy).toHaveBeenCalledWith('u', 'echo')
+        // setDashboard must come strictly before removeDashboard.
+        expect(setSpy.mock.invocationCallOrder[0])
+            .toBeLessThan(removeSpy.mock.invocationCallOrder[0])
+    })
+
+    it('removes the dashboard from the registry when the node throws on invoke', async () => {
+        const agg = new ManifestAggregator()
+        agg.attach(fakeManifest('A', 'echo'))
+
+        const dashboard: any = {
+            attach: async () => {},
+            detach: async () => {},
+            onEvent: jest.fn(),
+            sendIntercom: async () => {},
+        }
+        const client: ICmdNodeClient = {
+            invoke: async () => { throw new Error('node down') },
+        }
+        const invoker = new RemoteCmdInvoker({
+            aggregator: agg, client, createDashboard: () => dashboard,
+        })
+        const removeSpy = jest.fn()
+        const registry = {
+            setDashboard: jest.fn(),
+            getDashboard: () => undefined,
+            removeDashboard: removeSpy,
+            listUserDashboards: () => [],
+        }
+
+        const r = await invoker.invoke({
+            command: 'echo', args: {}, userId: 'u',
+            uiHandle: { ctx: {}, uiImpl: {} as any },
+            dashboardRegistry: registry,
+        })
+        expect(r.success).toBe(false)
+        expect(removeSpy).toHaveBeenCalledWith('u', 'echo')
+    })
+
     it('surfaces validation_failed envelopes through validationFailed without dashboard error events', async () => {
         const agg = new ManifestAggregator()
         agg.attach(fakeManifest('A', 'doit'))

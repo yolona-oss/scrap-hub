@@ -3,6 +3,7 @@ import * as path from 'path'
 import { IExporter, ExportResult } from '../exporters/types'
 import { ExporterRegistry } from '../exporters/registry'
 import { OrgData, SearchQuery } from '../types'
+import { log } from '@cmd-hub/common'
 
 function escapeCsv(value: string | null): string {
     if (value === null || value === undefined) return ''
@@ -24,6 +25,7 @@ export class CsvExporter implements IExporter {
     readonly fileExtension = '.csv'
 
     async export(data: OrgData[], query: SearchQuery): Promise<ExportResult> {
+        log.debug(`csv-exporter.export: rows=${data.length} query="${query.query}"`)
         const headers = ['Наименование организации', 'Источник', 'E-mail', 'Телефон', 'Адрес', 'URL']
         const rows = data.map(org => [
             escapeCsv(org.name),
@@ -37,14 +39,25 @@ export class CsvExporter implements IExporter {
         const csv = [headers.join(','), ...rows].join('\n')
 
         const dir = path.join('storage', 'exports')
-        fs.mkdirSync(dir, { recursive: true })
+        try {
+            fs.mkdirSync(dir, { recursive: true })
+        } catch (e: any) {
+            log.error(`csv-exporter.export: mkdir "${dir}" failed: ${e?.message ?? e}`)
+            throw e
+        }
 
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
         const safeQuery = query.query.replace(/[^a-zA-Zа-яА-Я0-9 ]/g, '').slice(0, 30).trim().replace(/ /g, '_')
         const fileName = `orgs_${safeQuery}_${timestamp}.csv`
         const filePath = path.join(dir, fileName)
 
-        fs.writeFileSync(filePath, '﻿' + csv, 'utf-8') // BOM for Excel UTF-8
+        try {
+            fs.writeFileSync(filePath, '﻿' + csv, 'utf-8') // BOM for Excel UTF-8
+            log.info(`csv-exporter.export: wrote ${data.length} rows to ${filePath} (${csv.length}b)`)
+        } catch (e: any) {
+            log.error(`csv-exporter.export: writeFileSync "${filePath}" failed: ${e?.message ?? e}`)
+            throw e
+        }
 
         return {
             type: 'file',
@@ -55,5 +68,6 @@ export class CsvExporter implements IExporter {
 }
 
 export function registerCsvExporter(): void {
+    log.debug('csv-exporter.registerCsvExporter: registering "csv"')
     ExporterRegistry.register('csv', () => new CsvExporter())
 }

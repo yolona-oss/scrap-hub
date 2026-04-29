@@ -50,7 +50,7 @@ export class HandleInvokation<Ctx extends BaseUIContext> extends AbstractCmdHand
                     },
                 }
             }
-            res = await invoker.invokeLegacy(userId, compiled.Result, uiCtx, uiImpl)
+            res = await invoker.invokeLegacy(userId, compiled.Result, uiCtx, uiImpl, dispatcher)
         } catch (e: any) {
             log.error("Command execution error: " + anyToString(e))
             return {

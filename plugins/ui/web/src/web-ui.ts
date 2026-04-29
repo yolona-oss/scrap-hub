@@ -505,12 +505,8 @@ export class WebUI extends BaseUI<WebContext> {
 
             socket.on('callback', async (data: { action: string }) => {
                 if (!data.action) return
-                const services = this.dispatcher.UserActiveServices(userId)
-                for (const svc of services) {
-                    const dashboard = this.dispatcher.getDashboard(userId, svc.name)
-                    if (dashboard) {
-                        try { await dashboard.handleCallback(data.action) } catch (_) {}
-                    }
+                for (const { dashboard } of this.dispatcher.listUserDashboards(userId)) {
+                    try { await dashboard.handleCallback(data.action) } catch (_) {}
                 }
             })
 

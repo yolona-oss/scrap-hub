@@ -42,7 +42,7 @@ export class HandleCommandAlias<Ctx extends BaseUIContext> extends AbstractCmdHa
                     },
                 }
             }
-            return await invoker.invokeLegacy(request.userId, compiled.Result, uiCtx, uiImpl)
+            return await invoker.invokeLegacy(request.userId, compiled.Result, uiCtx, uiImpl, dispatcher)
         } catch (e: unknown) {
             log.error("Command execution error: " + anyToString(e))
             return {

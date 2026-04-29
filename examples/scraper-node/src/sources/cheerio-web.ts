@@ -5,6 +5,7 @@ import type { ScraperConfig } from "../scraper-service/config-tree"
 import { extractEmail, extractPhone } from "./extract"
 import { extractFromElement } from "./cheerio-extract"
 import { httpGet, httpHead, isHttpError } from "./http"
+import { normalizeSearchQuery } from "./city-query"
 import * as cheerio from "cheerio"
 import { log, randSleep } from "@cmd-hub/common"
 
@@ -81,9 +82,11 @@ export class CheerioWebSource implements IScraperSource {
         let found = 0
 
         for (let page = 1; page <= maxPages; page++) {
-            const searchQuery = query.city
-                ? `${query.query} ${query.city}`
-                : query.query
+            // Normalize: strip any other-city tokens the caller wrote into
+            // `query.query` and append the target `query.city`. Guarantees
+            // every source request honors the user's --city even if the AI
+            // agent passed a wrong city in its `search_source` query arg.
+            const searchQuery = normalizeSearchQuery(query.query, query.city)
 
             const url = this.config.urlTemplate
                 .replace('{query}', encodeURIComponent(searchQuery))

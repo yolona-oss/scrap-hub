@@ -1,4 +1,5 @@
 import { ConfigRegistry } from '@cmd-hub/core'
+import { log } from '@cmd-hub/common'
 
 /**
  * System-tier scraper config — operator-set, applies to every user on
@@ -10,11 +11,11 @@ export interface ScraperSystemConfig {
     chromePath?: string
     requestDelayMs?: number
     userAgent?: string
-    /** Brave Search API key. When set, the AI agent's `web_search` tool tries
-     *  Brave first; falls through to Tavily / DuckDuckGo if unset or empty. */
-    braveSearchApiKey?: string
-    /** Tavily Search API key. Tried after Brave; falls through to DuckDuckGo. */
-    tavilyApiKey?: string
+    /** Self-hosted SearXNG base URL (e.g. `http://127.0.0.1:8080`) used by
+     *  the AI agent's `web_search` tool. SearXNG must have JSON output enabled
+     *  in `settings.yml` (`search.formats: [html, json]`) and the rate limiter
+     *  disabled for unattended scraping. Empty string → web_search disabled. */
+    searxngUrl?: string
 }
 
 export const DEFAULT_USER_AGENT =
@@ -40,11 +41,12 @@ ConfigRegistry.register({
         chromePath: '',
         requestDelayMs: 1000,
         userAgent: DEFAULT_USER_AGENT,
-        braveSearchApiKey: '',
-        tavilyApiKey: '',
+        searxngUrl: '',
     } satisfies ScraperSystemConfig,
 })
 
 export async function getScraperSystemConfig(): Promise<ScraperSystemConfig> {
-    return ConfigRegistry.get<ScraperSystemConfig>('scraper')
+    const cfg = await ConfigRegistry.get<ScraperSystemConfig>('scraper')
+    log.trace(`scraper-service.getScraperSystemConfig: requestDelayMs=${cfg.requestDelayMs} userAgent=${cfg.userAgent ? 'set' : 'empty'} searxngUrl=${cfg.searxngUrl ? 'set' : 'empty'}`)
+    return cfg
 }

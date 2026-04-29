@@ -1,5 +1,6 @@
 import type { ServiceContext } from '../../exporters/types'
 import type { ScraperConfig, AIAgentConfig } from '../../scraper-service/config-tree'
+import { log } from '@cmd-hub/common'
 
 export interface ResolvedAIAgentConfig {
     baseUrl: string
@@ -25,15 +26,20 @@ export interface ResolvedAIAgentConfig {
  */
 export function resolveAIAgentConfig(context?: ServiceContext): ResolvedAIAgentConfig | null {
     const ai = ((context?.config ?? {}) as Partial<ScraperConfig>).aiAgent as AIAgentConfig | undefined
-    if (!ai?.baseUrl || !ai?.model) return null
+    if (!ai?.baseUrl || !ai?.model) {
+        log.debug(`ai-agent.config: resolve returns null — baseUrl=${ai?.baseUrl ? 'set' : 'empty'} model=${ai?.model ? 'set' : 'empty'}`)
+        return null
+    }
 
-    return {
+    const resolved: ResolvedAIAgentConfig = {
         baseUrl: ai.baseUrl,
         apiKey: ai.apiKey || undefined,
         model: ai.model,
-        temperature: ai.temperature ?? 0.2,
-        maxToolCalls: ai.maxToolCalls ?? 25,
+        temperature: ai.temperature ?? 0.5,
+        maxToolCalls: ai.maxToolCalls ?? 100,
         toolTimeoutMs: ai.toolTimeoutMs ?? 60_000,
         totalTimeoutMs: ai.totalTimeoutMs ?? 3_600_000,
     }
+    log.debug(`ai-agent.config: resolved model=${resolved.model} baseUrl=${resolved.baseUrl} temp=${resolved.temperature} maxToolCalls=${resolved.maxToolCalls} toolTimeoutMs=${resolved.toolTimeoutMs} totalTimeoutMs=${resolved.totalTimeoutMs}`)
+    return resolved
 }

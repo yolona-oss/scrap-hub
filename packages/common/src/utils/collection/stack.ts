@@ -10,10 +10,10 @@ export class Stack<T> implements IStack<T> {
      * @param items The items to add to the stack
      */
     push(...items: T[]): void {
-        if (this.size() + items.length >= this.capacity) {
+        if (this.size() + items.length > this.capacity) {
             throw Error("Stack has reached max capacity, you cannot add more items")
         }
-        
+
         this.storage.push(...items)
     }
 

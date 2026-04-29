@@ -1,6 +1,32 @@
 import { SearchQuery } from "../../types"
+import type { ResolvedAIAgentConfig } from "./config"
+import { log } from "@cmd-hub/common"
 
-export function buildRolePrompt(query: SearchQuery): string {
+/** One-line descriptions of the sources the agent can call via search_source.
+ *  Names must match what's in SourceRegistry. Order is the rough preference
+ *  for "structured contact info first, web-search fallback last".
+ *
+ *  Keep this in sync when registering or removing a source — there's no
+ *  runtime reflection to learn what each source returns. */
+const SOURCE_DESCRIPTIONS: Record<string, string> = {
+    'yandex-business':
+        "Yandex Maps API — structured business listings with phone, address, sometimes email and website. Best for established orgs that bother to claim their Yandex listing. CSRF-protected; one call per topic is plenty.",
+    'yandex-html':
+        "Yandex web search HTML scrape — organic results page. Fewer structured fields than yandex-business; use when yandex-business returns zero or the topic is too niche for the maps directory.",
+    'zoon':
+        "Zoon.ru directory — beauty, medical, legal, food services. Strong in St. Petersburg & Moscow. Returns name, phone, address. Heavy aggregator: orgs you find here may also surface in web_search.",
+    'flamp':
+        "Flamp.ru reviews — broad business directory with reviews, in regional cities especially. Returns name, phone, address. Less coverage in Moscow/SPb than zoon.",
+}
+
+function describeSources(available: readonly string[]): string {
+    return available
+        .filter(n => n !== 'ai-agent')
+        .map(n => `  - ${n}: ${SOURCE_DESCRIPTIONS[n] ?? '(no description registered)'}`)
+        .join('\n')
+}
+
+export function buildRolePrompt(query: SearchQuery, cfg: ResolvedAIAgentConfig): string {
     const cityBlock = query.city
         ? `\nCity (decline to the appropriate Russian case for the surrounding sentence — locative for "в …", e.g. "Москва" → "в Москве", "Санкт-Петербург" → "в Санкт-Петербурге"): ${query.city}`
         : ''
@@ -15,6 +41,8 @@ export function buildRolePrompt(query: SearchQuery): string {
     return `You are an organization research agent.
 
 Language: respond and search in Russian (ru-RU). If the query is transliterated Latin, transliterate back to Cyrillic before searching.${cityBlock}${cityRules}
+
+Tool budget: you have ${cfg.maxToolCalls} total tool calls for this entire run, across all phases. Spend them on extraction (fetch_url + extract_contacts + report_results), not on exploration. Each web_search costs one call; each cache replay (same tool, same args) is FREE — duplicate-on-purpose to re-read a result instead of varying just to "see something different".
 
 Quality bar — every emitted organization must have:
 - name (required, non-empty string)
@@ -68,20 +96,41 @@ Soft suggestion: plans of 100–300 tokens tend to get followed; very long plans
 Do not call any tools this turn. Output only the plan.`
 }
 
-export function buildExecuteInstructions(query: SearchQuery): string {
+export function buildExecuteInstructions(query: SearchQuery, availableSources: readonly string[]): string {
     return `Phase: EXECUTION.
 Follow the plan pinned above. Use the tools to discover and report organizations.
 
 Workflow heuristics:
 - Standard chain: web_search → fetch_url(mode='html') → extract_contacts(html) → report_results.
-- Use search_source as a fallback when web evidence is thin or aggregators dominate.
 - Read each tool response's "hint" field — it tells you what to try next based on what just happened.
 - Read each tool response's "progress" field — when yielded reaches ${query.maxResults}, stop emitting tool calls.
+
+Ranking web_search results — fetch_url order matters:
+- Prefer official organization sites (".ru" or ".рф" hostnames matching the org's name) over directory aggregators (2gis.ru, yell.ru, zoon.ru, yandex.ru, rusprofile.ru). Aggregators duplicate orgs you'll find via search_source, and pages tend to be JS-rendered, so contact extraction often fails.
+- Skip social-media URLs (vk.com, instagram.com, t.me) — extract_contacts won't find structured contacts there.
+- 1–3 fetches per web_search batch is enough; if the first 3 didn't yield contacts, switch tactics rather than walking the whole list.
+
+Selector hints — most pages are handled by extract_contacts(html) automatically. Call parse_html directly only when extract_contacts returned 0 of a SPECIFIC field you need:
+- 0 phones found, suspect an image-based phone: parse_html(html, 'img[src*="phone"]', 'src') — sometimes phones are sprite images
+- 0 emails found, suspect obfuscation: parse_html(html, '[data-email], [data-mail]', 'text') and parse_html(html, 'span[class*="mail"]', 'text')
+- 0 addresses found: parse_html(html, 'footer address, footer .contacts, .footer-contacts', 'text') — many sites only put addresses in the footer
+- Org name verification: parse_html(html, 'h1, [itemprop="name"], meta[property="og:title"]', 'content')
+
+Available sources for search_source (use as fallback when web evidence is thin or aggregator-heavy):
+${describeSources(availableSources)}
+
+Stuck detection — bail before burning the whole budget:
+- If 3 consecutive tool calls (web_search/fetch_url/extract_contacts/search_source) yielded zero accepted orgs, stop the current strategy. Either call revise_plan(reason="3 zero-yield calls in a row") or call report_results with whatever you have and finish.
+- If a tool returns an error, do NOT call it again with identical arguments — vary the URL/query/selector or pick a different tool. The dedup cache will replay the error, not retry it.
+
+Wrap-up:
+- When yielded ≥ ${query.maxResults} or you've genuinely exhausted leads, send a final assistant message (no tool calls) with one short Russian sentence: how many orgs you collected, or one-line reason for stopping early. Do NOT summarize the orgs — they were already emitted via report_results.
 
 Call revise_plan(reason) if the current plan stops working — for example, the chosen sources keep returning rejects, or the topic landscape turned out different than expected. Note: revise_plan is unavailable for the first 2 execute turns after a (re)plan; give the plan a chance.`
 }
 
 export function buildPlanPin(planText: string): { role: 'system', content: string } {
+    log.trace(`ai-agent.prompts.buildPlanPin: planLen=${planText.length}`)
     return {
         role: 'system',
         content: `Active research plan:\n${planText}\n\nFollow this plan. Call revise_plan() if it stops working.`,
@@ -92,5 +141,7 @@ export function buildUserPrompt(query: SearchQuery): string {
     const cityClause = query.city
         ? ` in the city "${query.city}" (use the appropriate Russian case in any phrasing)`
         : ''
-    return `Find up to ${query.maxResults} organizations matching: "${query.query}"${cityClause}. Begin with reconnaissance: a few broad web_search calls to understand the landscape, then end_recon and write your research plan.`
+    const out = `Find up to ${query.maxResults} organizations matching: "${query.query}"${cityClause}. Begin with reconnaissance: a few broad web_search calls to understand the landscape, then end_recon and write your research plan.`
+    log.trace(`ai-agent.prompts.buildUserPrompt: len=${out.length}`)
+    return out
 }

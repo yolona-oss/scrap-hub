@@ -1,5 +1,6 @@
 import { OrgData, SearchQuery } from "../../../types"
 import { AsyncQueue } from "../async-queue"
+import { log } from "@cmd-hub/common"
 
 export interface ReportState {
     yielded: number
@@ -118,7 +119,10 @@ export function emitOrg(
     query: SearchQuery,
     fallbackSource: string,
 ): boolean {
-    if (state.yielded >= query.maxResults) return false
+    if (state.yielded >= query.maxResults) {
+        log.trace(`emit.emitOrg: skipped — maxResults (${query.maxResults}) reached`)
+        return false
+    }
     const name = typeof raw?.name === 'string' ? raw.name.trim() : ''
     const phone = raw?.phone ? String(raw.phone) : null
     const email = raw?.email ? String(raw.email) : null
@@ -126,14 +130,24 @@ export function emitOrg(
     const source = typeof raw?.source === 'string' && raw.source.trim() ? raw.source.trim() : fallbackSource
     const url = typeof raw?.url === 'string' ? raw.url : undefined
 
-    if (!name) return false
+    if (!name) {
+        log.trace(`emit.emitOrg: rejected — empty name`)
+        return false
+    }
 
     // Validate + normalize address. Bad addresses become null — the org may
     // still pass if phone or email is present.
     const address = rawAddress ? validateAndNormalizeAddress(rawAddress, query.city) : null
+    if (rawAddress && !address) {
+        log.trace(`emit.emitOrg: address rejected as not-an-address or off-city (rawLen=${rawAddress.length})`)
+    }
 
-    if (!phone && !email && !address) return false
+    if (!phone && !email && !address) {
+        log.debug(`emit.emitOrg: rejected — no contact channel survived (name="${name.slice(0, 60)}" hadRawAddress=${Boolean(rawAddress)})`)
+        return false
+    }
 
+    log.trace(`emit.emitOrg: accepted source=${source} hasPhone=${Boolean(phone)} hasEmail=${Boolean(email)} hasAddress=${Boolean(address)} yielded=${state.yielded + 1}/${query.maxResults}`)
     queue.push({ name, source, phone, email, address, url })
     state.yielded++
     return true
@@ -146,6 +160,7 @@ export function emitMany(
     query: SearchQuery,
     fallbackSource: string,
 ): EmitOutcome {
+    log.debug(`emit.emitMany: source=${fallbackSource} batch=${orgs.length}`)
     let accepted = 0
     let rejected = 0
     for (const raw of orgs) {
@@ -153,5 +168,6 @@ export function emitMany(
         else rejected++
         if (state.yielded >= query.maxResults) break
     }
+    log.debug(`emit.emitMany: source=${fallbackSource} done accepted=${accepted} rejected=${rejected} totalYielded=${state.yielded}`)
     return { accepted, rejected, totalYielded: state.yielded }
 }

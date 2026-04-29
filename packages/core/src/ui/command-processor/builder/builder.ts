@@ -50,6 +50,7 @@ export class CommandBuilder {
         desc: IUICommandDescriptor,
         mode?: InterpreterMode,
         savedSources?: SavedSources,
+        seededValues?: ReadonlyMap<string, string>,
     ): Promise<IBaseMarkup> {
         if (this.usersBuild.has(userId)) {
             throw new Error('User already has active build.')
@@ -60,6 +61,13 @@ export class CommandBuilder {
 
         const parser = new CBParser({ command, descriptor: desc })
         parser.SavedSources = savedSources
+        // Seed user-typed args before showing the intro so they outrank
+        // session/module entries from `savedSources`. The parser surfaces
+        // seeded leaves as user-committed; unfilled leaves fall through to
+        // savedSources (session beats module — see loadSavedSources).
+        if (seededValues && seededValues.size > 0) {
+            parser.seedValues(seededValues)
+        }
         const interpreter = new CBInterpreter(parser, mode)
         this.usersBuild.set(userId, interpreter)
 

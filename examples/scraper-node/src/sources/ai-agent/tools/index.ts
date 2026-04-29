@@ -10,6 +10,7 @@ import { makeRevisePlanTool } from "./revise-plan"
 import { SearchQuery, OrgData } from "../../../types"
 import { AsyncQueue } from "../async-queue"
 import type { ReportState } from "./emit"
+import { log } from "@cmd-hub/common"
 
 export type { ReportState } from "./emit"
 export type AgentPhase = 'recon' | 'plan' | 'execute'
@@ -20,11 +21,17 @@ export async function buildTools(
     state: ReportState,
     phase: AgentPhase,
 ): Promise<Tool[]> {
-    if (phase === 'plan') return []
-    if (phase === 'recon') {
-        return [makeWebSearchTool(query), makeEndReconTool()]
+    log.trace(`ai-agent.tools.buildTools: phase=${phase}`)
+    if (phase === 'plan') {
+        log.debug('ai-agent.tools.buildTools: plan phase → no tools exposed')
+        return []
     }
-    return [
+    if (phase === 'recon') {
+        const tools = [makeWebSearchTool(query), makeEndReconTool()]
+        log.debug(`ai-agent.tools.buildTools: recon phase → ${tools.map(t => t.name).join(', ')}`)
+        return tools
+    }
+    const tools = [
         makeWebSearchTool(query),
         makeFetchUrlTool(),
         makeParseHtmlTool(),
@@ -33,6 +40,8 @@ export async function buildTools(
         makeReportResultsTool(queue, query, state),
         makeRevisePlanTool(),
     ]
+    log.debug(`ai-agent.tools.buildTools: execute phase → ${tools.map(t => t.name).join(', ')}`)
+    return tools
 }
 
 export { toOpenAISchema } from "./types"

@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio"
+import { log } from "@cmd-hub/common"
 
 /** Extraction modes the scraper recognizes. `text` (default) returns inner
  *  text, `html` returns inner HTML, `href`/`src` return those attrs, any
@@ -13,7 +14,10 @@ export function extractFromElement(
     mode: ExtractMode = 'text',
 ): string | null {
     const found = $el.find(selector)
-    if (found.length === 0) return null
+    if (found.length === 0) {
+        log.trace(`cheerio-extract.extractFromElement: selector="${selector}" mode=${mode} → no match`)
+        return null
+    }
     return readNode(found, mode)
 }
 

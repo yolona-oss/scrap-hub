@@ -50,6 +50,7 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
             '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         ),
+        searxngUrl: z.string().default(''),
     })
 
     private scraper: OrgScraper | null = null
@@ -109,13 +110,22 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
             maxResults: cfg.limit ?? 10_000,
         }
 
-        const existingResults = this.data.runtimeState?.results ?? []
-        const processedUrls = this.data.runtimeState?.processedUrls ?? []
+        // Only resume when the saved state is from the same query the user
+        // just submitted. Otherwise a previous run's results would silently
+        // pre-fill this run, so a brand-new search would short-circuit on
+        // stale data instead of actually scraping. `lastQuery` is written
+        // by every saveProgress (see below).
+        const saved = this.data.runtimeState
+        const isResumable = saved?.lastQuery !== undefined && saved.lastQuery === cfg.query
+        const existingResults = isResumable ? (saved?.results ?? []) : []
+        const processedUrls = isResumable ? (saved?.processedUrls ?? []) : []
 
         this.scraper = new OrgScraper(query, existingResults, processedUrls)
 
         if (existingResults.length > 0) {
             this.sendToWorld(`Resuming from ${existingResults.length} previously collected organizations`)
+        } else if (saved?.lastQuery && saved.lastQuery !== cfg.query) {
+            this.sendToWorld(`Starting fresh — previous saved query was "${saved.lastQuery}"`)
         }
 
         this.sendToWorld(

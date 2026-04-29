@@ -2,6 +2,7 @@
 import 'reflect-metadata'
 import { z } from 'zod'
 import { log } from '@cmd-hub/common'
+import { ConfigBootMiddleware } from '@cmd-hub/core'
 import { MongoStorageMiddleware } from '@cmd-hub/storage-mongo'
 import { CmdNodeApp, HubClientMiddleware, InvokeServerMiddleware } from '@cmd-hub/node'
 
@@ -31,6 +32,7 @@ async function bootstrap() {
         baseSchema: z.object({}).passthrough(),
     })
         .use(new MongoStorageMiddleware())
+        .use(new ConfigBootMiddleware())
         .use(new InvokeServerMiddleware())
         .use(new HubClientMiddleware())
         // Register the scraper's UiMessage kinds. Same plugin object holds

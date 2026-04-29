@@ -1,5 +1,6 @@
 import { SourceRegistry } from "../sources/registry"
 import { CheerioWebSource, CheerioSourceConfig } from "../sources/cheerio-web"
+import { log } from "@cmd-hub/common"
 
 export { CheerioWebSource } from "../sources/cheerio-web"
 export type { CheerioSourceConfig } from "../sources/cheerio-web"
@@ -22,6 +23,7 @@ export type { CheerioSourceConfig } from "../sources/cheerio-web"
  *   })
  */
 export function registerCheerioSource(config: CheerioSourceConfig): void {
+    log.debug(`cheerio-sources.registerCheerioSource: name="${config.name}" template="${config.urlTemplate}" maxPages=${config.maxPages ?? 1}`)
     SourceRegistry.register(config.name, () => new CheerioWebSource(config))
 }
 
@@ -29,6 +31,7 @@ export function registerCheerioSource(config: CheerioSourceConfig): void {
  * Built-in cheerio source configs for common Russian business directories
  */
 export function registerBuiltInCheerioSources(): void {
+    log.info('cheerio-sources.registerBuiltInCheerioSources: registering built-in cheerio sources (yandex-html, zoon, flamp)')
     // Yandex search (HTML scraping fallback — no API key needed)
     registerCheerioSource({
         name: 'yandex-html',

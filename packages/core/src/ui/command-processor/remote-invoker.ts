@@ -16,6 +16,7 @@ import {
 } from '@cmd-hub/common'
 import type { ICommandCompiled } from '../../ui/types/command'
 import type { ServiceDashboard, DashboardEvent } from './dashboard/service-dashboard'
+import type { IDashboardRegistry } from './dispatcher'
 
 type InvokeServer = CmdHubProto.InvokeServer
 type InvokeClient = CmdHubProto.InvokeClient
@@ -35,6 +36,10 @@ export interface RemoteInvokeInput {
     nodeOverride?: string
     /** When set, restricts node picks to those eligible for this UI. */
     uiName?: string
+    /** Hub-side dashboard index. The invoker registers the dashboard
+     *  here so UI callback handlers can find it; deregisters on every
+     *  exit path. Optional only for test harnesses. */
+    dashboardRegistry?: IDashboardRegistry<any>
 }
 
 export interface RemoteInvokeResult {
@@ -101,6 +106,7 @@ export class RemoteCmdInvoker {
             userId: input.userId,
             uiHandle: input.uiHandle,
         })
+        input.dashboardRegistry?.setDashboard(input.userId, input.command, dashboard)
 
         // Wire the session log writer if a repo is available. Replay
         // existing entries to the dashboard BEFORE attach + before the
@@ -135,116 +141,125 @@ export class RemoteCmdInvoker {
 
         await dashboard.attach()
 
-        let handle: Awaited<ReturnType<ICmdNodeClient['invoke']>>
         try {
-            handle = await this.deps.client.invoke(pick.nodeId, {
-                sessionId,
-                userId: input.userId,
-                commandName: input.command,
-                args: input.args,
-                serviceDataBlob: new Uint8Array(),
-            })
-        } catch (e) {
-            log.error(`RemoteCmdInvoker: /${input.command} on "${pick.nodeId}" failed to open: ${(e as Error)?.message ?? e}`)
-            try { await dashboard.detach() } catch { /* ignore */ }
-            return {
-                success: false,
-                markup: { text: `invocation failed: ${(e as Error).message}` },
-                messageType: 'system',
-            }
-        }
-
-        dashboard.sendIntercom = async (actionId, args) => {
-            const msg: InvokeClient = { intercom: { actionId, args } }
-            await handle.send(msg)
-        }
-
-        let finalText = ''
-        let errored = false
-        let sawDone = false
-        let validationFailure: RemoteInvokeResult['validationFailed']
-        for await (const e of handle.events()) {
-            // ValidationFailed is terminal AND distinct: surface to caller
-            // verbatim so the dispatcher can re-prompt the failed leaf.
-            // Don't route through the dashboard — the run never started.
-            if (e.validationFailed !== undefined) {
-                validationFailure = {
-                    argPath: e.validationFailed.argPath,
-                    message: e.validationFailed.message,
-                    rawValue: e.validationFailed.rawValue,
-                }
-                continue
-            }
-
-            const dashEvent = protoToDashboardEvent(e)
-            if (dashEvent) dashboard.onEvent(dashEvent)
-
-            // Persist UiMessages to the session log (batched via writer).
-            // Use the wire envelope's compatibilityId/version directly —
-            // they're already present, no registry lookup needed.
-            if (writer && dashEvent?.kind === 'uiMessage') {
-                writer.record(dashEvent.message, {
-                    compatibilityId: dashEvent.compatibilityId,
-                    version: dashEvent.version,
+            let handle: Awaited<ReturnType<ICmdNodeClient['invoke']>>
+            try {
+                handle = await this.deps.client.invoke(pick.nodeId, {
+                    sessionId,
+                    userId: input.userId,
+                    commandName: input.command,
+                    args: input.args,
+                    serviceDataBlob: new Uint8Array(),
                 })
+            } catch (e) {
+                log.error(`RemoteCmdInvoker: /${input.command} on "${pick.nodeId}" failed to open: ${(e as Error)?.message ?? e}`)
+                try { await dashboard.detach() } catch { /* ignore */ }
+                return {
+                    success: false,
+                    markup: { text: `invocation failed: ${(e as Error).message}` },
+                    messageType: 'system',
+                }
             }
 
-            // Track terminal failure: any error-severity UiMessage marks
-            // the run as errored so the post-stream finalize state knows
-            // to flag the failure even if `done` is missing.
-            if (e.uiMessage?.severity === 'error') {
-                errored = true
-                if (!finalText) {
-                    try {
-                        const parsed = JSON.parse(Buffer.from(e.uiMessage.payloadJson).toString('utf8')) as { text?: string }
-                        finalText = parsed.text ?? ''
-                    } catch {
-                        finalText = `[malformed envelope: kind=${e.uiMessage.kind}]`
+            dashboard.sendIntercom = async (actionId, args) => {
+                const msg: InvokeClient = { intercom: { actionId, args } }
+                await handle.send(msg)
+            }
+
+            let finalText = ''
+            let errored = false
+            let sawDone = false
+            let validationFailure: RemoteInvokeResult['validationFailed']
+            for await (const e of handle.events()) {
+                // ValidationFailed is terminal AND distinct: surface to caller
+                // verbatim so the dispatcher can re-prompt the failed leaf.
+                // Don't route through the dashboard — the run never started.
+                if (e.validationFailed !== undefined) {
+                    validationFailure = {
+                        argPath: e.validationFailed.argPath,
+                        message: e.validationFailed.message,
+                        rawValue: e.validationFailed.rawValue,
+                    }
+                    continue
+                }
+
+                const dashEvent = protoToDashboardEvent(e)
+                if (dashEvent) dashboard.onEvent(dashEvent)
+
+                // Persist UiMessages to the session log (batched via writer).
+                // Use the wire envelope's compatibilityId/version directly —
+                // they're already present, no registry lookup needed.
+                if (writer && dashEvent?.kind === 'uiMessage') {
+                    writer.record(dashEvent.message, {
+                        compatibilityId: dashEvent.compatibilityId,
+                        version: dashEvent.version,
+                    })
+                }
+
+                // Track terminal failure: any error-severity UiMessage marks
+                // the run as errored so the post-stream finalize state knows
+                // to flag the failure even if `done` is missing.
+                if (e.uiMessage?.severity === 'error') {
+                    errored = true
+                    if (!finalText) {
+                        try {
+                            const parsed = JSON.parse(Buffer.from(e.uiMessage.payloadJson).toString('utf8')) as { text?: string }
+                            finalText = parsed.text ?? ''
+                        } catch {
+                            finalText = `[malformed envelope: kind=${e.uiMessage.kind}]`
+                        }
                     }
                 }
+                if (e.done !== undefined) {
+                    sawDone = true
+                    finalText = e.done.finalMessage ?? ''
+                }
             }
-            if (e.done !== undefined) {
-                sawDone = true
-                finalText = e.done.finalMessage ?? ''
+            // Final flush so the trailing batch lands. Always close, even on
+            // error paths, so the buffer doesn't stay around.
+            if (writer) {
+                try { await writer.close() } catch { /* logged inside */ }
             }
-        }
-        // Final flush so the trailing batch lands. Always close, even on
-        // error paths, so the buffer doesn't stay around.
-        if (writer) {
-            try { await writer.close() } catch { /* logged inside */ }
-        }
-        // Stream closed without `done` (node crash/disconnect): force terminal state.
-        if (!sawDone) {
-            try { await dashboard.detach() } catch { /* ignore */ }
-        }
+            // Stream closed without `done` (node crash/disconnect): force terminal state.
+            if (!sawDone) {
+                try { await dashboard.detach() } catch { /* ignore */ }
+            }
 
-        if (validationFailure) {
-            try { await dashboard.detach() } catch { /* ignore */ }
-            return {
-                success: false,
-                markup: { text: `${validationFailure.argPath}: ${validationFailure.message}` },
-                messageType: 'system',
-                validationFailed: validationFailure,
+            if (validationFailure) {
+                try { await dashboard.detach() } catch { /* ignore */ }
+                return {
+                    success: false,
+                    markup: { text: `${validationFailure.argPath}: ${validationFailure.message}` },
+                    messageType: 'system',
+                    validationFailed: validationFailure,
+                }
             }
-        }
-        if (errored) {
-            return {
-                success: false,
-                markup: { text: finalText || 'command failed' },
-                messageType: 'dashboard',
+            if (errored) {
+                return {
+                    success: false,
+                    markup: { text: finalText || 'command failed' },
+                    messageType: 'dashboard',
+                }
             }
+            return { success: true, markup: { text: finalText }, messageType: 'dashboard' }
+        } finally {
+            input.dashboardRegistry?.removeDashboard(input.userId, input.command)
         }
-        return { success: true, markup: { text: finalText }, messageType: 'dashboard' }
     }
 
     /** Convenience overload: hand the invoker a compiled-builder result
      *  and it ships `compiled.raw` (the slash-delimited dot-path map)
-     *  straight as the proto `args` map. */
+     *  straight as the proto `args` map.
+     *
+     *  `dashboardRegistry` is the dispatcher that owns this invocation —
+     *  one invoker is shared across UIs but each UI carries its own
+     *  dispatcher, so the registry must be threaded per-call. */
     async invokeLegacy<Ctx extends BaseUIContext>(
         userId: string,
         compiled: ICommandCompiled,
         ctx: Ctx,
         uiImpl: IUI<Ctx, unknown>,
+        dashboardRegistry?: IDashboardRegistry<any>,
     ): Promise<RemoteInvokeResult> {
         return this.invoke({
             command: compiled.command,
@@ -252,6 +267,7 @@ export class RemoteCmdInvoker {
             userId,
             uiHandle: { ctx, uiImpl },
             uiName: uiImpl.ContextType(),
+            dashboardRegistry,
         })
     }
 }

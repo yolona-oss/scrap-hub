@@ -62,6 +62,7 @@ const ServiceRunCommand: BuiltInCommand = {
                 { command: serviceName, proxy: CmdArgumentProxy.empty(), raw: new Map() },
                 ctx,
                 uiImpl,
+                this,
             )
             await ctx.reply(`${UiUnicodeSymbols.success} Service "${serviceName}" started: ${JSON.stringify(res)}`)
         } catch (e: unknown) {
