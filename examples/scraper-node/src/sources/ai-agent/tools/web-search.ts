@@ -18,6 +18,35 @@ export interface WebSearchResult {
 interface WebSearchResponse {
     results: WebSearchResult[]
     error?: string
+    hint?: string
+}
+
+const AGGREGATOR_DOMAINS = [
+    '2gis.ru', 'yell.ru', 'zoon.ru', 'yandex.ru', 'yandex.com',
+    'spravochnik.org', 'orgpage.ru', 'rusprofile.ru', 'list-org.com',
+]
+
+function isAggregatorDomain(url: string): boolean {
+    try {
+        const host = new URL(url).hostname.toLowerCase()
+        return AGGREGATOR_DOMAINS.some(d => host === d || host.endsWith('.' + d))
+    } catch {
+        return false
+    }
+}
+
+export function buildWebSearchHint(results: WebSearchResult[], error?: string): string | undefined {
+    if (results.length === 0) {
+        return error
+            ? 'search backend failed — try a different query phrasing or fall back to search_source'
+            : 'no results — try synonyms or related terms (e.g. broader category, English transliteration, professional jargon)'
+    }
+    if (results.length < 3) return undefined
+    const aggregatorCount = results.filter(r => isAggregatorDomain(r.url)).length
+    if (aggregatorCount / results.length > 0.5) {
+        return "aggregator-heavy results — search_source('yandex-business') will be cheaper than scraping these one by one"
+    }
+    return 'diverse results — fetch the top 2-3 for direct contact extraction'
 }
 
 interface SearxngResult {
@@ -67,11 +96,13 @@ export function makeWebSearchTool(baseQuery?: Pick<SearchQuery, 'city'>): Tool {
             try {
                 const results = await searchSearxng(baseUrl, query, limit, signal)
                 log.debug(`ai-agent.web_search: ${results.length} results via searxng`)
-                return { results }
+                const hint = buildWebSearchHint(results)
+                return hint ? { results, hint } : { results }
             } catch (e: any) {
                 const error = String(e?.message ?? e)
                 log.debug(`ai-agent.web_search: 0 results (searxng: ${error})`)
-                return { results: [], error }
+                const hint = buildWebSearchHint([], error)
+                return { results: [], error, hint }
             }
         },
     }

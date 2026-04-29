@@ -139,3 +139,43 @@ describe('web_search tool', () => {
         ])
     })
 })
+
+import { buildWebSearchHint } from '../web-search'
+
+describe('buildWebSearchHint', () => {
+    it('returns synonyms hint for empty results without error', () => {
+        const hint = buildWebSearchHint([])
+        expect(hint).toMatch(/synonyms/)
+    })
+
+    it('returns backend-failed hint for empty results with error', () => {
+        const hint = buildWebSearchHint([], 'searxng down')
+        expect(hint).toMatch(/backend failed/)
+    })
+
+    it('returns aggregator hint when >50% of domains are aggregators', () => {
+        const results = [
+            { title: 'A', url: 'https://2gis.ru/x', snippet: '' },
+            { title: 'B', url: 'https://yell.ru/y', snippet: '' },
+            { title: 'C', url: 'https://example.com/z', snippet: '' },
+        ]
+        const hint = buildWebSearchHint(results)
+        expect(hint).toMatch(/search_source/)
+    })
+
+    it('returns diverse-fetch hint when results are mostly unique domains', () => {
+        const results = [
+            { title: 'A', url: 'https://a.com/x', snippet: '' },
+            { title: 'B', url: 'https://b.com/y', snippet: '' },
+            { title: 'C', url: 'https://c.com/z', snippet: '' },
+        ]
+        const hint = buildWebSearchHint(results)
+        expect(hint).toMatch(/fetch the top/)
+    })
+
+    it('returns no hint for 1-2 results', () => {
+        const results = [{ title: 'A', url: 'https://a.com/x', snippet: '' }]
+        const hint = buildWebSearchHint(results)
+        expect(hint).toBeUndefined()
+    })
+})
