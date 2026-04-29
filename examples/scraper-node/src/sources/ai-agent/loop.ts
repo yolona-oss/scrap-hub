@@ -1,7 +1,8 @@
 import { OpenAI } from "openai"
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions"
-import { Tool, toOpenAISchema, buildTools, AgentPhase } from "./tools"
+import { Tool, toOpenAISchema, buildTools, AgentPhase, type ExtractorRunner } from "./tools"
 import { ResolvedAIAgentConfig } from "./config"
+import { runExtractor } from "./extractor"
 import {
     buildRolePrompt,
     buildReconInstructions,
@@ -110,12 +111,16 @@ export async function runAgentLoop(
     let planPinned = false
     const availableSources = SourceRegistry.available()
 
+    const extractorRunner: ExtractorRunner | undefined = cfg.extractor
+        ? (input, sig) => runExtractor(input, cfg.extractor!, sig)
+        : undefined
+
     const messages: ChatCompletionMessageParam[] = [
         buildSystemMessage(query, 'recon', cfg, availableSources),
         { role: 'user', content: buildUserPrompt(query) },
     ]
 
-    let tools = await buildTools(query, queue, state, phase)
+    let tools = await buildTools(query, queue, state, phase, { extractorRunner })
     let toolByName = new Map(tools.map(t => [t.name, t]))
 
     function pushToolResult(id: string, result: any) {
@@ -130,7 +135,7 @@ export async function runAgentLoop(
         log.info(`ai-agent.loop: recon→plan after ${reconSearches} searches (${reason})`)
         phase = 'plan'
         messages[0] = buildSystemMessage(query, 'plan', cfg, availableSources)
-        tools = await buildTools(query, queue, state, 'plan')
+        tools = await buildTools(query, queue, state, 'plan', { extractorRunner })
         toolByName = new Map(tools.map(t => [t.name, t]))
     }
 
@@ -310,7 +315,7 @@ export async function runAgentLoop(
             phase = 'execute'
             executePhaseTurnsSinceLastPlan = 0
             messages[0] = buildSystemMessage(query, 'execute', cfg, availableSources)
-            tools = await buildTools(query, queue, state, 'execute')
+            tools = await buildTools(query, queue, state, 'execute', { extractorRunner })
             toolByName = new Map(tools.map(t => [t.name, t]))
             continue
         }
@@ -375,7 +380,7 @@ export async function runAgentLoop(
                     log.warn(`ai-agent.loop: execute→plan via revise_plan after ${executePhaseTurnsSinceLastPlan} turns. reason: ${parsed?.reason ?? '(none)'}`)
                     phase = 'plan'
                     messages[0] = buildSystemMessage(query, 'plan', cfg, availableSources)
-                    tools = await buildTools(query, queue, state, 'plan')
+                    tools = await buildTools(query, queue, state, 'plan', { extractorRunner })
                     toolByName = new Map(tools.map(t => [t.name, t]))
                     revisedThisTurn = true
                     continue
