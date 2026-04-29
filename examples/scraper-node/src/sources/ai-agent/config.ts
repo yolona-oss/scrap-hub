@@ -19,9 +19,9 @@ export interface ResolvedAIAgentConfig {
  * per-user "disable AI agent" signal.
  *
  * The framework already merged tree defaults under the user's choices
- * via `unflattenValue`, so there's no fallback merge here — every leaf
+ * via `unflattenArgs`, so there's no fallback merge here — every leaf
  * with a `default:` arrives populated, and the `??` fallbacks below
- * only catch the case where `context.config` was synthesized without
+ * only catch the case where `context.args` was synthesized without
  * going through the parser (e.g. legacy callers).
  */
 export function resolveAIAgentConfig(context?: ServiceContext): ResolvedAIAgentConfig | null {

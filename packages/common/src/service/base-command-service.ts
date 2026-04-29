@@ -43,7 +43,7 @@ function joinFieldPath(slice: string, sub: string): string {
 }
 
 /** Standalone-arg flags arrive as `true` after the wire-side bool
- *  coercion (`unflattenValue` resolves the `'true'` string the parser
+ *  coercion (`unflattenArgs` resolves the `'true'` string the parser
  *  stores) or as the literal string `'true'` when the leaf type stays
  *  the default `'string'`. Both shapes count as set. */
 function isFlagSet(v: unknown): boolean {

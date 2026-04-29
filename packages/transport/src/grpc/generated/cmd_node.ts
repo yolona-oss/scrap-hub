@@ -297,12 +297,12 @@ export interface InvokeServer {
 
 /**
  * Authoritative arg-validation failure from the node side. Triggered
- * when a leaf's `LeafValidator` returns false / a string. The hub uses
+ * when a leaf's `ArgValidator` returns false / a string. The hub uses
  * `arg_path` to focus the parser back onto that leaf so the user can
  * fix just that input without rebuilding the rest of the command.
  */
 export interface ValidationFailed {
-  /** Slash-delimited dot-path of the failed leaf (e.g. "config/limit"). */
+  /** Slash-delimited path of the failed leaf (e.g. "args/limit"). */
   argPath: string;
   /** Human-readable failure reason; surfaced to the user verbatim. */
   message: string;
