@@ -15,14 +15,7 @@ import { OrgData } from '../types'
  * a registration call AND adding the name here — the manifest's static
  * `choices[]` can't be resolved at runtime under the new tree model.
  */
-const SOURCE_OPTIONS = [
-    'all',
-    'yandex-business',
-    'ai-agent',
-    'yandex-html',
-    'zoon',
-    'flamp',
-] as const
+const SOURCE_OPTIONS = ['ai-agent'] as const
 const EXPORTER_OPTIONS = ['json', 'csv', 'google-sheets'] as const
 
 /**
@@ -291,12 +284,9 @@ export class ScraperArgs extends HubGlobalServiceArgs {
     @CmdArg({
         required: false,
         persistent: true,
-        description: "Sources to scrape (comma-separated, or 'all')",
-        // Multi-select: pass 'all' or a comma-separated list of source
-        // names. The static `choices[]` only helps the builder pick a
-        // single source — the runtime parser splits the comma form.
+        description: 'Sources to scrape (only ai-agent available; legacy adapters removed in PR5)',
         choices: [...SOURCE_OPTIONS],
-        default: 'all',
+        default: 'ai-agent',
     })
     sources?: string
 
