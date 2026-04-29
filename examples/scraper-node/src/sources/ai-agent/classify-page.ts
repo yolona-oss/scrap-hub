@@ -173,6 +173,7 @@ export function classifyPageFromHtml(url: string, html: string): ClassifiedPage 
         contactCandidates: contacts,
         aggregatorCandidates: aggregators,
         branchCandidates: [], // Branch enumeration deferred to PR4
+        html,
     }
 }
 

@@ -1,8 +1,11 @@
+import * as cheerio from 'cheerio'
 import { log } from '@cmd-hub/common'
 import type { ExtractorTool } from '../types'
 import type { ClassifiedPage } from '../../page-types'
 import {
     extractFromJsonLd,
+    extractFromMicrodata,
+    extractFromSemanticHtml,
     extractFromRegex,
 } from '../../tools/extraction-strategies'
 
@@ -44,19 +47,32 @@ function buildPartialResult(page: ClassifiedPage): {
     addresses: string[]
     candidateName: string
 } {
-    // ClassifiedPage doesn't expose a CheerioAPI root, so microdata + semantic-html strategies
-    // can't run here — they need DOM access. JSON-LD (already-parsed blobs) and regex (over
-    // cleanedText) cover the common cases. The extractor LLM can call read_blocks to see
-    // pre-extracted DOM regions if richer extraction is needed. Threading the cheerio root
-    // through ClassifiedPage is a follow-up to PR1.
-    const fromJsonLd = extractFromJsonLd(page.jsonLdBlobs)
-    const fromRegex = extractFromRegex(page.cleanedText)
+    const phones = new Set<string>()
+    const emails = new Set<string>()
+    const addresses = new Set<string>()
+    let candidateName = ''
 
-    const phones = Array.from(new Set([...(fromJsonLd.phones ?? []), ...(fromRegex.phones ?? [])]))
-    const emails = Array.from(new Set([...(fromJsonLd.emails ?? []), ...(fromRegex.emails ?? [])]))
-    const addresses = Array.from(new Set([...(fromJsonLd.addresses ?? []), ...(fromRegex.addresses ?? [])]))
-    const candidateName = fromJsonLd.candidateName ?? ''
-    return { phones, emails, addresses, candidateName }
+    function merge(p: { phones?: string[], emails?: string[], addresses?: string[], candidateName?: string }) {
+        for (const x of p.phones ?? []) phones.add(x)
+        for (const x of p.emails ?? []) emails.add(x)
+        for (const x of p.addresses ?? []) addresses.add(x)
+        if (!candidateName && p.candidateName) candidateName = p.candidateName
+    }
+
+    merge(extractFromJsonLd(page.jsonLdBlobs))
+    if (page.html) {
+        const $ = cheerio.load(page.html)
+        merge(extractFromMicrodata($))
+        merge(extractFromSemanticHtml($))
+    }
+    merge(extractFromRegex(page.cleanedText))
+
+    return {
+        phones: Array.from(phones),
+        emails: Array.from(emails),
+        addresses: Array.from(addresses),
+        candidateName,
+    }
 }
 
 export function makeRefetchTool(opts: MakeRefetchToolOptions): ExtractorTool {

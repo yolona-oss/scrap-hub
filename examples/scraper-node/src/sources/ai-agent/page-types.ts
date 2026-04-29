@@ -36,4 +36,9 @@ export interface ClassifiedPage {
     contactCandidates: ScoredLink[]
     aggregatorCandidates: ScoredLink[]
     branchCandidates: ScoredLink[]
+    /** Raw HTML body when available. Populated by network classifyPage; left
+     *  undefined by callers that classify pre-loaded fragments. Consumers that
+     *  need full deterministic extraction (microdata, semantic-html) re-cheerio-load
+     *  this string. Pure-classifier consumers ignore it. */
+    html?: string
 }
