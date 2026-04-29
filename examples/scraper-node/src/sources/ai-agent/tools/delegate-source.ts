@@ -10,6 +10,16 @@ interface DelegateResult {
     rejected: number
     totalYielded: number
     error?: string
+    hint?: string
+}
+
+export function buildSearchSourceHint(outcome: { accepted: number, rejected: number, totalYielded: number }): string {
+    const { accepted, rejected } = outcome
+    if (accepted === 0 && rejected === 0) return 'source returned nothing for this query — try a different source or web_search'
+    if (accepted === 0 && rejected > 0) return 'source returned items but all failed validation (missing contacts or wrong city) — switch back to web_search'
+    if (accepted > 0 && rejected === 0) return 'good signal from this source — consider another search_source call with a related query'
+    const rate = Math.round((rejected / (accepted + rejected)) * 100)
+    return `mixed quality — keep going but expect ~${rate}% rejects`
 }
 
 export async function makeDelegateSourceTool(
@@ -70,7 +80,8 @@ export async function makeDelegateSourceTool(
                     if (accepted >= limit || state.yielded >= baseQuery.maxResults) break
                 }
                 log.debug(`ai-agent.search_source[${sourceName}]: accepted=${accepted} rejected=${rejected} totalYielded=${state.yielded}`)
-                return { accepted, rejected, totalYielded: state.yielded }
+                const outcome = { accepted, rejected, totalYielded: state.yielded }
+                return { ...outcome, hint: buildSearchSourceHint(outcome) }
             } catch (e: any) {
                 log.error(`ai-agent.search_source[${sourceName}]: ${e.message ?? e}`)
                 return { accepted, rejected, totalYielded: state.yielded, error: String(e.message ?? e) }
