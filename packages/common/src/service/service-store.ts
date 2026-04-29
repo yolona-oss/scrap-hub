@@ -2,11 +2,11 @@
  * Narrow persistence interface for {@link BaseCommandService}.
  *
  * The store exposes a layered model: an **account layer** carries the
- * baseline config that survives across all sessions for a given account,
+ * baseline args that survive across all sessions for a given account,
  * and an optional **session layer** acts as an overlay on top that the
  * running service writes to. Reads merge `account ← session ← input`;
  * writes default to the session layer (so the account baseline stays
- * stable). The `/sconfig` built-in writes to the account layer for
+ * stable). The `/sargs` built-in writes to the account layer for
  * persistent updates.
  *
  * Naming convention (mongoose layer mapping):
@@ -24,10 +24,10 @@
 export interface IServiceAccountLayer {
     /** Current snapshot of the account-module's `data` subtree. Callers must not mutate in place — use setField. */
     readonly data: Record<string, unknown>
-    /** Persist a path-update on the account-module doc. Path is dot-separated, e.g. "config.query". Pass '' to replace the full object at key. */
+    /** Persist a path-update on the account-module doc. Path is dot-separated, e.g. "args.query". Pass '' to replace the full object at key. */
     setField(path: string, value: unknown): Promise<void>
-    /** Replace the full `data.config` object and save. */
-    replaceConfig(config: Record<string, unknown>): Promise<void>
+    /** Replace the full `data.args` object and save. */
+    replaceArgs(args: Record<string, unknown>): Promise<void>
 }
 
 export interface IServiceSessionLayer {

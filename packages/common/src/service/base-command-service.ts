@@ -14,31 +14,30 @@ import {
 } from "./service-store"
 
 import {
-    GlobalServiceConfig,
-    GlobalServiceMessages,
-    GlobalServiceParam,
+    GlobalServiceArgs,
+    GlobalServiceIntercom,
     CmdServiceData,
 } from "./service-data"
 
 import type { UiMessage } from "../ui-message/types"
 import {
-    COMMAND_ARG_DESC_KEY,
-    buildTreeFromClass,
+    CMD_ARG_META_KEY,
+    buildArgTreeFromClass,
     defineDecoratorMeta,
     readDecoratorMeta,
 } from "../command"
-import type { OptionsTree, BranchSpec } from "../command/tree"
-import { branch } from "../command/tree"
+import type { ArgTree, ArgBranch } from "../command/tree"
+import { argBranch } from "../command/tree"
 
 /** Keys under `sessionLayer.data` for the two parallel slices the
- *  layered model writes to: per-session config overlay and resumable
- *  runtime state. Centralized so callers don't sprinkle string literals. */
-const SESSION_CONFIG_KEY = 'config'
-const SESSION_RUNTIME_STATE_KEY = 'runtimeState'
+ *  layered model writes to: per-session args overlay and resumable
+ *  state. Centralized so callers don't sprinkle string literals. */
+const SESSION_ARGS_KEY = 'args'
+const SESSION_STATE_KEY = 'state'
 
-/** Build a dot-separated subfield path (e.g. `config.foo.bar`) from a
+/** Build a dot-separated subfield path (e.g. `args.foo.bar`) from a
  *  top-level slice + optional sub-path. Empty sub-path returns just
- *  the slice key — used by `replaceConfig`-style whole-object writes. */
+ *  the slice key — used by `replaceArgs`-style whole-object writes. */
 function joinFieldPath(slice: string, sub: string): string {
     return sub.length > 0 ? `${slice}.${sub}` : slice
 }
@@ -54,19 +53,19 @@ function isFlagSet(v: unknown): boolean {
 /** Merge a global-args class with the user-supplied slice instance into
  *  a single root branch. User-specific keys win on collision. The slice
  *  is read off the instance's constructor so the prototype chain walk
- *  in `buildTreeFromClass` includes its decorator-bag. */
-function mergeTrees(globalCls: new () => object, userInstance: object): BranchSpec {
+ *  in `buildArgTreeFromClass` includes its decorator-bag. */
+function mergeTrees(globalCls: new () => object, userInstance: object): ArgBranch {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const userCls: (new () => object) | undefined = (userInstance as any)?.constructor
-    const globalTree = buildTreeFromClass(globalCls)
-    const userTree = userCls ? buildTreeFromClass(userCls) : branch({})
+    const globalTree = buildArgTreeFromClass(globalCls)
+    const userTree = userCls ? buildArgTreeFromClass(userCls) : argBranch({})
     if (globalTree.node !== 'branch' || userTree.node !== 'branch') {
         throw new Error('mergeTrees: both classes must produce branch roots')
     }
-    const merged: Record<string, OptionsTree> = {}
+    const merged: Record<string, ArgTree> = {}
     for (const [k, v] of globalTree.children) merged[k] = v
     for (const [k, v] of userTree.children) merged[k] = v
-    return branch(merged) as BranchSpec
+    return argBranch(merged) as ArgBranch
 }
 
 export interface IntercomAction {
@@ -99,10 +98,10 @@ export interface IBaseCmdService_EvMap extends EventMap {
     uiMessage: (msg: UiMessage) => void,
 }
 
-/** Shape-agnostic decorator-meta bag. The new `@CmdArgument` stores
+/** Shape-agnostic decorator-meta bag. The new `@CmdArg` stores
  *  per-property entries that describe leaf or branch nodes; `merge()`
  *  doesn't care about the shape, it just unions the keys so the merged
- *  instance still answers `buildTreeFromClass`. */
+ *  instance still answers `buildArgTreeFromClass`. */
 type DecoratorMetaBag = Record<string, unknown>
 
 function merge<T extends Object>(dst: T, src: T): T {
@@ -110,15 +109,15 @@ function merge<T extends Object>(dst: T, src: T): T {
 
     Object.assign(merged, dst, src);
 
-    const dst_meta = readDecoratorMeta<DecoratorMetaBag>(COMMAND_ARG_DESC_KEY, dst);
+    const dst_meta = readDecoratorMeta<DecoratorMetaBag>(CMD_ARG_META_KEY, dst);
     if (dst_meta) {
-        defineDecoratorMeta(COMMAND_ARG_DESC_KEY, merged, dst_meta);
+        defineDecoratorMeta(CMD_ARG_META_KEY, merged, dst_meta);
     }
 
-    const src_meta = readDecoratorMeta<DecoratorMetaBag>(COMMAND_ARG_DESC_KEY, src);
+    const src_meta = readDecoratorMeta<DecoratorMetaBag>(CMD_ARG_META_KEY, src);
     if (src_meta) {
-        const existing = readDecoratorMeta<DecoratorMetaBag>(COMMAND_ARG_DESC_KEY, merged) ?? {};
-        defineDecoratorMeta(COMMAND_ARG_DESC_KEY, merged, { ...existing, ...src_meta });
+        const existing = readDecoratorMeta<DecoratorMetaBag>(CMD_ARG_META_KEY, merged) ?? {};
+        defineDecoratorMeta(CMD_ARG_META_KEY, merged, { ...existing, ...src_meta });
     }
 
     return merged;
@@ -128,7 +127,7 @@ function merge<T extends Object>(dst: T, src: T): T {
  * Base class for command services
  * @template ServiceDataType - Type of service data not extended from base. See {@link CmdServiceData}
  */
-export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<any, any, any, any>>
+export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<any, any, any>>
     extends (EventEmitter as new () => TypedEventEmitter<IBaseCmdService_EvMap>)
     implements IRunnable
 {
@@ -157,9 +156,9 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
     protected data: ServiceDataType
 
     /** Read-only snapshot of the service's runtime data. The dispatcher's
-     *  `/sinfo` built-in reads this to render runtime config / params /
-     *  runtime-state panels. External callers must not mutate; subclasses
-     *  still have direct protected access via `this.data`. */
+     *  `/sinfo` built-in reads this to render runtime args / state panels.
+     *  External callers must not mutate; subclasses still have direct
+     *  protected access via `this.data`. */
     get snapshot(): Readonly<ServiceDataType> { return this.data }
 
     constructor(
@@ -170,13 +169,11 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
     ) {
         super()
         this.data = defaultData
-        const g_conf  = new GlobalServiceConfig
-        const g_param = new GlobalServiceParam
-        const g_msgs  = new GlobalServiceMessages
+        const g_args     = new GlobalServiceArgs()
+        const g_intercom = new GlobalServiceIntercom()
 
-        this.data.config = merge(this.data.config, g_conf)
-        this.data.params = merge(this.data.params, g_param)
-        this.data.messages = merge(this.data.messages, g_msgs)
+        this.data.args     = merge(this.data.args, g_args)
+        this.data.intercom = merge(this.data.intercom, g_intercom)
     }
 
     protected abstract runWrapper(): Promise<void>
@@ -228,7 +225,7 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
             userId: this.userId,
             serviceName: this.name,
             sessionId: this.data.sessionId,
-            config: this.data.config as Record<string, any>,
+            args: this.data.args as Record<string, any>,
             events: {
                 liveLog: (lines) => this.emit('liveLog', lines),
             },
@@ -251,18 +248,14 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
         return this._isRunning
     }
 
-    /** Tree of config arguments (global ⊕ service-specific). Branch
-     *  descendants in the service-specific class win on key collision. */
-    configTree(): OptionsTree {
-        return mergeTrees(GlobalServiceConfig, this.data.config)
+    /** Tree of args (global ⊕ service-specific). Branch descendants in
+     *  the service-specific class win on key collision. */
+    argsTree(): ArgTree {
+        return mergeTrees(GlobalServiceArgs, this.data.args)
     }
 
-    paramsTree(): OptionsTree {
-        return mergeTrees(GlobalServiceParam, this.data.params)
-    }
-
-    messagesTree(): OptionsTree {
-        return mergeTrees(GlobalServiceMessages, this.data.messages)
+    intercomTree(): ArgTree {
+        return mergeTrees(GlobalServiceIntercom, this.data.intercom)
     }
 
     toString() {
@@ -320,89 +313,95 @@ export abstract class BaseCommandService<ServiceDataType extends CmdServiceData<
         const inputData = this.inputServiceData
         const defaultData = this.defaultData
         const _session_id: string =
-            inputData.params?.s || inputData.params?.sessionId || DEFAULT_ACCOUNT_SESSION_NAME
+            (inputData.args as Record<string, unknown> | undefined)?.['s'] as string ||
+            (inputData.args as Record<string, unknown> | undefined)?.['sessionId'] as string ||
+            DEFAULT_ACCOUNT_SESSION_NAME
         this.data.sessionId = _session_id
-        this.data.params = { ...this.data.params, ...inputData.params }
+        this.data.args = { ...this.data.args, ...inputData.args }
 
         const { sessionLayerData, accountLayerData, sessionLayer } = await this.retrieveAccountData(true)
 
         // `noCache` is the per-run escape hatch: skip overlay reads AND
         // skip the session-layer write so saved values survive untouched.
-        // Lives on `params` (per-invocation runtime knob), not `config` (user
-        // values), so the flag never lands in the merged effective config.
-        const noCache = isFlagSet((inputData.params as Record<string, unknown> | undefined)?.['noCache'])
+        // TODO(Task 11): with config+params merged into a single `args`
+        // slice, ephemeral knobs (noCache / sessionId / s / noDashboard /
+        // now) currently flow into the merged `aArgs` and from there into
+        // `this.data.args` and (when !noCache) the session-layer write.
+        // Task 11 wires the per-leaf `persistent` filter that keeps
+        // ephemeral leaves out of both the persisted slice AND the session-
+        // layer write. Until then, ephemeral keys leak into `this.data.args`.
+        const noCache = isFlagSet((inputData.args as Record<string, unknown> | undefined)?.['noCache'])
 
         // Wire args arrive nested-keyed under the new tree-native API,
-        // so the input config is a typed object (or absent). No more
+        // so the input args is a typed object (or absent). No more
         // positional-prefix decoding — the dispatcher unflattens at the
         // wire boundary.
-        const inputConfig = (inputData.config ?? {}) as Record<string, unknown>
-        const accountConfig = noCache ? {} : ((accountLayerData.config ?? {}) as Record<string, unknown>)
-        const sessionConfig = noCache ? {} : ((sessionLayerData.config ?? {}) as Record<string, unknown>)
+        const inputArgs   = (inputData.args ?? {}) as Record<string, unknown>
+        const accountArgs = noCache ? {} : ((accountLayerData[SESSION_ARGS_KEY] ?? {}) as Record<string, unknown>)
+        const sessionArgs = noCache ? {} : ((sessionLayerData[SESSION_ARGS_KEY] ?? {}) as Record<string, unknown>)
 
-        const aConfig = {
-            ...defaultData.config,
-            ...accountConfig,
-            ...sessionConfig,
-            ...inputConfig,
+        const aArgs = {
+            ...defaultData.args,
+            ...accountArgs,
+            ...sessionArgs,
+            ...inputArgs,
         }
 
-        const existingRuntimeState = (sessionLayerData.runtimeState ?? {}) as Record<string, unknown>
-        let aRuntimeState: Record<string, unknown> = existingRuntimeState
-        const initRuntimeState = !aRuntimeState || Object.keys(aRuntimeState).length === 0
-        if (initRuntimeState) {
-            aRuntimeState = {
-                ...defaultData.runtimeState,
-                ...((inputData as any).runtimeState ?? {}),
+        const existingState = (sessionLayerData[SESSION_STATE_KEY] ?? {}) as Record<string, unknown>
+        let aState: Record<string, unknown> = existingState
+        const initState = !aState || Object.keys(aState).length === 0
+        if (initState) {
+            aState = {
+                ...defaultData.state,
+                ...((inputData as any).state ?? {}),
             } as Record<string, unknown>
         }
 
         // Writes go to the session layer (the writable overlay); account
-        // stays as the long-lived baseline that only `/sconfig` touches.
+        // stays as the long-lived baseline that only `/sargs` touches.
         // Sequential, not parallel — the Mongo adapter saves the same
         // Mongoose document each call, and Mongoose rejects concurrent
         // `save()` on a single doc with "Can't save() the same doc multiple
         // times in parallel".
         if (!noCache) {
-            await sessionLayer.setField(SESSION_CONFIG_KEY, aConfig as Record<string, unknown>)
-            if (initRuntimeState) {
-                await sessionLayer.setField(SESSION_RUNTIME_STATE_KEY, aRuntimeState)
+            await sessionLayer.setField(SESSION_ARGS_KEY, aArgs as Record<string, unknown>)
+            if (initState) {
+                await sessionLayer.setField(SESSION_STATE_KEY, aState)
             }
         }
 
         this.data = {
-            config: aConfig,
-            runtimeState: aRuntimeState,
+            args: aArgs,
+            state: aState,
             sessionId: sessionLayer.name,
-            messages: defaultData.messages,
-            params: defaultData.params,
+            intercom: defaultData.intercom,
         } as ServiceDataType
     }
 
-    /** Persist a config field. Writes go to the **session layer** so the
-     *  account baseline (set via `/sconfig`) stays untouched. */
-    protected async setConfigValue(path: string, value: any) {
+    /** Persist an arg field. Writes go to the **session layer** so the
+     *  account baseline (set via `/sargs`) stays untouched. */
+    protected async setArgValue(path: string, value: any) {
         const { sessionLayer } = await this.retrieveAccountData()
-        await sessionLayer.setField(joinFieldPath(SESSION_CONFIG_KEY, path), value)
+        await sessionLayer.setField(joinFieldPath(SESSION_ARGS_KEY, path), value)
     }
 
-    /** Persist a runtime-state field (resumable per-session state, e.g.
-     *  scraper progress). Distinct from config. */
-    protected async setRuntimeStateValue(path: string, value: any) {
+    /** Persist a state field (resumable per-session state, e.g.
+     *  scraper progress). Distinct from args. */
+    protected async setStateValue(path: string, value: any) {
         const { sessionLayer } = await this.retrieveAccountData()
-        await sessionLayer.setField(joinFieldPath(SESSION_RUNTIME_STATE_KEY, path), value)
+        await sessionLayer.setField(joinFieldPath(SESSION_STATE_KEY, path), value)
     }
 
-    /** Persist multiple runtime-state fields in one DB round-trip. Use this
-     *  over consecutive `setRuntimeStateValue` calls — the underlying
+    /** Persist multiple state fields in one DB round-trip. Use this
+     *  over consecutive `setStateValue` calls — the underlying
      *  Mongoose doc rejects parallel `save()`s, and back-to-back awaits
      *  multiply the round-trip cost. The `updates` keys are dot-paths
-     *  relative to `runtimeState`. */
-    protected async setRuntimeState(updates: Record<string, unknown>): Promise<void> {
+     *  relative to `state`. */
+    protected async setState(updates: Record<string, unknown>): Promise<void> {
         const { sessionLayer } = await this.retrieveAccountData()
         const prefixed: Record<string, unknown> = {}
         for (const [k, v] of Object.entries(updates)) {
-            prefixed[joinFieldPath(SESSION_RUNTIME_STATE_KEY, k)] = v
+            prefixed[joinFieldPath(SESSION_STATE_KEY, k)] = v
         }
         await sessionLayer.setFields(prefixed)
     }

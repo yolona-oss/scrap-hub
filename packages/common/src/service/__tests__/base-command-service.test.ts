@@ -1,7 +1,7 @@
 import 'reflect-metadata'
 
 import { BaseCommandService } from '../base-command-service'
-import { CmdServiceData, GlobalServiceConfig, GlobalServiceParam, GlobalServiceMessages } from '../service-data'
+import { CmdServiceData, GlobalServiceArgs, GlobalServiceIntercom } from '../service-data'
 import {
     IServiceStore,
     IServiceAccountLayer,
@@ -20,8 +20,8 @@ class FakeAccountLayer implements IServiceAccountLayer {
         assignToCustomPath(this.data, path, value)
     }
 
-    async replaceConfig(config: Record<string, unknown>): Promise<void> {
-        this.data.config = config
+    async replaceArgs(args: Record<string, unknown>): Promise<void> {
+        this.data.args = args
     }
 }
 
@@ -64,9 +64,9 @@ class FakeStore implements IServiceStore {
     }
 }
 
-class TestServiceData extends CmdServiceData<GlobalServiceConfig, GlobalServiceParam, GlobalServiceMessages, {}> {
+class TestServiceData extends CmdServiceData<GlobalServiceArgs, GlobalServiceIntercom, {}> {
     constructor() {
-        super(new GlobalServiceConfig(), new GlobalServiceParam(), new GlobalServiceMessages())
+        super(new GlobalServiceArgs(), new GlobalServiceIntercom())
     }
 }
 
@@ -81,23 +81,23 @@ class TestService extends BaseCommandService<TestServiceData> {
     protected async terminateWrapper(): Promise<void> {}
     async receiveMsg(): Promise<void> {}
     /** Public hooks so tests can drive the protected setters. */
-    public async testSetConfig(path: string, value: unknown) { return this.setConfigValue(path, value) }
-    public async testSetRuntimeState(path: string, value: unknown) { return this.setRuntimeStateValue(path, value) }
-    public async testSetRuntimeStateBatch(updates: Record<string, unknown>) { return this.setRuntimeState(updates) }
+    public async testSetArg(path: string, value: unknown) { return this.setArgValue(path, value) }
+    public async testSetStateValue(path: string, value: unknown) { return this.setStateValue(path, value) }
+    public async testSetStateBatch(updates: Record<string, unknown>) { return this.setState(updates) }
 }
 
 function newScenario(opts: {
-    accountConfig?: Record<string, unknown>
-    sessionConfig?: Record<string, unknown>
-    sessionRuntimeState?: Record<string, unknown>
+    accountArgs?: Record<string, unknown>
+    sessionArgs?: Record<string, unknown>
+    sessionState?: Record<string, unknown>
     sessionName?: string
 } = {}) {
     const accountLayer = new FakeAccountLayer()
-    if (opts.accountConfig) accountLayer.data = { config: opts.accountConfig }
+    if (opts.accountArgs) accountLayer.data = { args: opts.accountArgs }
     const sessionLayer = new FakeSessionLayer(opts.sessionName ?? DEFAULT_ACCOUNT_SESSION_NAME)
     sessionLayer.data = {}
-    if (opts.sessionConfig) sessionLayer.data.config = opts.sessionConfig
-    if (opts.sessionRuntimeState) sessionLayer.data.runtimeState = opts.sessionRuntimeState
+    if (opts.sessionArgs) sessionLayer.data.args = opts.sessionArgs
+    if (opts.sessionState) sessionLayer.data.state = opts.sessionState
     const store = new FakeStore(accountLayer, sessionLayer)
     BaseCommandService.setStore(store)
     return { store, accountLayer, sessionLayer }
@@ -107,78 +107,78 @@ beforeEach(() => {
     BaseCommandService.__resetStoreForTests()
 })
 
-describe('BaseCommandService — layered config precedence', () => {
+describe('BaseCommandService — layered args precedence', () => {
     test('session overlay overrides account baseline; input overrides session', async () => {
         const { sessionLayer } = newScenario({
-            accountConfig: { a: 1, b: 1, c: 1 },
-            sessionConfig: { b: 2, c: 2 },
+            accountArgs: { a: 1, b: 1, c: 1 },
+            sessionArgs: { b: 2, c: 2 },
         })
-        const svc = new TestService('u1', { config: { c: 3 } as any })
+        const svc = new TestService('u1', { args: { c: 3 } as any })
         await svc.Initialize()
         // a only in account → 1; b in account+session → session wins → 2; c in all three → input wins → 3
-        const cfg = (svc.snapshot as any).config
+        const cfg = (svc.snapshot as any).args
         expect(cfg.a).toBe(1)
         expect(cfg.b).toBe(2)
         expect(cfg.c).toBe(3)
         // The merged result was written back to session layer.
-        expect(sessionLayer.data.config).toMatchObject({ a: 1, b: 2, c: 3 })
+        expect(sessionLayer.data.args).toMatchObject({ a: 1, b: 2, c: 3 })
     })
 
     test('legacy account-only data still merges through (no session overlay yet)', async () => {
-        const { sessionLayer } = newScenario({ accountConfig: { a: 1, b: 1 } })
+        const { sessionLayer } = newScenario({ accountArgs: { a: 1, b: 1 } })
         const svc = new TestService('u1')
         await svc.Initialize()
-        const cfg = (svc.snapshot as any).config
+        const cfg = (svc.snapshot as any).args
         expect(cfg).toMatchObject({ a: 1, b: 1 })
         // The merge result was persisted as a session overlay.
-        expect(sessionLayer.data.config).toMatchObject({ a: 1, b: 1 })
+        expect(sessionLayer.data.args).toMatchObject({ a: 1, b: 1 })
     })
 })
 
-describe('BaseCommandService — setConfigValue routes to session layer', () => {
-    test('setConfigValue writes to session layer, not account', async () => {
+describe('BaseCommandService — setArgValue routes to session layer', () => {
+    test('setArgValue writes to session layer, not account', async () => {
         const { accountLayer, sessionLayer } = newScenario({
-            accountConfig: { existing: 'baseline' },
+            accountArgs: { existing: 'baseline' },
         })
         const svc = new TestService('u1')
         await svc.Initialize()
         accountLayer.writes.length = 0  // clear init writes
         sessionLayer.writes.length = 0
 
-        await svc.testSetConfig('newKey', 'newVal')
-        expect(sessionLayer.writes).toEqual([{ path: 'config.newKey', value: 'newVal' }])
+        await svc.testSetArg('newKey', 'newVal')
+        expect(sessionLayer.writes).toEqual([{ path: 'args.newKey', value: 'newVal' }])
         expect(accountLayer.writes).toEqual([])
-        expect(accountLayer.data.config).toEqual({ existing: 'baseline' })
+        expect(accountLayer.data.args).toEqual({ existing: 'baseline' })
     })
 
-    test('setRuntimeStateValue writes to session layer under runtimeState key', async () => {
+    test('setStateValue writes to session layer under state key', async () => {
         const { sessionLayer } = newScenario()
         const svc = new TestService('u1')
         await svc.Initialize()
         sessionLayer.writes.length = 0
 
-        await svc.testSetRuntimeState('progress', 42)
-        expect(sessionLayer.writes).toEqual([{ path: 'runtimeState.progress', value: 42 }])
+        await svc.testSetStateValue('progress', 42)
+        expect(sessionLayer.writes).toEqual([{ path: 'state.progress', value: 42 }])
     })
 
-    test('setRuntimeState (batched) writes all paths in a single save', async () => {
+    test('setState (batched) writes all paths in a single save', async () => {
         const { sessionLayer } = newScenario()
         const svc = new TestService('u1')
         await svc.Initialize()
         sessionLayer.writes.length = 0
         const baselineSaves = sessionLayer.saveCount
 
-        await svc.testSetRuntimeStateBatch({
+        await svc.testSetStateBatch({
             results: [{ name: 'org-1' }],
             processedUrls: ['https://a.test'],
             lastQuery: 'foo',
         })
 
-        // All three writes recorded under the runtimeState prefix.
+        // All three writes recorded under the state prefix.
         expect(sessionLayer.writes).toEqual([
-            { path: 'runtimeState.results', value: [{ name: 'org-1' }] },
-            { path: 'runtimeState.processedUrls', value: ['https://a.test'] },
-            { path: 'runtimeState.lastQuery', value: 'foo' },
+            { path: 'state.results', value: [{ name: 'org-1' }] },
+            { path: 'state.processedUrls', value: ['https://a.test'] },
+            { path: 'state.lastQuery', value: 'foo' },
         ])
         // Exactly ONE save() across the batch — the whole point of the API.
         expect(sessionLayer.saveCount - baselineSaves).toBe(1)
@@ -188,30 +188,29 @@ describe('BaseCommandService — setConfigValue routes to session layer', () => 
 describe('BaseCommandService — noCache bypass', () => {
     test('noCache=true skips overlay reads AND skips session-layer write', async () => {
         const { sessionLayer } = newScenario({
-            accountConfig: { a: 1 },
-            sessionConfig: { a: 2, b: 2 },
+            accountArgs: { a: 1 },
+            sessionArgs: { a: 2, b: 2 },
         })
         const svc = new TestService('u1', {
-            config: { c: 3 } as any,
-            params: { noCache: true } as any,
+            args: { c: 3, noCache: true } as any,
         })
         await svc.Initialize()
-        const cfg = (svc.snapshot as any).config
+        const cfg = (svc.snapshot as any).args
         // Saved values were skipped; only defaults + input apply.
         expect(cfg.a).toBeUndefined()
         expect(cfg.b).toBeUndefined()
         expect(cfg.c).toBe(3)
         // Session overlay was NOT written — saved values survive untouched.
-        expect(sessionLayer.data.config).toEqual({ a: 2, b: 2 })
+        expect(sessionLayer.data.args).toEqual({ a: 2, b: 2 })
     })
 
     test('without noCache, overlays apply and write back', async () => {
         const { sessionLayer } = newScenario({
-            accountConfig: { a: 1 },
-            sessionConfig: { b: 2 },
+            accountArgs: { a: 1 },
+            sessionArgs: { b: 2 },
         })
-        const svc = new TestService('u1', { config: { c: 3 } as any })
+        const svc = new TestService('u1', { args: { c: 3 } as any })
         await svc.Initialize()
-        expect(sessionLayer.data.config).toMatchObject({ a: 1, b: 2, c: 3 })
+        expect(sessionLayer.data.args).toMatchObject({ a: 1, b: 2, c: 3 })
     })
 })
