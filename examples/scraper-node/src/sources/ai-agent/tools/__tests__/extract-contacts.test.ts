@@ -75,3 +75,63 @@ describe('extract_contacts — addresses', () => {
         expect(matches).toHaveLength(1)
     })
 })
+
+describe('extract_contacts — candidateName', () => {
+    const tool = makeExtractContactsTool()
+
+    it('uses <title> when present', async () => {
+        const html = `<html><head><title>Адвокат Иванов</title></head><body></body></html>`
+        const result = await tool.handler({ html })
+        expect(result.candidateName).toBe('Адвокат Иванов')
+    })
+
+    it('falls back to itemprop="name" when no title', async () => {
+        const html = `<html><body><span itemprop="name">ООО Ромашка</span></body></html>`
+        const result = await tool.handler({ html })
+        expect(result.candidateName).toBe('ООО Ромашка')
+    })
+
+    it('falls back to <h1> when no title or itemprop', async () => {
+        const html = `<html><body><h1>Юридический центр</h1></body></html>`
+        const result = await tool.handler({ html })
+        expect(result.candidateName).toBe('Юридический центр')
+    })
+
+    it('returns empty string when nothing matches', async () => {
+        const html = `<html><body><p>Just text</p></body></html>`
+        const result = await tool.handler({ html })
+        expect(result.candidateName).toBe('')
+    })
+})
+
+describe('extract_contacts — edge cases', () => {
+    const tool = makeExtractContactsTool()
+
+    it('returns error envelope on empty html', async () => {
+        const result = await tool.handler({ html: '' })
+        expect(result.error).toBe('empty html')
+        expect(result.phones).toEqual([])
+    })
+
+    it('returns empty arrays on garbage html without throwing', async () => {
+        const result = await tool.handler({ html: '<<<>>>' })
+        expect(result.phones).toEqual([])
+        expect(result.emails).toEqual([])
+        expect(result.addresses).toEqual([])
+    })
+})
+
+describe('extract_contacts — hint', () => {
+    const tool = makeExtractContactsTool()
+
+    it('emits "no structured contacts" hint when nothing found', async () => {
+        const result = await tool.handler({ html: '<html><body>Nothing here</body></html>' })
+        expect(result.hint).toMatch(/no structured contacts/i)
+    })
+
+    it('emits "found N contacts" hint when contacts found', async () => {
+        const html = `<html><body><a href="tel:+74951234567">x</a></body></html>`
+        const result = await tool.handler({ html })
+        expect(result.hint).toMatch(/found.*report_results/i)
+    })
+})

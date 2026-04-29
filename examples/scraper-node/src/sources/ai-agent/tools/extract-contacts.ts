@@ -8,6 +8,7 @@ interface ExtractResult {
     addresses: string[]
     candidateName: string
     error?: string
+    hint?: string
 }
 
 const PHONE_REGEX = /(?:\+7|8)[\s\-()]*\d{3}[\s\-()]*\d{3}[\s\-()]*\d{2}[\s\-()]*\d{2}/g
@@ -70,8 +71,20 @@ export function makeExtractContactsTool(): Tool {
                 }
                 const addresses = Array.from(addressSet).slice(0, 10)
 
-                log.debug(`ai-agent.extract_contacts: phones=${phones.length} emails=${emails.length} addresses=${addresses.length}`)
-                return { phones, emails, addresses, candidateName: '' }
+                let candidateName = ''
+                const titleText = $('title').first().text().trim()
+                if (titleText) candidateName = titleText
+                if (!candidateName) candidateName = $('[itemprop="name"]').first().text().trim()
+                if (!candidateName) candidateName = $('h1').first().text().trim()
+                if (!candidateName) candidateName = $('meta[property="og:title"]').attr('content')?.trim() ?? ''
+
+                const totalContacts = phones.length + emails.length + addresses.length
+                const hint = totalContacts === 0
+                    ? "no structured contacts found — try parse_html with a custom selector, or check the page's footer/contacts subpath"
+                    : `found ${totalContacts} contacts — call report_results with the org details`
+
+                log.debug(`ai-agent.extract_contacts: phones=${phones.length} emails=${emails.length} addresses=${addresses.length} name="${candidateName.slice(0, 40)}"`)
+                return { phones, emails, addresses, candidateName, hint }
             } catch (e: any) {
                 log.warn(`ai-agent.extract_contacts: ${e.message ?? e}`)
                 return { phones: [], emails: [], addresses: [], candidateName: '', error: String(e.message ?? e) }
