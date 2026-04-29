@@ -1,10 +1,9 @@
 import {
-    GlobalServiceConfig,
-    GlobalServiceMessages,
+    GlobalServiceIntercom,
     CmdServiceData,
-    HubGlobalServiceParam,
-    CmdArgument,
-} from '@cmd-hub/core'
+    CmdArg,
+} from '@cmd-hub/common'
+import { HubGlobalServiceArgs } from '@cmd-hub/core'
 import { OrgData } from '../types'
 
 /**
@@ -14,7 +13,7 @@ import { OrgData } from '../types'
  * the runtime source-of-truth for what's actually available; these
  * literals only seed the builder's pick list. Adding a new plugin means
  * a registration call AND adding the name here — the manifest's static
- * `options[]` can't be resolved at runtime under the new tree model.
+ * `choices[]` can't be resolved at runtime under the new tree model.
  */
 const SOURCE_OPTIONS = [
     'all',
@@ -28,12 +27,17 @@ const EXPORTER_OPTIONS = ['json', 'csv', 'google-sheets'] as const
 
 /**
  * Per-service argument tree for `OrgScraperService`. Each leaf carries
- * its own `type`, `default`, optional `options[]`, and validator —
- * `unflattenValue` produces a typed `ScraperConfig` instance directly,
+ * its own `type`, `default`, optional `choices[]`, and validator —
+ * `unflattenArgs` produces a typed `ScraperArgs` instance directly,
  * so the runtime side never sees raw strings or has to re-merge defaults.
  *
  * Source/exporter names come from the live registries so adding a new
  * source plugin is a registration call, not a tree-edit.
+ *
+ * Persistent leaves (`persistent: true`) ride the layered account/session
+ * store via /sargs; ephemeral leaves (the four flags inherited from
+ * HubGlobalServiceArgs — sessionId, noDashboard, noCache, now) are
+ * per-invocation only.
  */
 
 const positiveInt = (raw: string): true | string => {
@@ -55,63 +59,70 @@ const nonEmptyString = (raw: string): true | string =>
 /** AI-agent settings as a nested branch class. Defaults preserved from
  *  the old `AI_AGENT_DEFAULTS` constants — the leaves carry them directly. */
 class AIAgentSettings {
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Backing model id',
-        options: ['qwen2.5:7b', 'qwen3:8b', 'qwen3.5:9b', 'gpt-4o', 'gpt-4o-mini'],
+        choices: ['qwen2.5:7b', 'qwen3:8b', 'qwen3.5:9b', 'gpt-4o', 'gpt-4o-mini'],
         default: 'qwen2.5:7b',
     })
     model?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Sampling temperature (0..1)',
         type: 'number',
-        options: ['0.0', '0.2', '0.5', '0.7', '1.0'],
+        choices: ['0.0', '0.2', '0.5', '0.7', '1.0'],
         default: '0.2',
         validator: zeroToOne,
     })
     temperature?: number
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Max tool calls per task',
         type: 'number',
-        options: ['10', '25', '50', '100'],
+        choices: ['10', '25', '50', '100'],
         default: '25',
         validator: positiveInt,
     })
     maxToolCalls?: number
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Per-tool timeout (ms)',
         type: 'number',
-        options: ['30000', '60000', '120000'],
+        choices: ['30000', '60000', '120000'],
         default: '60000',
         validator: positiveInt,
     })
     toolTimeoutMs?: number
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Whole-task timeout (ms)',
         type: 'number',
-        options: ['60000', '300000', '600000', '1800000', '3600000'],
+        choices: ['60000', '300000', '600000', '1800000', '3600000'],
         default: '3600000',
         validator: positiveInt,
     })
     totalTimeoutMs?: number
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Override LLM base URL',
         default: 'http://127.0.0.1:11434/v1',
     })
     baseUrl?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'API key (free-form; empty = none)',
         default: '',
     })
@@ -121,131 +132,136 @@ class AIAgentSettings {
 /** Google Sheets exporter config. Both fields are free-form; empty
  *  values mean "feature unavailable" — the exporter checks. */
 class GoogleSheetsSettings {
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Service-account credentials JSON',
         default: '',
     })
     credentials?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Target spreadsheet id',
         default: '',
     })
     spreadsheetId?: string
 }
 
-export class ScraperConfigData extends GlobalServiceConfig {
-    @CmdArgument({
+export class ScraperArgs extends HubGlobalServiceArgs {
+    @CmdArg({
         required: true,
+        persistent: true,
         position: 1,
         description: "Search query (e.g. 'стоматологии Москва')",
         validator: nonEmptyString,
     })
     query?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'City/region filter',
     })
     city?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Max organizations to collect',
         type: 'number',
-        options: ['100', '1000', '10000', '100000', '1000000'],
+        choices: ['100', '1000', '10000', '100000', '1000000'],
         default: '10000',
         validator: positiveInt,
     })
     limit?: number
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Export format',
-        options: [...EXPORTER_OPTIONS],
+        choices: [...EXPORTER_OPTIONS],
         default: 'json',
     })
     format?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: "Sources to scrape (comma-separated, or 'all')",
         // Multi-select: pass 'all' or a comma-separated list of source
-        // names. The static `options[]` only helps the builder pick a
+        // names. The static `choices[]` only helps the builder pick a
         // single source — the runtime parser splits the comma form.
-        options: [...SOURCE_OPTIONS],
+        choices: [...SOURCE_OPTIONS],
         default: 'all',
     })
     sources?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'AI agent settings',
         childClass: AIAgentSettings,
     })
     aiAgent?: AIAgentSettings
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Google Sheets export config',
         childClass: GoogleSheetsSettings,
     })
     googleSheets?: GoogleSheetsSettings
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
+        persistent: true,
         description: 'Per-request delay in milliseconds',
         type: 'number',
-        options: ['250', '500', '1000', '2000', '5000'],
+        choices: ['250', '500', '1000', '2000', '5000'],
         default: '1000',
         validator: positiveInt,
     })
     requestDelayMs?: number
 }
 
-export class ScraperParamsData extends HubGlobalServiceParam {}
-
-export class ScraperMessagesData extends GlobalServiceMessages {
-    @CmdArgument({ required: false, standalone: true, description: 'Pause scraping' })
+export class ScraperIntercom extends GlobalServiceIntercom {
+    @CmdArg({ required: false, standalone: true, description: 'Pause scraping' })
     pause?: boolean
 
-    @CmdArgument({ required: false, standalone: true, description: 'Resume scraping' })
+    @CmdArg({ required: false, standalone: true, description: 'Resume scraping' })
     resume?: boolean
 
-    @CmdArgument({ required: false, standalone: true, description: 'Stop and export current results' })
+    @CmdArg({ required: false, standalone: true, description: 'Stop and export current results' })
     stop?: boolean
 
-    @CmdArgument({ required: false, standalone: true, description: 'Export current results now' })
+    @CmdArg({ required: false, standalone: true, description: 'Export current results now' })
     export?: boolean
 }
 
-/** Resumable per-session state — distinct from config. Capped + persisted
+/** Resumable per-session state — distinct from args. Capped + persisted
  *  every N orgs so a node restart can pick up where the run left off
  *  without re-yielding duplicates. */
-export interface ScraperRuntimeState {
+export interface ScraperState {
     results: OrgData[]
     processedUrls: string[]
     lastQuery?: string
 }
 
 export type ScraperServiceDataType = CmdServiceData<
-    ScraperConfigData,
-    ScraperParamsData,
-    ScraperMessagesData,
-    ScraperRuntimeState
+    ScraperArgs,
+    ScraperIntercom,
+    ScraperState
 >
 
 export const scraperDefaultData: ScraperServiceDataType = new CmdServiceData(
-    new ScraperConfigData(),
-    new ScraperParamsData(),
-    new ScraperMessagesData(),
+    new ScraperArgs(),
+    new ScraperIntercom(),
 )
 
 /** Public type aliases callers (sources, exporters, plugins) can import
- *  to type the `context.config` they receive. The shapes are derived
+ *  to type the `context.args` they receive. The shapes are derived
  *  from the data classes so renames stay in sync automatically. */
 export type AIAgentConfig = AIAgentSettings
 export type GoogleSheetsConfig = GoogleSheetsSettings
-export type ScraperConfig = ScraperConfigData

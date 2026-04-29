@@ -151,7 +151,7 @@ export class TelegramUI extends BaseUI<TgContext> {
                 return {
                     command: r.command.command,
                     description: r.command.description,
-                    options: entry?.options ?? this.dispatcher.getCommandTree(r.command.command)!,
+                    argsTree: entry?.argsTree ?? this.dispatcher.getCommandTree(r.command.command)!,
                 }
             }),
             TELEGRAM_COMMAND_CONSTRAINTS,

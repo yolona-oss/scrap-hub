@@ -4,12 +4,12 @@ import { BaseUIContext } from "../../ui/types";
 
 /** Hub-side view of one cmd-node command. The aggregator decodes
  *  the proto on `attach` (see cmd-hub-service-impl.ts toAggregated),
- *  so consumers receive an already-decoded `OptionsTree` — no
+ *  so consumers receive an already-decoded `ArgTree` — no
  *  further proto decoding needed. */
 export interface RemoteCommandSpec {
     name: string
     description: string
-    options?: OptionsTree
+    options?: ArgTree
 }
 
 import log from '../../application/logger';
@@ -42,7 +42,7 @@ import type {
     CapabilityKey,
 } from "@cmd-hub/common";
 import { isOneShot, isService, IUICommandProcessed } from "../../ui/types/command";
-import { branch, buildTreeFromClass, walkLeaves, type OptionsTree } from "@cmd-hub/common";
+import { argBranch, buildArgTreeFromClass, walkArgLeaves, type ArgTree } from "@cmd-hub/common";
 
 export interface DispatcherRepos {
     readonly manager: IManagerRepo
@@ -78,7 +78,7 @@ import {
 
     CalibrateCommand,
     DashboardCommand,
-    SConfigCommand,
+    SArgsCommand,
     ConfigCommand,
     SInfoCommand,
     InviteCommand,
@@ -106,9 +106,9 @@ export interface IDashboardRegistry<UICtx extends BaseUIContext = BaseUIContext>
     listUserDashboards(userId: string): Array<{ serviceName: string; dashboard: ServiceDashboard<UICtx> }>
 }
 
-function countRequiredLeaves(tree: OptionsTree): number {
+function countRequiredLeaves(tree: ArgTree): number {
     let n = 0
-    for (const { leaf } of walkLeaves(tree)) {
+    for (const { leaf } of walkArgLeaves(tree)) {
         if (leaf.required) n++
     }
     return n
@@ -134,14 +134,14 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             commands: Array<{
                 name: string
                 description: string
-                options?: OptionsTree
+                options?: ArgTree
             }>
             services?: Array<{ command?: { name?: string } }>
         }>
         findCommand?(name: string): {
             name: string
             description: string
-            options?: OptionsTree
+            options?: ArgTree
         } | undefined
         configModuleOwners(module: string): string[]
     } | null = null
@@ -299,13 +299,13 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
     }
 
     private registerWrapper({command, invokable, requires}: ICmdRegisterEntry<UIContextType>, bounded = true) {
-        const options = command.args ? buildTreeFromClass(command.args) : branch({})
+        const options = command.args ? buildArgTreeFromClass(command.args) : argBranch({})
         this.cmd_registry.set(
             command.command,
             {
                 invokable: invokable,
                 description: command.description,
-                options,
+                argsTree: options,
                 next: command.next,
                 prev: command.prev,
                 seqBounded: bounded,
@@ -339,7 +339,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
 
             toRegister(CalibrateCommand as any, this),
             toRegister(DashboardCommand as any, this),
-            toRegister(SConfigCommand as any, this),
+            toRegister(SArgsCommand as any, this),
             toRegister(ConfigCommand as any, this),
             toRegister(SInfoCommand as any, this),
             toRegister(InviteCommand as any, this),
@@ -428,8 +428,8 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             // toggle `-now` to skip it explicitly.
             if (this._isRemoteService(command)) return false
             // Aggregator already decoded the proto on attach; remote.options
-            // is an OptionsTree. Empty/undefined → no required leaves → 0 ≥ 0.
-            return passedArgs.length >= countRequiredLeaves(remote.options ?? branch({}))
+            // is an ArgTree. Empty/undefined → no required leaves → 0 ≥ 0.
+            return passedArgs.length >= countRequiredLeaves(remote.options ?? argBranch({}))
         }
 
         log.error(`While processing command "${command}" with passed arguments "${passedArgs.join(", ")}", command not found`)
@@ -614,13 +614,13 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
         return undefined
     }
 
-    /** Resolve `command` to its `OptionsTree`, regardless of whether it's
+    /** Resolve `command` to its `ArgTree`, regardless of whether it's
      *  served locally (registry-cached tree) or remotely. The aggregator
      *  decodes remote proto trees once on attach, so this is a plain
      *  pass-through for both. Returns `undefined` for unknown commands. */
-    getCommandTree(command: string): OptionsTree | undefined {
+    getCommandTree(command: string): ArgTree | undefined {
         const local = this.cmd_registry.get(command)
-        if (local) return local.options
+        if (local) return local.argsTree
         const remote = this.tryGetRemoteCommand(command)
         return remote?.options
     }
@@ -651,7 +651,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
             out.push({
                 command: name,
                 description: entry.description,
-                options: entry.options,
+                argsTree: entry.argsTree,
             })
         }
 
@@ -664,7 +664,7 @@ export class CmdDispatcher<UIContextType extends BaseUIContext> extends WithInit
                     out.push({
                         command: c.name,
                         description: c.description,
-                        options: c.options ?? branch({}),
+                        argsTree: c.options ?? argBranch({}),
                     })
                     localNames.add(c.name)
                 }

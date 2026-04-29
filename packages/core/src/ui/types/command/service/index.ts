@@ -4,9 +4,8 @@ export type { IntercomAction } from '@cmd-hub/common'
 export { BaseCommandService } from '@cmd-hub/common'
 export {
     CmdServiceData,
-    GlobalServiceConfig,
-    GlobalServiceParam,
-    GlobalServiceMessages,
+    GlobalServiceArgs,
+    GlobalServiceIntercom,
 } from '@cmd-hub/common'
 export type { ServiceContext } from '@cmd-hub/common'
 export { BLANK_SERVICE_NAME } from '@cmd-hub/common'

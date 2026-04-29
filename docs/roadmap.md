@@ -12,7 +12,7 @@ These are commitments from the v1 design that must land in v2. v1 deliberately s
 
 **HSM/TPM-backed node tokens.** Node-side credential storage should support hardware-backed keystores so a stolen filesystem snapshot doesn't compromise the token. v2 adds a `ITokenStore` seam on the node side mirroring the hub's `ITokenVerifier`.
 
-**Signed audit log** of every `/config`, `/sconfig`, `/node` mutation. v1 logs to stderr. v2 persists a tamper-evident log to Mongo or an append-only store.
+**Signed audit log** of every `/config`, `/sargs`, `/node` mutation. v1 logs to stderr. v2 persists a tamper-evident log to Mongo or an append-only store.
 
 ## Storage
 

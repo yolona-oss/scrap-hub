@@ -2,11 +2,11 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { CmdArgument } from "../../../ui/types/command"
+import { CmdArg } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
 
 class DashboardArgs {
-    @CmdArgument({
+    @CmdArg({
         required: false,
         position: 1,
         description: "Service name to show dashboard for",

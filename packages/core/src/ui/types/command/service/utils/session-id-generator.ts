@@ -1,5 +1,5 @@
 /**
- * Session-id helpers used by `HubGlobalServiceParam`.
+ * Session-id helpers used by `HubGlobalServiceArgs`.
  *
  * `sessionIdValidator` keeps user-supplied session names alphanumeric only —
  * mongo-safe and URL-safe. The function-form options resolvers

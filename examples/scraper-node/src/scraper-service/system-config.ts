@@ -4,8 +4,8 @@ import { log } from '@cmd-hub/common'
 /**
  * System-tier scraper config — operator-set, applies to every user on
  * the node. User-tier knobs (AI agent, Google Sheets, request delay
- * preference) live on the per-service `OptionsTree` and arrive merged
- * into `this.data.config` by the framework.
+ * preference) live on the per-service `ArgTree` and arrive merged
+ * into `this.data.args` by the framework.
  */
 export interface ScraperSystemConfig {
     chromePath?: string

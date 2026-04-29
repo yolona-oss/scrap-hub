@@ -2,7 +2,7 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { CmdArgument } from "../../../ui/types/command"
+import { CmdArg } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
 import {
     CAP_SessionLogRepo,
@@ -12,20 +12,20 @@ import {
 } from "@cmd-hub/common"
 
 class LogArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 1,
         description: "Session id (visible in the dashboard header during a run)",
     })
     sessionId!: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
         description: "Max entries to fetch (default 200)",
     })
     limit?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
         description: "Starting seq for paging (default 0)",
     })

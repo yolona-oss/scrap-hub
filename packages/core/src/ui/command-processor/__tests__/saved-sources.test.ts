@@ -13,10 +13,10 @@ describe('loadSavedSources', () => {
         accountExists?: boolean
     }) {
         const sessions = (opts.sessions ?? []).map(s => ({
-            record: { name: s.name, createTime: s.createTime, data: { config: s.config } },
+            record: { name: s.name, createTime: s.createTime, data: { args: s.config } },
         }))
         const moduleHandle = {
-            record: { data: { config: opts.moduleConfig ?? {} } },
+            record: { data: { args: opts.moduleConfig ?? {} } },
             getSessions: jest.fn().mockResolvedValue(sessions),
         }
         const account = {
@@ -40,16 +40,16 @@ describe('loadSavedSources', () => {
         expect(result.size).toBe(0)
     })
 
-    test('reads module config under config/ prefix tagged module', async () => {
+    test('reads module args under args/ prefix tagged module', async () => {
         const repos = makeRepos({
             moduleConfig: { city: 'Moscow', depth: 3 },
         }) as any
         const result = await loadSavedSources(repos, 'u1', 'scraper')
-        expect(result.get('config/city')).toEqual({ value: 'Moscow', source: 'module' })
-        expect(result.get('config/depth')).toEqual({ value: '3', source: 'module' })
+        expect(result.get('args/city')).toEqual({ value: 'Moscow', source: 'module' })
+        expect(result.get('args/depth')).toEqual({ value: '3', source: 'module' })
     })
 
-    test('most recent session config overrides module on collision; entry tagged session', async () => {
+    test('most recent session args overrides module on collision; entry tagged session', async () => {
         const repos = makeRepos({
             moduleConfig: { city: 'Moscow', depth: 3 },
             sessions: [
@@ -58,8 +58,8 @@ describe('loadSavedSources', () => {
             ],
         }) as any
         const result = await loadSavedSources(repos, 'u1', 'scraper')
-        expect(result.get('config/city')).toEqual({ value: 'Kazan', source: 'session' })
-        expect(result.get('config/depth')).toEqual({ value: '3', source: 'module' })
+        expect(result.get('args/city')).toEqual({ value: 'Kazan', source: 'session' })
+        expect(result.get('args/depth')).toEqual({ value: '3', source: 'module' })
     })
 
     test('module-only key keeps module tag when session lacks it', async () => {
@@ -68,8 +68,8 @@ describe('loadSavedSources', () => {
             sessions: [{ name: 's', createTime: 1, config: { city: 'X' } }],
         }) as any
         const result = await loadSavedSources(repos, 'u1', 'scraper')
-        expect(result.get('config/depth')).toEqual({ value: '3', source: 'module' })
-        expect(result.get('config/city')).toEqual({ value: 'X', source: 'session' })
+        expect(result.get('args/depth')).toEqual({ value: '3', source: 'module' })
+        expect(result.get('args/city')).toEqual({ value: 'X', source: 'session' })
     })
 
     test('skips null/undefined/empty-string values', async () => {
@@ -77,10 +77,10 @@ describe('loadSavedSources', () => {
             moduleConfig: { keep: 'x', dropNull: null, dropEmpty: '', dropUndef: undefined },
         }) as any
         const result = await loadSavedSources(repos, 'u1', 'scraper')
-        expect(result.has('config/keep')).toBe(true)
-        expect(result.has('config/dropNull')).toBe(false)
-        expect(result.has('config/dropEmpty')).toBe(false)
-        expect(result.has('config/dropUndef')).toBe(false)
+        expect(result.has('args/keep')).toBe(true)
+        expect(result.has('args/dropNull')).toBe(false)
+        expect(result.has('args/dropEmpty')).toBe(false)
+        expect(result.has('args/dropUndef')).toBe(false)
     })
 
     test('flattens nested objects into slash-delimited paths', async () => {
@@ -88,8 +88,8 @@ describe('loadSavedSources', () => {
             moduleConfig: { aiAgent: { model: 'gpt-4', temperature: 0.7 } },
         }) as any
         const result = await loadSavedSources(repos, 'u1', 'scraper')
-        expect(result.get('config/aiAgent/model')).toEqual({ value: 'gpt-4', source: 'module' })
-        expect(result.get('config/aiAgent/temperature')).toEqual({ value: '0.7', source: 'module' })
+        expect(result.get('args/aiAgent/model')).toEqual({ value: 'gpt-4', source: 'module' })
+        expect(result.get('args/aiAgent/temperature')).toEqual({ value: '0.7', source: 'module' })
     })
 
     test('swallows DB errors and returns empty map', async () => {

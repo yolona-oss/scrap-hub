@@ -3,7 +3,7 @@ import {
     AggregatedManifest,
     UIRequirementsForFiltering,
 } from '../manifest-aggregator'
-import { branch } from '@cmd-hub/common'
+import { argBranch } from '@cmd-hub/common'
 
 /** Build a manifest with the Phase C fields (requires per-command +
  *  node-level publishedCapabilities). Defaults to no requirements. */
@@ -26,7 +26,7 @@ function mf(opts: {
             compatibilityId: c.compatibilityId,
             version: c.version ?? '1.0.0',
             description: '',
-            options: branch({}),
+            args: argBranch({}),
             aliases: [],
             requires: c.requires ?? [],
         })),

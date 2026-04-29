@@ -16,6 +16,7 @@ import {
     CAP_PendingDeleteRepo,
     CAP_ServiceStore,
     CAP_SessionLogRepo,
+    log,
 } from '@cmd-hub/common'
 import { MongooseStorageConnection } from '../connection'
 import { MongoSystemConfigRepo } from '../repos/system-config.repo'
@@ -28,6 +29,7 @@ import { MongoCmdAliasRepo } from '../repos/cmd-alias.repo'
 import { MongoPendingDeleteRepo } from '../repos/pending-delete.repo'
 import { MongoServiceStore } from '../repos/service-store'
 import { MongoSessionLogRepo } from '../repos/session-log.repo'
+import { migrateConfigToArgs } from '../migrations/0001-config-to-args'
 
 export const MongoStorageConfigSchema = z.object({
     url: z.string().min(1),
@@ -67,6 +69,13 @@ export class MongoStorageMiddleware implements IAppMiddleware, ConfigContributor
         const cfg = readConfigSlice(app, this)
         this.connection = new MongooseStorageConnection(cfg.url)
         await this.connection.connect()
+
+        const migrationResult = await migrateConfigToArgs()
+        if (migrationResult.moduleCount > 0 || migrationResult.sessionCount > 0) {
+            log.info(
+                `mongo-storage: migrated ${migrationResult.moduleCount} modules + ${migrationResult.sessionCount} sessions to args/state schema`,
+            )
+        }
 
         app.provide(CAP_StorageConnection, this.connection)
         app.provide(CAP_SystemConfigRepo, new MongoSystemConfigRepo())

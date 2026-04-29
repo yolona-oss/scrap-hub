@@ -2,7 +2,7 @@ import 'reflect-metadata'
 import { EventEmitter } from 'events'
 import { z } from 'zod'
 import {
-    CmdArgument,
+    CmdArg,
     CmdService,
     CapabilityValidationError,
     defineCapability,
@@ -12,18 +12,17 @@ import { CmdNodeApp } from '../cmd-node-app'
 const CAP_FAKE = defineCapability<string>('test.cmdNode.fake')
 
 class Cfg {
-    @CmdArgument({ required: true, position: 1, description: 'Query' })
+    @CmdArg({ required: true, position: 1, description: 'Query' })
     query!: string
 }
-class Par {}
-class Msg {}
+class Intercom {}
 
 @CmdService({
     name: 'needs-cap',
     description: 'Service that requires a capability',
     compatibilityId: 'com.example.needs-cap',
     version: '1.0.0',
-    config: Cfg, params: Par, messages: Msg,
+    args: Cfg, intercom: Intercom,
     requires: [CAP_FAKE],
 })
 class ServiceThatNeedsCap extends EventEmitter {

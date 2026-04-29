@@ -1,22 +1,22 @@
-import { branch, leaf } from '@cmd-hub/common'
+import { argBranch, argLeaf } from '@cmd-hub/common'
 import { runLeafValidators, ValidationFailedError } from '../validate-args'
 
 describe('runLeafValidators', () => {
     it('passes when no leaf has a validator', () => {
-        const tree = branch({ name: leaf({}) })
+        const tree = argBranch({ name: argLeaf({}) })
         expect(() => runLeafValidators(tree, { name: 'anything' })).not.toThrow()
     })
 
     it('passes when validator returns true', () => {
-        const tree = branch({
-            limit: leaf({ validator: (v) => /^\d+$/.test(v) }),
+        const tree = argBranch({
+            limit: argLeaf({ validator: (v: string) => /^\d+$/.test(v) }),
         })
         expect(() => runLeafValidators(tree, { limit: '42' })).not.toThrow()
     })
 
     it('throws ValidationFailedError with the failing leaf path', () => {
-        const tree = branch({
-            limit: leaf({ validator: (v) => /^\d+$/.test(v) }),
+        const tree = argBranch({
+            limit: argLeaf({ validator: (v: string) => /^\d+$/.test(v) }),
         })
         let caught: unknown
         try { runLeafValidators(tree, { limit: 'oops' }) } catch (e) { caught = e }
@@ -29,8 +29,8 @@ describe('runLeafValidators', () => {
     })
 
     it('uses the validator-returned string as the human-readable reason', () => {
-        const tree = branch({
-            limit: leaf({ validator: (v) => v === 'ok' ? true : `expected "ok", got "${v}"` }),
+        const tree = argBranch({
+            limit: argLeaf({ validator: (v: string) => v === 'ok' ? true : `expected "ok", got "${v}"` }),
         })
         let caught: unknown
         try { runLeafValidators(tree, { limit: 'nope' }) } catch (e) { caught = e }
@@ -38,30 +38,30 @@ describe('runLeafValidators', () => {
     })
 
     it('prefixes the failure path with the slice prefix', () => {
-        const tree = branch({
-            aiAgent: branch({
-                model: leaf({ validator: (v) => v.length > 0 || 'must be non-empty' }),
+        const tree = argBranch({
+            aiAgent: argBranch({
+                model: argLeaf({ validator: (v: string) => v.length > 0 || 'must be non-empty' }),
             }),
         })
         let caught: unknown
         try {
-            runLeafValidators(tree, { 'config/aiAgent/model': '' }, 'config/')
+            runLeafValidators(tree, { 'args/aiAgent/model': '' }, 'args/')
         } catch (e) { caught = e }
-        expect((caught as ValidationFailedError).argPath).toBe('config/aiAgent/model')
+        expect((caught as ValidationFailedError).argPath).toBe('args/aiAgent/model')
     })
 
     it('skips leaves whose value is missing from the wire map', () => {
-        const tree = branch({
-            optional: leaf({ validator: () => 'should not run' }),
+        const tree = argBranch({
+            optional: argLeaf({ validator: () => 'should not run' }),
         })
         expect(() => runLeafValidators(tree, {})).not.toThrow()
     })
 
     it('stops at the first failure (subsequent validators are not called)', () => {
         let secondCalled = false
-        const tree = branch({
-            a: leaf({ validator: () => 'first failure' }),
-            b: leaf({
+        const tree = argBranch({
+            a: argLeaf({ validator: () => 'first failure' }),
+            b: argLeaf({
                 validator: () => { secondCalled = true; return true },
             }),
         })

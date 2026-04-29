@@ -1,7 +1,7 @@
 import {
-    walkLeaves,
-    PAIR_PATH_DELIMITER,
-    type OptionsTree,
+    walkArgLeaves,
+    ARG_PATH_DELIMITER,
+    type ArgTree,
 } from '@cmd-hub/common'
 
 /**
@@ -13,7 +13,7 @@ import {
  * leaf so the user fixes only that input without rebuilding the rest of
  * the command.
  *
- * `argPath` is a slash-delimited dot-path (e.g. `config/aiAgent/model`)
+ * `argPath` is a slash-delimited path (e.g. `args/aiAgent/model`)
  * matching the wire convention; the parser splits on the same delimiter
  * via `focusLeaf`.
  */
@@ -30,15 +30,15 @@ export class ValidationFailedError extends Error {
 
 /** Walk every leaf in `tree` whose validator is defined and run it
  *  against the wire-supplied raw value at the leaf's path. Throws on
- *  the first failure. `slicePrefix` (e.g. `'config/'`) is prepended to
+ *  the first failure. `slicePrefix` (e.g. `'args/'`) is prepended to
  *  the failure path so the hub-side parser can address the leaf in the
  *  full service tree. Pass `''` for one-shots whose root has no slice. */
 export function runLeafValidators(
-    tree: OptionsTree,
+    tree: ArgTree,
     rawArgs: { [k: string]: string },
     slicePrefix: string = '',
 ): void {
-    for (const { pathKey, leaf } of walkLeaves(tree)) {
+    for (const { pathKey, leaf } of walkArgLeaves(tree)) {
         if (!leaf.validator) continue
         const raw = lookupRaw(rawArgs, slicePrefix, pathKey)
         if (raw === undefined) continue
@@ -61,5 +61,5 @@ function lookupRaw(
 /** Strip a single trailing `/` so callers can pass either form. */
 export function makeSlicePrefix(slice: string | undefined): string {
     if (!slice) return ''
-    return slice.endsWith(PAIR_PATH_DELIMITER) ? slice : `${slice}${PAIR_PATH_DELIMITER}`
+    return slice.endsWith(ARG_PATH_DELIMITER) ? slice : `${slice}${ARG_PATH_DELIMITER}`
 }

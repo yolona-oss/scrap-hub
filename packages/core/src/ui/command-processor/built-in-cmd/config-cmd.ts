@@ -2,27 +2,27 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { CmdArgument } from "../../../ui/types/command"
+import { CmdArg } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
 import { ConfigRegistry } from "../../../config-registry"
 import { TableDesigner } from "@cmd-hub/common"
 
 class ConfigArgs {
-    @CmdArgument({
+    @CmdArg({
         required: false,
         position: 1,
         description: 'Config module name',
     })
     module?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
         position: 2,
         description: 'Config key to set',
     })
     key?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
         position: 3,
         description: 'New value',

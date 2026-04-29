@@ -1,4 +1,4 @@
-import { CmdArgument } from "../../../ui/types/command"
+import { CmdArg } from "../../../ui/types/command"
 import { BuiltInServiceCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdDispatcher } from "../dispatcher"
@@ -6,7 +6,7 @@ import { anyToString, CmdArgumentProxy } from "@cmd-hub/common"
 import { UiUnicodeSymbols } from "../../../ui"
 
 class ServiceStopArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 1,
         description: "Service name to stop",
@@ -34,7 +34,7 @@ const ServiceStopCommand: BuiltInCommand = {
 /////////////////////////
 
 class ServiceRunArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 1,
         description: "Service name to run",
@@ -75,21 +75,21 @@ const ServiceRunCommand: BuiltInCommand = {
 /////////////////////////
 
 class ServiceSendMsgArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 1,
         description: 'Service name to send message',
     })
     service?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 2,
         description: 'Message name',
     })
     message?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: false,
         position: 3,
         description: 'Message additional args',

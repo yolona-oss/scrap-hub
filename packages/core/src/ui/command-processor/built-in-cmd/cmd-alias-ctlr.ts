@@ -1,4 +1,4 @@
-import { CmdArgument } from "../../../ui/types/command"
+import { CmdArg } from "../../../ui/types/command"
 import { BuiltInAliasCommandsEnum } from "../constants"
 import { CmdDispatcher } from "../dispatcher"
 import { BuiltInCommand } from "../types/built-in-cmd"
@@ -13,14 +13,14 @@ function isValidAliasName(alias: string) {
 }
 
 class AliasArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 1,
         description: "Alias name",
     })
     alias?: string
 
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 2,
         description: "Command to alias",
@@ -56,7 +56,7 @@ const AliasCommand: BuiltInCommand = {
 }
 
 class UnAliasArgs {
-    @CmdArgument({
+    @CmdArg({
         required: true,
         position: 1,
         description: "Alias name to remove",

@@ -510,8 +510,8 @@ function builderRender(data) {
                         <span class="bf-desc">${escText(f.description)}</span>
                     </div>
                 </div>`;
-            } else if (f.options && f.options.length > 0) {
-                const opts = f.options.map(o =>
+            } else if (f.choices && f.choices.length > 0) {
+                const opts = f.choices.map(o =>
                     `<option value="${escText(o)}" ${o === val ? 'selected' : ''}>${escText(o)}</option>`
                 ).join('');
                 html += `<div class="builder-field">
@@ -677,8 +677,8 @@ function acGetArgSuggestions(text) {
     if (p.isTypingPairValue && p.pairNameBeingCompleted) {
         const arg = args.find(a => a.name === p.pairNameBeingCompleted);
         if (arg) {
-            if (arg.options) {
-                for (const opt of arg.options) {
+            if (arg.choices) {
+                for (const opt of arg.choices) {
                     results.push({ text: opt, desc: arg.description, tag: 'value', insert: null });
                 }
             }
@@ -728,8 +728,8 @@ function acGetArgSuggestions(text) {
         .find(a => a.position > p.positionalCount);
 
     if (nextPos) {
-        if (nextPos.options) {
-            for (const opt of nextPos.options) {
+        if (nextPos.choices) {
+            for (const opt of nextPos.choices) {
                 results.push({ text: opt, desc: nextPos.description, tag: 'value', insert: null });
             }
         }

@@ -153,8 +153,8 @@ export class MongoAccountModuleHandle implements IAccountModuleHandle {
         await this.doc.save()
     }
 
-    async replaceConfig(config: Record<string, unknown>): Promise<void> {
-        this.doc.set('data.config', config)
+    async replaceArgs(args: Record<string, unknown>): Promise<void> {
+        this.doc.set('data.args', args)
         await this.doc.save()
     }
 

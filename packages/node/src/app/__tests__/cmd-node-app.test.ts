@@ -1,22 +1,21 @@
 import 'reflect-metadata'
 import { EventEmitter } from 'events'
 import { z } from 'zod'
-import { CmdArgument, CmdService } from '@cmd-hub/common'
+import { CmdArg, CmdService } from '@cmd-hub/common'
 import { CmdNodeApp } from '../cmd-node-app'
 
 class Cfg {
-    @CmdArgument({ required: true, position: 1, description: 'Query' })
+    @CmdArg({ required: true, position: 1, description: 'Query' })
     query!: string
 }
-class Par {}
-class Msg {}
+class Intercom {}
 
 @CmdService({
     name: 'scraper',
     description: 'Scrape things',
     compatibilityId: 'com.example.scraper',
     version: '1.0.0',
-    config: Cfg, params: Par, messages: Msg,
+    args: Cfg, intercom: Intercom,
 })
 class ScraperService extends EventEmitter {
     static configNamespace = 'scraper'
@@ -76,7 +75,7 @@ describe('CmdNodeApp', () => {
             description: 'x',
             compatibilityId: 'com.example.other',
             version: '1.0.0',
-            config: Cfg, params: Par, messages: Msg,
+            args: Cfg, intercom: Intercom,
         })
         class OtherService extends EventEmitter {
             // eslint-disable-next-line @typescript-eslint/no-unused-vars

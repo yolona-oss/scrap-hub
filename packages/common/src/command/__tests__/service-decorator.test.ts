@@ -1,9 +1,20 @@
 import 'reflect-metadata'
 import { CmdService, getCmdServiceMeta } from '../service-decorator'
+import { CmdArg } from '../arg-decorator'
 
-class FakeConfigData {}
-class FakeParamsData {}
-class FakeMessagesData {}
+class FakeArgsData {}
+class FakeIntercomData {
+    @CmdArg({ required: false, description: 'test' })
+    echo?: string
+}
+class FakeNestedInner {
+    @CmdArg({ required: false, description: 'inner leaf' })
+    leaf?: string
+}
+class FakeNestedIntercom {
+    @CmdArg({ childClass: FakeNestedInner, description: 'nested branch' })
+    nested?: FakeNestedInner
+}
 
 describe('CmdService', () => {
     it('stores the decorator metadata on the class', () => {
@@ -12,9 +23,8 @@ describe('CmdService', () => {
             description: 'scrape things',
             compatibilityId: 'com.example.scraper',
             version: '1.0.0',
-            config: FakeConfigData,
-            params: FakeParamsData,
-            messages: FakeMessagesData,
+            args: FakeArgsData,
+            intercom: FakeIntercomData,
         })
         class FakeService {}
 
@@ -24,9 +34,8 @@ describe('CmdService', () => {
             description: 'scrape things',
             compatibilityId: 'com.example.scraper',
             version: '1.0.0',
-            config: FakeConfigData,
-            params: FakeParamsData,
-            messages: FakeMessagesData,
+            args: FakeArgsData,
+            intercom: FakeIntercomData,
         })
     })
 
@@ -42,9 +51,8 @@ describe('CmdService', () => {
                 description: 'x',
                 compatibilityId: 'x',
                 version: '1.0.0',
-                config: FakeConfigData,
-                params: FakeParamsData,
-                messages: FakeMessagesData,
+                args: FakeArgsData,
+                intercom: FakeIntercomData,
             } as any)(class {}),
         ).toThrow(/name/)
     })
@@ -56,10 +64,22 @@ describe('CmdService', () => {
                 description: 'x',
                 compatibilityId: 'x',
                 version: 'not-a-version',
-                config: FakeConfigData,
-                params: FakeParamsData,
-                messages: FakeMessagesData,
+                args: FakeArgsData,
+                intercom: FakeIntercomData,
             })(class {}),
         ).toThrow(/version/)
+    })
+
+    it('rejects an intercom class with nested branches', () => {
+        expect(() =>
+            CmdService({
+                name: 'scraper',
+                description: 'x',
+                compatibilityId: 'x',
+                version: '1.0.0',
+                args: FakeArgsData,
+                intercom: FakeNestedIntercom,
+            })(class {}),
+        ).toThrow(/nested branch/)
     })
 })

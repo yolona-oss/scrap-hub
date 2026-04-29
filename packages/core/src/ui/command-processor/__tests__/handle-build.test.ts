@@ -6,10 +6,10 @@ jest.mock('../../../config-registry', () => ({ ConfigRegistry: { register: jest.
 
 import { HandleCmdBuilder } from '../handlers/build'
 import { CmdDispatcher } from '../dispatcher'
-import { branch, leaf, type OptionsTree } from '@cmd-hub/common'
+import { argBranch, argLeaf, type ArgTree } from '@cmd-hub/common'
 
 function makeDispatcher(opts: {
-    commandTree: OptionsTree
+    commandTree: ArgTree
     isService?: boolean
     savedSources?: Map<string, { value: string; source: 'module' | 'session' }>
     invokeMock?: jest.Mock
@@ -17,7 +17,7 @@ function makeDispatcher(opts: {
     const dispatcher = new CmdDispatcher() as any
     const command = 'svc'
     // The aggregator decodes proto on attach, so the dispatcher
-    // receives the OptionsTree directly — pass it through unchanged.
+    // receives the ArgTree directly — pass it through unchanged.
     dispatcher.attachManifestAggregator({
         listManifests: () => [{
             nodeId: 'n1', nodeName: 'n', version: '1.0.0',
@@ -31,12 +31,12 @@ function makeDispatcher(opts: {
         configModuleOwners: () => [],
     })
 
-    // Stub `getCommandTree` to return our raw OptionsTree (skip the proto round-trip).
+    // Stub `getCommandTree` to return our raw ArgTree (skip the proto round-trip).
     dispatcher.getCommandTree = () => opts.commandTree
 
     // Stub repos so loadSavedSources works without a real DB.
     const moduleHandle = {
-        record: { data: { config: {} } },
+        record: { data: { args: {} } },
         getSessions: jest.fn().mockResolvedValue([]),
     }
     const account = { getModuleByNameOrCreate: jest.fn().mockResolvedValue({ module: moduleHandle, isNew: false }) }
@@ -69,7 +69,7 @@ describe('HandleCmdBuilder', () => {
     beforeEach(() => { mockSavedSources = new Map() })
 
     test('opens builder with saved sources for service when -now absent', async () => {
-        const tree = branch({ city: leaf({ description: 'city', required: true }) })
+        const tree = argBranch({ city: argLeaf({ description: 'city', required: true }) })
         const { dispatcher } = makeDispatcher({ commandTree: tree })
         mockSavedSources = new Map([['city', { value: 'Moscow', source: 'module' }]])
 
@@ -91,7 +91,7 @@ describe('HandleCmdBuilder', () => {
     })
 
     test('-now with full saved coverage skips builder and calls invoke directly', async () => {
-        const tree = branch({ city: leaf({ description: 'city', required: true }) })
+        const tree = argBranch({ city: argLeaf({ description: 'city', required: true }) })
         const invokeMock = jest.fn().mockResolvedValue({
             success: true, markup: { text: 'done' }, messageType: 'dashboard',
         })
@@ -119,7 +119,7 @@ describe('HandleCmdBuilder', () => {
     })
 
     test('-now without coverage falls through to builder with missing-required info', async () => {
-        const tree = branch({ city: leaf({ description: 'city', required: true }) })
+        const tree = argBranch({ city: argLeaf({ description: 'city', required: true }) })
         const invokeMock = jest.fn()
         const { dispatcher } = makeDispatcher({ commandTree: tree, invokeMock })
         mockSavedSources = new Map() // empty saved data
@@ -144,9 +144,9 @@ describe('HandleCmdBuilder', () => {
     })
 
     test('-now with typed args + saved partial covers required', async () => {
-        const tree = branch({
-            city: leaf({ description: 'city', required: true }),
-            depth: leaf({ description: 'depth', required: true }),
+        const tree = argBranch({
+            city: argLeaf({ description: 'city', required: true }),
+            depth: argLeaf({ description: 'depth', required: true }),
         })
         const invokeMock = jest.fn().mockResolvedValue({
             success: true, markup: { text: 'ok' }, messageType: 'dashboard',

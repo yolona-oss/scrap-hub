@@ -1,5 +1,5 @@
 import { UiUnicodeSymbols } from '../../../ui'
-import { walkLeaves, nodeAtPath, PAIR_PATH_DELIMITER, type LeafSpec } from '@cmd-hub/common'
+import { walkArgLeaves, argNodeAtPath, ARG_PATH_DELIMITER, type ArgLeaf } from '@cmd-hub/common'
 import { CBParser } from './interpreter/parser'
 import { BuilderMarkups } from './default-markup'
 import { BuilderActionSigns } from './default-callbacks'
@@ -68,7 +68,7 @@ export class BuilderMarkuper {
     private static _renderStateButtons(parser: CBParser): IMarkupButton[] {
         const pending = parser.Pending
         if (pending) {
-            const node = nodeAtPath(parser.Tree, pending.leafPath)
+            const node = argNodeAtPath(parser.Tree, pending.leafPath)
             if (!node || node.node !== 'leaf') return []
             return BuilderMarkuper._leafOptionButtons(node)
         }
@@ -84,8 +84,8 @@ export class BuilderMarkuper {
         return out
     }
 
-    private static _leafOptionButtons(leaf: LeafSpec): IMarkupButton[] {
-        return leaf.options.map(opt => ({
+    private static _leafOptionButtons(leaf: ArgLeaf): IMarkupButton[] {
+        return leaf.choices.map(opt => ({
             text: opt,
             type: 'value' as const,
             data: opt,
@@ -100,7 +100,7 @@ export class BuilderMarkuper {
     ): IMarkupButton {
         const isBranch = child.node === 'branch'
         const isStandalone = child.node === 'leaf' && child.standalone
-        const fullPath = [...parser.Path, name].join(PAIR_PATH_DELIMITER)
+        const fullPath = [...parser.Path, name].join(ARG_PATH_DELIMITER)
         const isSet = parser.Values.has(fullPath)
         const arrow = isBranch ? ` ${UiUnicodeSymbols.arrowRight}` : ''
         const check = isSet ? ` ${UiUnicodeSymbols.check}` : ''
@@ -138,10 +138,10 @@ export class BuilderMarkuper {
 
         let text = `${UiUnicodeSymbols.hammer} Building "${command}"`
         if (parser.Path.length > 0) {
-            text += `\n* path: ${parser.Path.join(PAIR_PATH_DELIMITER)}`
+            text += `\n* path: ${parser.Path.join(ARG_PATH_DELIMITER)}`
         }
         if (parser.Pending) {
-            text += `\n* awaiting value for: ${parser.Pending.leafPath.join(PAIR_PATH_DELIMITER)}`
+            text += `\n* awaiting value for: ${parser.Pending.leafPath.join(ARG_PATH_DELIMITER)}`
         }
 
         const lines: string[] = []
@@ -175,7 +175,7 @@ export class BuilderMarkuper {
         let text = `${UiUnicodeSymbols.hammer} Run CmdBuilder\n` +
             `Building command: ${UiUnicodeSymbols.arrowRight} "${command}"\n`
 
-        for (const { pathKey, leaf } of walkLeaves(parser.Tree)) {
+        for (const { pathKey, leaf } of walkArgLeaves(parser.Tree)) {
             const brackets = leaf.required ? '<>' : '[]'
             const desc = leaf.description || 'No description'
             text += ` - ${brackets[0]}${pathKey}${brackets[1]} - ${desc}\n`

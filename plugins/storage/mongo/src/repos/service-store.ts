@@ -23,8 +23,8 @@ class ServiceAccountLayerAdapter implements IServiceAccountLayer {
         return this.inner.setDataPath(path, value)
     }
 
-    replaceConfig(config: Record<string, unknown>): Promise<void> {
-        return this.inner.replaceConfig(config)
+    replaceArgs(args: Record<string, unknown>): Promise<void> {
+        return this.inner.replaceArgs(args)
     }
 }
 

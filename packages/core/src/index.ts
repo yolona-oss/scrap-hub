@@ -47,12 +47,11 @@ export * from './ui/types/command'
 export {
     BaseCommandService,
     CmdServiceData,
-    GlobalServiceConfig,
-    GlobalServiceParam,
-    GlobalServiceMessages,
+    GlobalServiceArgs,
+    GlobalServiceIntercom,
 } from './ui/types/command/service'
 export type { ServiceContext } from './ui/types/command/service'
-export { HubGlobalServiceParam } from './ui/types/command/service/hub-service-data'
+export { HubGlobalServiceArgs } from './ui/types/command/service/hub-service-data'
 export { sessionIdValidator } from './ui/types/command/service/utils/session-id-generator'
 
 // Constants (cmd-hub-private app branding)

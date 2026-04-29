@@ -2,7 +2,7 @@ import 'reflect-metadata'
 import { z } from 'zod'
 import { EventEmitter } from 'events'
 import {
-    CmdArgument,
+    CmdArg,
     CmdOneShot,
     CmdService,
     type CmdOneShotContext,
@@ -14,18 +14,17 @@ const CAP_DB = defineCapability<string>('phase-c.db')
 const CAP_GREETER = defineCapability<string>('phase-c.greeter')
 
 class CfgArgs {
-    @CmdArgument({ required: true, position: 1, description: 'q' })
+    @CmdArg({ required: true, position: 1, description: 'q' })
     query!: string
 }
-class ParArgs {}
-class MsgArgs {}
+class IntercomArgs {}
 
 @CmdService({
     name: 'serviceful',
     description: 'a service that needs db',
     compatibilityId: 'com.example.serviceful',
     version: '1.0.0',
-    config: CfgArgs, params: ParArgs, messages: MsgArgs,
+    args: CfgArgs, intercom: IntercomArgs,
     requires: [CAP_DB],
 })
 class ServicefulService extends EventEmitter {

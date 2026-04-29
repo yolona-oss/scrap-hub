@@ -6,8 +6,8 @@ import {
     assertRequires,
 } from './identity'
 import { defineDecoratorMeta, readDecoratorMeta, makeMetaKey } from './metadata'
-import { buildTreeFromClass } from './argument-decorator'
-import { unflattenValue, type OptionsTree } from './tree'
+import { buildArgTreeFromClass } from './arg-decorator'
+import { unflattenArgs, type ArgTree } from './tree'
 
 const META_KEY = makeMetaKey('CmdOneShot')
 
@@ -26,7 +26,7 @@ export type CmdOneShotInvokable<TArgs = Record<string, string>> =
     (ctx: CmdOneShotContext<TArgs>) => Promise<void>
 
 export interface CmdOneShotMeta extends BaseCommandIdentityWithRequires {
-    /** `@CmdArgument`-decorated data class. Optional: a one-shot with no
+    /** `@CmdArg`-decorated data class. Optional: a one-shot with no
      *  arguments at all simply omits this. */
     argsClass?: CmdDataClass
 }
@@ -110,9 +110,9 @@ export function bindArgsForSpec<TArgs>(
     if (!spec.argsClass) {
         return rawArgs as unknown as TArgs
     }
-    const tree: OptionsTree = buildTreeFromClass(spec.argsClass)
+    const tree: ArgTree = buildArgTreeFromClass(spec.argsClass)
     const flat = new Map(Object.entries(rawArgs))
-    return unflattenValue(tree, flat) as TArgs
+    return unflattenArgs(tree, flat) as TArgs
 }
 
 export function makeCmdOneShotContext<TArgs>(opts: {

@@ -2,7 +2,7 @@ import { IExporter, ExportResult } from "../exporters/types"
 import type { ServiceContext } from "../exporters/types"
 import { ExporterRegistry } from "../exporters/registry"
 import { OrgData, SearchQuery } from "../types"
-import type { ScraperConfig, GoogleSheetsConfig } from "../scraper-service/config-tree"
+import type { ScraperArgs, GoogleSheetsConfig } from "../scraper-service/args-tree"
 import { log } from "@cmd-hub/common"
 
 export class GoogleSheetsExporter implements IExporter {
@@ -10,7 +10,7 @@ export class GoogleSheetsExporter implements IExporter {
     readonly fileExtension = null
 
     async export(data: OrgData[], query: SearchQuery, context?: ServiceContext): Promise<ExportResult> {
-        const gs = ((context?.config ?? {}) as Partial<ScraperConfig>).googleSheets as GoogleSheetsConfig | undefined
+        const gs = ((context?.args ?? {}) as Partial<ScraperArgs>).googleSheets as GoogleSheetsConfig | undefined
         const credentials = gs?.credentials ?? ''
         const spreadsheetId = gs?.spreadsheetId ?? ''
 

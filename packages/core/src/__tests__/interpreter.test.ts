@@ -7,7 +7,7 @@ jest.mock('../config-registry', () => ({ ConfigRegistry: { register: jest.fn() }
 
 import type { SavedSources } from '../ui/command-processor/saved-sources'
 
-import { branch, leaf, type OptionsTree, PAIR_PATH_DELIMITER } from '@cmd-hub/common'
+import { argBranch, argLeaf, type ArgTree, ARG_PATH_DELIMITER } from '@cmd-hub/common'
 import { CBParser } from '../ui/command-processor/builder/interpreter/parser'
 import { CBInterpreter } from '../ui/command-processor/builder/interpreter/interpreter'
 import { Lexer } from '../ui/command-processor/builder/interpreter/lexer'
@@ -16,18 +16,18 @@ import { IUICommandDescriptor } from '../ui/types'
 
 // --- Test Helpers ---
 
-function descriptorFromTree(tree: OptionsTree): IUICommandDescriptor {
-    return { options: tree }
+function descriptorFromTree(tree: ArgTree): IUICommandDescriptor {
+    return { tree }
 }
 
-function createParser(tree: OptionsTree) {
+function createParser(tree: ArgTree) {
     return new CBParser({
         command: 'test',
         descriptor: descriptorFromTree(tree),
     })
 }
 
-function createInterpreter(tree: OptionsTree, mode?: 'incremental' | 'non-mandatory' | 'required' | 'comprehensive') {
+function createInterpreter(tree: ArgTree, mode?: 'incremental' | 'non-mandatory' | 'required' | 'comprehensive') {
     return new CBInterpreter(createParser(tree), mode)
 }
 
@@ -90,7 +90,7 @@ describe('Lexer', () => {
 
 describe('Parser — Pair Leaves', () => {
     test('--name <value> commits a pair leaf at root', () => {
-        const tree = branch({ city: leaf({ description: 'Target city' }) })
+        const tree = argBranch({ city: argLeaf({ description: 'Target city' }) })
         const parser = createParser(tree)
 
         const r1 = parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'city' })
@@ -104,9 +104,9 @@ describe('Parser — Pair Leaves', () => {
     })
 
     test('switching to another pair leaf mid-input drops pending', () => {
-        const tree = branch({
-            city: leaf({}),
-            limit: leaf({}),
+        const tree = argBranch({
+            city: argLeaf({}),
+            limit: argLeaf({}),
         })
         const parser = createParser(tree)
 
@@ -122,7 +122,7 @@ describe('Parser — Pair Leaves', () => {
 
 describe('Parser — Positional Leaves', () => {
     test('positional via DOUBLE_DASH then TEXT commits the value', () => {
-        const tree = branch({ query: leaf({ position: 1 }) })
+        const tree = argBranch({ query: argLeaf({ position: 1 }) })
         const parser = createParser(tree)
 
         const r1 = parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'query' })
@@ -134,7 +134,7 @@ describe('Parser — Positional Leaves', () => {
     })
 
     test('bare TEXT auto-binds to the next unfilled positional', () => {
-        const tree = branch({ query: leaf({ position: 1 }) })
+        const tree = argBranch({ query: argLeaf({ position: 1 }) })
         const parser = createParser(tree)
 
         const r = parser.parseNextToken({ type: 'TEXT', value: 'scraper' })
@@ -143,7 +143,7 @@ describe('Parser — Positional Leaves', () => {
     })
 
     test('clicking the same positional twice replaces the value', () => {
-        const tree = branch({ query: leaf({ position: 1 }) })
+        const tree = argBranch({ query: argLeaf({ position: 1 }) })
         const parser = createParser(tree)
 
         parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'query' })
@@ -157,9 +157,9 @@ describe('Parser — Positional Leaves', () => {
     })
 
     test('switching from a pending positional to a different leaf abandons pending', () => {
-        const tree = branch({
-            query: leaf({ position: 1 }),
-            city: leaf({}),
+        const tree = argBranch({
+            query: argLeaf({ position: 1 }),
+            city: argLeaf({}),
         })
         const parser = createParser(tree)
 
@@ -174,7 +174,7 @@ describe('Parser — Positional Leaves', () => {
 
 describe('Parser — Standalone Leaves', () => {
     test('SINGLE_DASH toggles a standalone leaf on then off', () => {
-        const tree = branch({ dryRun: leaf({ standalone: true }) })
+        const tree = argBranch({ dryRun: argLeaf({ standalone: true }) })
         const parser = createParser(tree)
 
         expect(parser.parseNextToken({ type: 'SINGLE_DASH', value: 'dryRun' })).toBe('toggle-on')
@@ -193,11 +193,11 @@ describe('Parser — Hierarchical Branches', () => {
      *
      * Used to exercise descend → leaf-click → commit and ascend.
      */
-    function aiAgentTree(): OptionsTree {
-        return branch({
-            aiAgent: branch({
-                model: leaf({ options: ['qwen2.5:7b', 'gpt-4o'] }),
-                temperature: leaf({ options: ['0.0', '0.5'] }),
+    function aiAgentTree(): ArgTree {
+        return argBranch({
+            aiAgent: argBranch({
+                model: argLeaf({ choices: ['qwen2.5:7b', 'gpt-4o'] }),
+                temperature: argLeaf({ choices: ['0.0', '0.5'] }),
             }),
         })
     }
@@ -207,12 +207,12 @@ describe('Parser — Hierarchical Branches', () => {
      *   profile ─┬── chat ─┬── system  (leaf)
      *                       └── user    (leaf)
      */
-    function profileTree(): OptionsTree {
-        return branch({
-            profile: branch({
-                chat: branch({
-                    system: leaf({}),
-                    user: leaf({}),
+    function profileTree(): ArgTree {
+        return argBranch({
+            profile: argBranch({
+                chat: argBranch({
+                    system: argLeaf({}),
+                    user: argLeaf({}),
                 }),
             }),
         })
@@ -234,7 +234,7 @@ describe('Parser — Hierarchical Branches', () => {
 
         const r3 = parser.parseNextToken({ type: 'TEXT', value: 'qwen2.5:7b' })
         expect(r3).toBe('commit-leaf')
-        const expectedKey = ['aiAgent', 'model'].join(PAIR_PATH_DELIMITER)
+        const expectedKey = ['aiAgent', 'model'].join(ARG_PATH_DELIMITER)
         expect(parser.Values.get(expectedKey)).toBe('qwen2.5:7b')
     })
 
@@ -272,7 +272,7 @@ describe('Parser — Hierarchical Branches', () => {
 
 describe('Interpreter — Non-Mandatory Mode', () => {
     test('compiles a single positional from bare TEXT', () => {
-        const tree = branch({ module: leaf({ position: 1 }) })
+        const tree = argBranch({ module: argLeaf({ position: 1 }) })
         const interpreter = createInterpreter(tree, 'non-mandatory')
 
         const result = interpreter.step('scraper')
@@ -282,7 +282,7 @@ describe('Interpreter — Non-Mandatory Mode', () => {
     })
 
     test('compiles a pair leaf from `--city Moscow`', () => {
-        const tree = branch({ city: leaf({}) })
+        const tree = argBranch({ city: argLeaf({}) })
         const interpreter = createInterpreter(tree, 'non-mandatory')
 
         const result = interpreter.step('--city Moscow')
@@ -291,10 +291,10 @@ describe('Interpreter — Non-Mandatory Mode', () => {
     })
 
     test('compiles mixed positional + pair + standalone in one step', () => {
-        const tree = branch({
-            query: leaf({ position: 1 }),
-            city: leaf({}),
-            dryRun: leaf({ standalone: true }),
+        const tree = argBranch({
+            query: argLeaf({ position: 1 }),
+            city: argLeaf({}),
+            dryRun: argLeaf({ standalone: true }),
         })
         const interpreter = createInterpreter(tree, 'non-mandatory')
 
@@ -308,7 +308,7 @@ describe('Interpreter — Non-Mandatory Mode', () => {
 
 describe('Interpreter — Incremental Mode', () => {
     test('step-by-step pair entry', () => {
-        const tree = branch({ city: leaf({}) })
+        const tree = argBranch({ city: argLeaf({}) })
         const parser = createParser(tree)
         const interpreter = new CBInterpreter(parser, 'incremental')
 
@@ -327,51 +327,51 @@ describe('Interpreter — Incremental Mode', () => {
 
 describe('Parser — Re-prompt API', () => {
     test('seedValues resets path/pending and replaces values', () => {
-        const tree = branch({
-            params: branch({ sessionId: leaf({}) }),
-            config: branch({ aiAgent: branch({ model: leaf({}) }) }),
+        const tree = argBranch({
+            args: argBranch({ sessionId: argLeaf({}) }),
+            intercom: argBranch({ aiAgent: argBranch({ model: argLeaf({}) }) }),
         })
         const parser = createParser(tree)
         // Stir the parser into a non-trivial state.
-        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'config' })
+        parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'intercom' })
         parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'aiAgent' })
-        expect(parser.Path).toEqual(['config', 'aiAgent'])
+        expect(parser.Path).toEqual(['intercom', 'aiAgent'])
 
         const seeded = new Map<string, string>([
-            ['params/sessionId', 'abc'],
-            ['config/aiAgent/model', 'old'],
+            ['args/sessionId', 'abc'],
+            ['intercom/aiAgent/model', 'old'],
         ])
         parser.seedValues(seeded)
         expect(parser.Path).toEqual([])
         expect(parser.Pending).toBeNull()
-        expect(parser.Values.get('params/sessionId')).toBe('abc')
-        expect(parser.Values.get('config/aiAgent/model')).toBe('old')
+        expect(parser.Values.get('args/sessionId')).toBe('abc')
+        expect(parser.Values.get('intercom/aiAgent/model')).toBe('old')
     })
 
     test('focusLeaf positions path at the leaf parent and arms pending', () => {
-        const tree = branch({
-            config: branch({ aiAgent: branch({ model: leaf({}) }) }),
+        const tree = argBranch({
+            args: argBranch({ aiAgent: argBranch({ model: argLeaf({}) }) }),
         })
         const parser = createParser(tree)
-        parser.seedValues(new Map([['config/aiAgent/model', 'bad']]))
+        parser.seedValues(new Map([['args/aiAgent/model', 'bad']]))
 
-        const ok = parser.focusLeaf(['config', 'aiAgent', 'model'])
+        const ok = parser.focusLeaf(['args', 'aiAgent', 'model'])
         expect(ok).toBe(true)
-        expect(parser.Path).toEqual(['config', 'aiAgent'])
-        expect(parser.Pending).toEqual({ leafPath: ['config', 'aiAgent', 'model'] })
+        expect(parser.Path).toEqual(['args', 'aiAgent'])
+        expect(parser.Pending).toEqual({ leafPath: ['args', 'aiAgent', 'model'] })
         // The bad value was cleared so the user's next input replaces it.
-        expect(parser.Values.has('config/aiAgent/model')).toBe(false)
+        expect(parser.Values.has('args/aiAgent/model')).toBe(false)
 
         // Next TEXT commits the re-prompted value.
         parser.parseNextToken({ type: 'TEXT', value: 'qwen2.5:7b' })
-        expect(parser.Values.get('config/aiAgent/model')).toBe('qwen2.5:7b')
+        expect(parser.Values.get('args/aiAgent/model')).toBe('qwen2.5:7b')
     })
 
     test('focusLeaf rejects non-leaf or unknown paths', () => {
-        const tree = branch({ config: branch({ aiAgent: branch({ model: leaf({}) }) }) })
+        const tree = argBranch({ args: argBranch({ aiAgent: argBranch({ model: argLeaf({}) }) }) })
         const parser = createParser(tree)
-        expect(parser.focusLeaf(['config'])).toBe(false)
-        expect(parser.focusLeaf(['config', 'aiAgent'])).toBe(false)
+        expect(parser.focusLeaf(['args'])).toBe(false)
+        expect(parser.focusLeaf(['args', 'aiAgent'])).toBe(false)
         expect(parser.focusLeaf(['nonexistent'])).toBe(false)
         expect(parser.focusLeaf([])).toBe(false)
     })
@@ -381,14 +381,14 @@ describe('Parser — Re-prompt API', () => {
 
 describe('Parser — nodeAtCurrent', () => {
     test('returns the root branch at empty path', () => {
-        const tree = branch({ x: leaf({}) })
+        const tree = argBranch({ x: argLeaf({}) })
         const parser = createParser(tree)
         const node = parser.nodeAtCurrent()
         expect(node?.node).toBe('branch')
     })
 
     test('returns the descendant after descending', () => {
-        const tree = branch({ aiAgent: branch({ model: leaf({}) }) })
+        const tree = argBranch({ aiAgent: argBranch({ model: argLeaf({}) }) })
         const parser = createParser(tree)
         parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'aiAgent' })
         const node = parser.nodeAtCurrent()
@@ -402,9 +402,9 @@ describe('Parser — Auto-positional binding (root-only)', () => {
     test('bare TEXT inside a branch does NOT steal a positional from elsewhere', () => {
         // `q` is a positional at the root; user is mid-branch in `config`.
         // A bare TEXT token here should NOT silently bind to `q`.
-        const tree = branch({
-            config: branch({ foo: leaf({}) }),
-            q: leaf({ position: 1 }),
+        const tree = argBranch({
+            config: argBranch({ foo: argLeaf({}) }),
+            q: argLeaf({ position: 1 }),
         })
         const parser = createParser(tree)
         parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'config' })
@@ -418,9 +418,9 @@ describe('Parser — Auto-positional binding (root-only)', () => {
 
 describe('Compiled output', () => {
     test('raw is a flat slash-delimited map; proxy.get accepts both bare names and full paths', () => {
-        const tree = branch({
-            config: branch({ aiAgent: branch({ model: leaf({}) }) }),
-            params: branch({ sessionId: leaf({}) }),
+        const tree = argBranch({
+            config: argBranch({ aiAgent: argBranch({ model: argLeaf({}) }) }),
+            params: argBranch({ sessionId: argLeaf({}) }),
         })
         const interpreter = createInterpreter(tree, 'non-mandatory')
 
@@ -434,20 +434,20 @@ describe('Compiled output', () => {
 
 describe('Parser — SavedSources & effectiveValues', () => {
     test('SavedSources getter returns whatever was assigned', () => {
-        const tree = branch({ city: leaf({ description: 'd' }) })
+        const tree = argBranch({ city: argLeaf({ description: 'd' }) })
         const parser = createParser(tree)
 
         expect(parser.SavedSources).toBeUndefined()
 
         const map: SavedSources = new Map([
-            ['config/city', { value: 'Moscow', source: 'module' as const }],
+            ['args/city', { value: 'Moscow', source: 'module' as const }],
         ])
         parser.SavedSources = map
         expect(parser.SavedSources).toBe(map)
     })
 
     test('effectiveValues folds saved values for unset leaves only', () => {
-        const tree = branch({ city: leaf({ description: 'd' }), depth: leaf({ description: 'd' }) })
+        const tree = argBranch({ city: argLeaf({ description: 'd' }), depth: argLeaf({ description: 'd' }) })
         const parser = createParser(tree)
 
         const saved: SavedSources = new Map([
@@ -466,7 +466,7 @@ describe('Parser — SavedSources & effectiveValues', () => {
     })
 
     test('effectiveValues with no SavedSources returns just user values', () => {
-        const tree = branch({ city: leaf({ description: 'd' }) })
+        const tree = argBranch({ city: argLeaf({ description: 'd' }) })
         const parser = createParser(tree)
 
         parser.parseNextToken({ type: 'DOUBLE_DASH', value: 'city' })
@@ -478,7 +478,7 @@ describe('Parser — SavedSources & effectiveValues', () => {
     })
 
     test('effectiveValues with SavedSources but no user input returns saved values', () => {
-        const tree = branch({ city: leaf({ description: 'd' }) })
+        const tree = argBranch({ city: argLeaf({ description: 'd' }) })
         const parser = createParser(tree)
         parser.SavedSources = new Map([['city', { value: 'Moscow', source: 'module' }]])
 
@@ -492,7 +492,7 @@ import { CommandBuilder } from '../ui/command-processor/builder/builder'
 describe('CommandBuilder.startBuild — SavedSources', () => {
     test('passes SavedSources through to parser via interpreter', async () => {
         const builder = new CommandBuilder()
-        const tree = branch({ city: leaf({ description: 'd' }) })
+        const tree = argBranch({ city: argLeaf({ description: 'd' }) })
         const desc = descriptorFromTree(tree)
         const saved: SavedSources = new Map([
             ['city', { value: 'Moscow', source: 'module' }],
@@ -506,9 +506,9 @@ describe('CommandBuilder.startBuild — SavedSources', () => {
 
 describe('Interpreter compile — saved values fold into effective args', () => {
     test('compiled.raw includes saved values for unset leaves', () => {
-        const tree = branch({
-            city: leaf({ description: 'city' }),
-            depth: leaf({ description: 'depth' }),
+        const tree = argBranch({
+            city: argLeaf({ description: 'city' }),
+            depth: argLeaf({ description: 'depth' }),
         })
         const parser = createParser(tree)
         parser.SavedSources = new Map([
@@ -531,12 +531,12 @@ describe('Interpreter compile — saved values fold into effective args', () => 
 describe('CommandBuilder.startBuild — seededValues priority chain', () => {
     test('seeded user input outranks session, session outranks module, module fills the rest', async () => {
         const builder = new CommandBuilder()
-        const tree = branch({
-            config: branch({
-                query: leaf({ position: 1 }),
-                city: leaf({}),
-                limit: leaf({}),
-                requestDelayMs: leaf({}),
+        const tree = argBranch({
+            args: argBranch({
+                query: argLeaf({ position: 1 }),
+                city: argLeaf({}),
+                limit: argLeaf({}),
+                requestDelayMs: argLeaf({}),
             }),
         })
         const desc = descriptorFromTree(tree)
@@ -546,15 +546,15 @@ describe('CommandBuilder.startBuild — seededValues priority chain', () => {
         // Combined SavedSources is exactly what loadSavedSources would produce —
         // session entries overwrite module entries on shared keys.
         const saved: SavedSources = new Map([
-            ['config/query', { value: 'Стоматология', source: 'module' }],
-            ['config/limit', { value: '10000', source: 'session' }],
-            ['config/city', { value: 'Moscow', source: 'session' }],
-            ['config/requestDelayMs', { value: '1000', source: 'module' }],
+            ['args/query', { value: 'Стоматология', source: 'module' }],
+            ['args/limit', { value: '10000', source: 'session' }],
+            ['args/city', { value: 'Moscow', source: 'session' }],
+            ['args/requestDelayMs', { value: '1000', source: 'module' }],
         ])
         // User typed: query="Адвокат" (positional), city="Санкт-Петербург".
         const seeded = new Map<string, string>([
-            ['config/query', 'Адвокат'],
-            ['config/city', 'Санкт-Петербург'],
+            ['args/query', 'Адвокат'],
+            ['args/city', 'Санкт-Петербург'],
         ])
 
         await builder.startBuild('u-priority', 'scraper', desc, 'incremental', saved, seeded)
@@ -567,15 +567,15 @@ describe('CommandBuilder.startBuild — seededValues priority chain', () => {
         const ev = builder.handle('u-priority', BuilderActionSigns.execute)
         expect(ev.IsCompiled).toBe(true)
         const raw = ev.Result.raw
-        expect(raw.get('config/query')).toBe('Адвокат')           // user > session > module
-        expect(raw.get('config/city')).toBe('Санкт-Петербург')    // user wins over session
-        expect(raw.get('config/limit')).toBe('10000')             // no user input → session
-        expect(raw.get('config/requestDelayMs')).toBe('1000')     // no user/session → module
+        expect(raw.get('args/query')).toBe('Адвокат')           // user > session > module
+        expect(raw.get('args/city')).toBe('Санкт-Петербург')    // user wins over session
+        expect(raw.get('args/limit')).toBe('10000')             // no user input → session
+        expect(raw.get('args/requestDelayMs')).toBe('1000')     // no user/session → module
     })
 
     test('absent or empty seededValues does not change saved-only behavior', async () => {
         const builder = new CommandBuilder()
-        const tree = branch({ city: leaf({}) })
+        const tree = argBranch({ city: argLeaf({}) })
         const desc = descriptorFromTree(tree)
         const saved: SavedSources = new Map([
             ['city', { value: 'Moscow', source: 'module' }],
@@ -593,86 +593,83 @@ describe('CommandBuilder.startBuild — seededValues priority chain', () => {
 // /scraper invocation has 21+ tokens, which exceeded the cap and made
 // HandleCmdBuilder.parseTypedArgs silently fall back to an empty seed map.
 describe('Parser — top-level flag auto-descends into config|params|messages slice', () => {
-    function serviceTree(): OptionsTree {
-        return branch({
-            config: branch({
-                query: leaf({ position: 1 }),
-                city: leaf({}),
-                limit: leaf({}),
-                aiAgent: branch({
-                    model: leaf({}),
-                    baseUrl: leaf({}),
+    function serviceTree(): ArgTree {
+        return argBranch({
+            args: argBranch({
+                query: argLeaf({ position: 1 }),
+                city: argLeaf({}),
+                limit: argLeaf({}),
+                aiAgent: argBranch({
+                    model: argLeaf({}),
+                    baseUrl: argLeaf({}),
                 }),
             }),
-            params: branch({
-                quiet: leaf({ standalone: true }),
-            }),
-            messages: branch({
-                stop: leaf({ standalone: true }),
+            intercom: argBranch({
+                stop: argLeaf({ standalone: true }),
             }),
         })
     }
 
-    test('--city at root auto-descends into config and commits config/city', () => {
+    test('--city at root auto-descends into args and commits args/city', () => {
         const parser = createParser(serviceTree())
         const lexer = new Lexer()
         lexer.setInput('Адвокат --city Санкт-Петербург')
         for (const tkn of lexer.tokenizeCurrent()) {
             parser.parseNextToken(tkn)
         }
-        expect(parser.Values.get('config/query')).toBe('Адвокат')
-        expect(parser.Values.get('config/city')).toBe('Санкт-Петербург')
+        expect(parser.Values.get('args/query')).toBe('Адвокат')
+        expect(parser.Values.get('args/city')).toBe('Санкт-Петербург')
     })
 
-    test('--limit at root auto-descends into config and commits config/limit', () => {
+    test('--limit at root auto-descends into args and commits args/limit', () => {
         const parser = createParser(serviceTree())
         const lexer = new Lexer()
         lexer.setInput('--limit 1000')
         for (const tkn of lexer.tokenizeCurrent()) {
             parser.parseNextToken(tkn)
         }
-        expect(parser.Values.get('config/limit')).toBe('1000')
+        expect(parser.Values.get('args/limit')).toBe('1000')
     })
 
     test('multiple top-level flags + explicit --aiAgent group all wire correctly', () => {
         const parser = createParser(serviceTree())
         const lexer = new Lexer()
-        lexer.setInput('Адвокат --city СПб --limit 1000 --config --aiAgent --model qwen3.5:9b --baseUrl http://x/v1')
+        lexer.setInput('Адвокат --city СПб --limit 1000 --args --aiAgent --model qwen3.5:9b --baseUrl http://x/v1')
         for (const tkn of lexer.tokenizeCurrent()) {
             parser.parseNextToken(tkn)
         }
-        expect(parser.Values.get('config/query')).toBe('Адвокат')
-        expect(parser.Values.get('config/city')).toBe('СПб')
-        expect(parser.Values.get('config/limit')).toBe('1000')
-        expect(parser.Values.get('config/aiAgent/model')).toBe('qwen3.5:9b')
-        expect(parser.Values.get('config/aiAgent/baseUrl')).toBe('http://x/v1')
+        expect(parser.Values.get('args/query')).toBe('Адвокат')
+        expect(parser.Values.get('args/city')).toBe('СПб')
+        expect(parser.Values.get('args/limit')).toBe('1000')
+        expect(parser.Values.get('args/aiAgent/model')).toBe('qwen3.5:9b')
+        expect(parser.Values.get('args/aiAgent/baseUrl')).toBe('http://x/v1')
     })
 
-    test('a -standalone flag declared in params auto-resolves to params/quiet', () => {
+    test('a -standalone flag declared in intercom auto-resolves to intercom/stop', () => {
         const parser = createParser(serviceTree())
         const lexer = new Lexer()
-        lexer.setInput('-quiet')
+        lexer.setInput('-stop')
         for (const tkn of lexer.tokenizeCurrent()) {
             parser.parseNextToken(tkn)
         }
-        expect(parser.Values.get('params/quiet')).toBe('true')
+        expect(parser.Values.get('intercom/stop')).toBe('true')
     })
 
     test('after auto-descending, subsequent flags continue resolving in the same slice', () => {
-        // User typed `--city ... --limit ...` (both in config). After the
-        // first auto-descent, parser is positioned at config/. The second
-        // --limit should match a child of config (no second descent needed).
+        // User typed `--city ... --limit ...` (both in args). After the
+        // first auto-descent, parser is positioned at args/. The second
+        // --limit should match a child of args (no second descent needed).
         const parser = createParser(serviceTree())
         const lexer = new Lexer()
         lexer.setInput('--city СПб --limit 1000')
         for (const tkn of lexer.tokenizeCurrent()) {
             parser.parseNextToken(tkn)
         }
-        expect(parser.Values.get('config/city')).toBe('СПб')
-        expect(parser.Values.get('config/limit')).toBe('1000')
+        expect(parser.Values.get('args/city')).toBe('СПб')
+        expect(parser.Values.get('args/limit')).toBe('1000')
     })
 
-    test('a flag that exists in NEITHER config NOR params NOR messages is silently dropped', () => {
+    test('a flag that exists in NEITHER args NOR intercom is silently dropped', () => {
         const parser = createParser(serviceTree())
         const lexer = new Lexer()
         // The bare `value` after `--unknownFlag` would auto-bind to the
@@ -688,14 +685,14 @@ describe('Parser — top-level flag auto-descends into config|params|messages sl
 
 describe('Parser — long token streams do not throw on snapshot rollover', () => {
     test('30 sequential tokens parse without overflowing the snap stack', () => {
-        const tree = branch({
-            config: branch({
-                query: leaf({ position: 1 }),
-                city: leaf({}),
-                limit: leaf({}),
-                aiAgent: branch({
-                    model: leaf({}),
-                    baseUrl: leaf({}),
+        const tree = argBranch({
+            args: argBranch({
+                query: argLeaf({ position: 1 }),
+                city: argLeaf({}),
+                limit: argLeaf({}),
+                aiAgent: argBranch({
+                    model: argLeaf({}),
+                    baseUrl: argLeaf({}),
                 }),
             }),
         })
@@ -703,7 +700,7 @@ describe('Parser — long token streams do not throw on snapshot rollover', () =
 
         const tokens = [
             'Адвокат',
-            '--config',
+            '--args',
             '--city', 'СПб',
             '--limit', '1000',
             '--aiAgent',
@@ -719,8 +716,8 @@ describe('Parser — long token streams do not throw on snapshot rollover', () =
                 expect(() => parser.parseNextToken(tkn)).not.toThrow()
             }
         }
-        expect(parser.Values.get('config/query')).toBe('Адвокат')
-        expect(parser.Values.get('config/city')).toBe('СПб')
-        expect(parser.Values.get('config/aiAgent/model')).toBe('qwen3.5:9b')
+        expect(parser.Values.get('args/query')).toBe('Адвокат')
+        expect(parser.Values.get('args/city')).toBe('СПб')
+        expect(parser.Values.get('args/aiAgent/model')).toBe('qwen3.5:9b')
     })
 })

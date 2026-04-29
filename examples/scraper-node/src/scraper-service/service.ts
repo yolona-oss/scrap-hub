@@ -10,10 +10,9 @@ import { OrgScraper } from './scraper'
 import {
     scraperDefaultData,
     ScraperServiceDataType,
-    ScraperConfigData,
-    ScraperParamsData,
-    ScraperMessagesData,
-} from './config-tree'
+    ScraperArgs,
+    ScraperIntercom,
+} from './args-tree'
 
 /** Cap how many results we persist back to runtimeState. A 10000-result
  *  run would write a progressively larger array on every periodic save;
@@ -34,14 +33,13 @@ export const SCRAPER_DESCRIPTION = 'Search and collect organization data from op
     description: SCRAPER_DESCRIPTION,
     compatibilityId: 'com.example.scrap-hub.scraper',
     version: '1.0.0',
-    config: ScraperConfigData,
-    params: ScraperParamsData,
-    messages: ScraperMessagesData,
+    args: ScraperArgs,
+    intercom: ScraperIntercom,
 })
 export class OrgScraperService extends BaseCommandService<ScraperServiceDataType> {
     /** CmdNodeApp reads these statics to build the merged app config schema.
      *  System-tier knobs only — per-user AI/Sheets settings live exclusively
-     *  on the `@CmdArgument` tree above. */
+     *  on the `@CmdArg` tree above. */
     static readonly configNamespace = 'scraper'
     static readonly configSchema = z.object({
         chromePath: z.string().default(''),
@@ -97,7 +95,7 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
     protected async runWrapper(): Promise<void> {
         this.registerIntercom({ id: 'export', label: 'Export Now', icon: '📄' })
 
-        const cfg = this.data.config
+        const cfg = this.data.args
         if (!cfg.query) {
             this.sendToError('No search query provided')
             return
@@ -115,7 +113,7 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
         // pre-fill this run, so a brand-new search would short-circuit on
         // stale data instead of actually scraping. `lastQuery` is written
         // by every saveProgress (see below).
-        const saved = this.data.runtimeState
+        const saved = this.data.state
         const isResumable = saved?.lastQuery !== undefined && saved.lastQuery === cfg.query
         const existingResults = isResumable ? (saved?.results ?? []) : []
         const processedUrls = isResumable ? (saved?.processedUrls ?? []) : []
@@ -198,10 +196,10 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
             ? results.slice(-RESULTS_TAIL_CAP)
             : results
         try {
-            await this.setRuntimeState({
+            await this.setState({
                 results: persisted,
                 processedUrls: this.scraper.urls,
-                lastQuery: this.data.config.query,
+                lastQuery: this.data.args.query,
             })
             this._lastPersistedResultCount = results.length
         } catch (e: unknown) {
@@ -215,7 +213,7 @@ export class OrgScraperService extends BaseCommandService<ScraperServiceDataType
             return
         }
 
-        const format = this.data.config.format ?? 'json'
+        const format = this.data.args.format ?? 'json'
         try {
             const result = await this.scraper.export(format, this.getServiceContext())
             this.sendToWorld(result.message)

@@ -10,44 +10,39 @@
  * (node-side), since functions can't cross the wire
  */
 
-
-
-
-
-
-
 import type {
-    OptionsTree,
-    LeafSpec,
-    BranchSpec,
-    LeafType,
+    ArgTree,
+    ArgLeaf,
+    ArgBranch,
+    ArgValueType,
     DisplayHint,
 } from '@cmd-hub/common'
-import { branch, leaf } from '@cmd-hub/common'
+import { argLeaf, argBranch } from '@cmd-hub/common'
 import * as CmdHubProto from './grpc/generated/cmd_node'
 
-export function treeToProto(tree: OptionsTree): CmdHubProto.CommandOptionsTree {
+export function treeToProto(tree: ArgTree): CmdHubProto.CommandArgTree {
     if (tree.node === 'leaf') {
         return { leaf: leafToProto(tree), branch: undefined }
     }
     return { leaf: undefined, branch: branchToProto(tree) }
 }
 
-function leafToProto(spec: LeafSpec): CmdHubProto.LeafNode {
+function leafToProto(spec: ArgLeaf): CmdHubProto.ArgLeafNode {
     return {
         type: spec.type,
         required: spec.required,
         position: spec.position,
         standalone: spec.standalone,
         default: spec.default ?? '',
-        options: [...spec.options],
+        choices: [...spec.choices],
         description: spec.description,
         displayHint: spec.displayHint ?? '',
+        persistent: spec.persistent,
     }
 }
 
-function branchToProto(spec: BranchSpec): CmdHubProto.BranchNode {
-    const children: { [k: string]: CmdHubProto.CommandOptionsTree } = {}
+function branchToProto(spec: ArgBranch): CmdHubProto.ArgBranchNode {
+    const children: { [k: string]: CmdHubProto.CommandArgTree } = {}
     for (const [name, child] of spec.children) {
         children[name] = treeToProto(child)
     }
@@ -58,38 +53,39 @@ function branchToProto(spec: BranchSpec): CmdHubProto.BranchNode {
     }
 }
 
-export function protoToTree(proto: CmdHubProto.CommandOptionsTree | undefined): OptionsTree {
-    if (!proto) return branch({})
+export function protoToTree(proto: CmdHubProto.CommandArgTree | undefined): ArgTree {
+    if (!proto) return argBranch({})
     if (proto.leaf) return protoToLeaf(proto.leaf)
     if (proto.branch) return protoToBranch(proto.branch)
     // Empty oneof — treat as an empty branch root.
-    return branch({})
+    return argBranch({})
 }
 
-function protoToLeaf(p: CmdHubProto.LeafNode): LeafSpec {
-    const type: LeafType =
+function protoToLeaf(p: CmdHubProto.ArgLeafNode): ArgLeaf {
+    const type: ArgValueType =
         p.type === 'number' ? 'number'
             : p.type === 'bool' ? 'bool'
                 : 'string'
-    return leaf({
+    return argLeaf({
         type,
         required: p.required,
         position: p.position,
         standalone: p.standalone,
         default: p.default || undefined,
-        options: p.options,
+        choices: p.choices,
         description: p.description,
         displayHint: (p.displayHint || undefined) as DisplayHint | undefined,
+        persistent: p.persistent,
     })
 }
 
-function protoToBranch(p: CmdHubProto.BranchNode): BranchSpec {
-    const children: Record<string, OptionsTree> = {}
+function protoToBranch(p: CmdHubProto.ArgBranchNode): ArgBranch {
+    const children: Record<string, ArgTree> = {}
     for (const [name, child] of Object.entries(p.children ?? {})) {
         children[name] = protoToTree(child)
     }
-    return branch(children, {
+    return argBranch(children, {
         description: p.description,
         displayHint: (p.displayHint || undefined) as DisplayHint | undefined,
-    }) as BranchSpec
+    })
 }

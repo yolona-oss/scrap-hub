@@ -85,7 +85,7 @@ export interface IAccountModuleHandle {
     getSession(name: string): Promise<IAccountSessionHandle | null>
     createAndApplySession(input: CreateAccountSessionInput): Promise<IAccountSessionHandle>
     setDataPath(path: string, value: unknown): Promise<void>
-    replaceConfig(config: Record<string, unknown>): Promise<void>
+    replaceArgs(args: Record<string, unknown>): Promise<void>
     clearData(): Promise<void>
 }
 

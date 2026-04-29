@@ -2,13 +2,13 @@ import { BuiltInUiCommandsEnum } from "../constants"
 import { BuiltInCommand } from "../types/built-in-cmd"
 import { CmdArgumentProxy } from "../arg-proxy"
 import { CmdDispatcher } from "../dispatcher"
-import { CmdArgument } from "../../../ui/types/command"
+import { CmdArg } from "../../../ui/types/command"
 import { UiUnicodeSymbols } from "../../../ui"
 import { TableDesigner } from "@cmd-hub/common"
 import { CAP_ManagerRepo, CAP_AccountRepo } from "@cmd-hub/common"
 
 class SInfoArgs {
-    @CmdArgument({
+    @CmdArg({
         required: false,
         position: 1,
         description: 'Service name',
@@ -37,9 +37,9 @@ function flattenObject(obj: unknown, prefix = '', maxDepth = 3, depth = 0): { ke
 }
 
 interface ServiceData {
-    config?: Record<string, unknown>
-    params?: Record<string, unknown>
-    runtimeState?: Record<string, unknown>
+    args?: Record<string, unknown>
+    intercom?: Record<string, unknown>
+    state?: Record<string, unknown>
 }
 
 export const SInfoCommand: BuiltInCommand = {
@@ -74,25 +74,25 @@ export const SInfoCommand: BuiltInCommand = {
             text += `${UiUnicodeSymbols.success} Status: RUNNING | Session: ${activeService.SessionId}\n\n`
 
             const liveData = activeService.snapshot as ServiceData
-            const cfgFields = flattenObject(liveData.config ?? {})
+            const cfgFields = flattenObject(liveData.args ?? {})
             if (cfgFields.length > 0) {
                 text += designer.make({
-                    title: `${UiUnicodeSymbols.gear} Runtime config`,
+                    title: `${UiUnicodeSymbols.gear} Runtime args`,
                     header: ['Key', 'Value'],
                     body: cfgFields.map(f => [f.key, f.value]),
                 }, w)
             }
 
-            const paramFields = flattenObject(liveData.params ?? {})
+            const paramFields = flattenObject(liveData.intercom ?? {})
             if (paramFields.length > 0) {
                 text += designer.make({
-                    title: `${UiUnicodeSymbols.magnifierGlass} Runtime params`,
+                    title: `${UiUnicodeSymbols.magnifierGlass} Runtime intercom`,
                     header: ['Key', 'Value'],
                     body: paramFields.map(f => [f.key, f.value]),
                 }, w)
             }
 
-            const stateFields = flattenObject(liveData.runtimeState ?? {})
+            const stateFields = flattenObject(liveData.state ?? {})
             if (stateFields.length > 0) {
                 text += designer.make({
                     title: `${UiUnicodeSymbols.clock} Runtime state`,
@@ -109,26 +109,26 @@ export const SInfoCommand: BuiltInCommand = {
             const { module } = await account.getModuleByNameOrCreate(serviceName)
             const moduleData = module.record.data
 
-            const dbCfg = flattenObject(moduleData.config ?? {})
+            const dbCfg = flattenObject(moduleData.args ?? {})
             if (dbCfg.length > 0) {
                 text += designer.make({
-                    title: `${UiUnicodeSymbols.lock} Account-layer config (baseline)`,
+                    title: `${UiUnicodeSymbols.lock} Account-layer args (baseline)`,
                     header: ['Key', 'Value'],
                     body: dbCfg.map(f => [f.key, f.value]),
                 }, w)
             } else {
-                text += `${UiUnicodeSymbols.lock} Account-layer config: (empty)\n`
+                text += `${UiUnicodeSymbols.lock} Account-layer args: (empty)\n`
             }
 
             const sessions = await module.getSessions()
             if (sessions.length > 0) {
                 text += designer.make({
                     title: `${UiUnicodeSymbols.clock} Session-layer overlays`,
-                    header: ['Session', 'Config keys', 'State fields'],
+                    header: ['Session', 'Args keys', 'State fields'],
                     body: sessions.map(sess => {
-                        const sessConfig = flattenObject((sess.record.data?.config ?? {}) as Record<string, unknown>)
-                        const sessState = flattenObject((sess.record.data?.runtimeState ?? {}) as Record<string, unknown>)
-                        return [sess.record.name, String(sessConfig.length), String(sessState.length)]
+                        const sessArgs = flattenObject((sess.record.data?.args ?? {}) as Record<string, unknown>)
+                        const sessState = flattenObject((sess.record.data?.state ?? {}) as Record<string, unknown>)
+                        return [sess.record.name, String(sessArgs.length), String(sessState.length)]
                     }),
                 }, w)
             }

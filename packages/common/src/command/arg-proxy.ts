@@ -1,4 +1,4 @@
-import { walkLeaves, branch, type OptionsTree, PAIR_PATH_DELIMITER } from './tree'
+import { walkArgLeaves, argBranch, type ArgTree, ARG_PATH_DELIMITER } from './tree'
 
 /**
  * Read-only view over a parser's committed leaf values, indexed for the
@@ -14,12 +14,12 @@ import { walkLeaves, branch, type OptionsTree, PAIR_PATH_DELIMITER } from './tre
  *
  *   - by **positional index** — `args.getPos(1)` walks the tree for the
  *     leaf with `position === 1` and reads its committed value. Used by
- *     `/sconfig <serviceName> <key>` and friends.
+ *     `/sargs <serviceName> <key>` and friends.
  *
  * Construction takes the tree alongside the values map so positional
  * lookup can find the leaf without an extra index. The tree is also the
- * authority for `walkLeaves`-based iteration, used by callers that want
- * the full effective-args list.
+ * authority for `walkArgLeaves`-based iteration, used by callers that
+ * want the full effective-args list.
  */
 export class CmdArgumentProxy {
     private readonly _byLastSegment: Map<string, string>
@@ -29,12 +29,12 @@ export class CmdArgumentProxy {
      *  declare no arguments (the dispatcher needs *something* to pass
      *  to the invokable). */
     static empty(): CmdArgumentProxy {
-        return new CmdArgumentProxy(new Map(), branch({}))
+        return new CmdArgumentProxy(new Map(), argBranch({}))
     }
 
     constructor(
         values: ReadonlyMap<string, string>,
-        private readonly tree: OptionsTree,
+        private readonly tree: ArgTree,
     ) {
         this._byFullPath = values
         this._byLastSegment = new Map<string, string>()
@@ -69,7 +69,7 @@ export class CmdArgumentProxy {
     /** Find a leaf in the tree with `position === n` and return its
      *  committed value. Skips zero / unset positions. */
     getPos(n: number): string | undefined {
-        for (const { pathKey, leaf } of walkLeaves(this.tree)) {
+        for (const { pathKey, leaf } of walkArgLeaves(this.tree)) {
             if (leaf.position === n) {
                 return this._byFullPath.get(pathKey)
             }
@@ -92,6 +92,6 @@ export class CmdArgumentProxy {
 }
 
 function lastSegment(path: string): string {
-    const i = path.lastIndexOf(PAIR_PATH_DELIMITER)
+    const i = path.lastIndexOf(ARG_PATH_DELIMITER)
     return i < 0 ? path : path.slice(i + 1)
 }

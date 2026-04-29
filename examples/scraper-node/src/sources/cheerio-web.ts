@@ -1,7 +1,7 @@
 import { IScraperSource, SourceAvailability } from "./types"
 import { OrgData, SearchQuery } from "../types"
 import type { ServiceContext } from "../exporters/types"
-import type { ScraperConfig } from "../scraper-service/config-tree"
+import type { ScraperArgs } from "../scraper-service/args-tree"
 import { extractEmail, extractPhone } from "./extract"
 import { extractFromElement } from "./cheerio-extract"
 import { httpGet, httpHead, isHttpError } from "./http"
@@ -75,7 +75,7 @@ export class CheerioWebSource implements IScraperSource {
     }
 
     async* search(query: SearchQuery, onProgress: (found: number) => void, context?: ServiceContext, _signal?: AbortSignal): AsyncGenerator<OrgData> {
-        const userCfg = (context?.config ?? {}) as Partial<ScraperConfig>
+        const userCfg = (context?.args ?? {}) as Partial<ScraperArgs>
         const maxPages = this.config.maxPages ?? 10
         const interPageDelayMs = this.config.delayMs ?? userCfg.requestDelayMs ?? 1000
         log.info(`cheerio-web[${this.name}].search: query="${query.query}" city="${query.city ?? ''}" maxResults=${query.maxResults} maxPages=${maxPages}`)
