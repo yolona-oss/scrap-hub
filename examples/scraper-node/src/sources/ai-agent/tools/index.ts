@@ -4,7 +4,7 @@ import { makeFetchUrlTool } from "./fetch-url"
 import { makeParseHtmlTool } from "./parse-html"
 import { makeDelegateSourceTool } from "./delegate-source"
 import { makeReportResultsTool } from "./report-results"
-import { makeExtractContactsTool } from "./extract-contacts"
+import { makeExtractContactsTool, type ExtractorRunner } from "./extract-contacts"
 import { makeEndReconTool } from "./end-recon"
 import { makeRevisePlanTool } from "./revise-plan"
 import { SearchQuery, OrgData } from "../../../types"
@@ -13,15 +13,21 @@ import type { ReportState } from "./emit"
 import { log } from "@cmd-hub/common"
 
 export type { ReportState } from "./emit"
+export type { ExtractorRunner } from "./extract-contacts"
 export type AgentPhase = 'recon' | 'plan' | 'execute'
+
+export interface BuildToolsOptions {
+    extractorRunner?: ExtractorRunner
+}
 
 export async function buildTools(
     query: SearchQuery,
     queue: AsyncQueue<OrgData>,
     state: ReportState,
     phase: AgentPhase,
+    opts: BuildToolsOptions = {},
 ): Promise<Tool[]> {
-    log.trace(`ai-agent.tools.buildTools: phase=${phase}`)
+    log.trace(`ai-agent.tools.buildTools: phase=${phase} extractor=${opts.extractorRunner ? 'on' : 'off'}`)
     if (phase === 'plan') {
         log.debug('ai-agent.tools.buildTools: plan phase → no tools exposed')
         return []
@@ -35,7 +41,7 @@ export async function buildTools(
         makeWebSearchTool(query),
         makeFetchUrlTool(),
         makeParseHtmlTool(),
-        makeExtractContactsTool(),
+        makeExtractContactsTool({ extractorRunner: opts.extractorRunner }),
         await makeDelegateSourceTool(query, queue, state),
         makeReportResultsTool(queue, query, state),
         makeRevisePlanTool(),
