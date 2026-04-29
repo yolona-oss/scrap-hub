@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+printf '==> build ui-app\n'
+exec tsc --build --pretty

@@ -6,10 +6,10 @@
     "scripts": {
         "start:ts": "ts-node src/index.ts",
         "start": "node build/index.js",
-        "build": "tsc --build --pretty",
-        "clean": "rm -rf build tsconfig.tsbuildinfo",
+        "build": "bash scripts/build.sh",
+        "clean": "bash scripts/clean.sh",
         "rebuild": "npm run clean && npm run build",
-        "test": "jest"
+        "test": "bash scripts/test.sh"
     },
     "license": "ISC",
     "description": "Example deployable: org-scraper running as a cmd-node.",

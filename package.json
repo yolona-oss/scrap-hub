@@ -7,17 +7,24 @@
         "examples/*"
     ],
     "scripts": {
-        "build": "npm run build --workspaces --if-present",
+        "build": "bash scripts/build.sh",
         "build:sdk": "npm run build --workspace=@cmd-hub/core",
         "build:scraper": "npm run build --workspace=scraper-node --if-present",
         "build:app": "npm run build --workspace=ui-app",
+        "clean": "bash scripts/clean.sh",
+        "clean:all": "bash scripts/clean.sh --all",
+        "test": "bash scripts/test.sh",
+        "test:parallel": "bash scripts/test.sh --parallel",
+        "test:e2e": "jest --config jest.config.e2e.js",
+        "status": "bash scripts/status.sh",
+        "doctor": "bash scripts/doctor.sh",
+        "focus": "bash scripts/focus.sh",
+        "reset": "bash scripts/reset.sh",
         "start": "npm run start:hub",
         "start:hub": "npm run start --workspace=ui-app -- ./config.json",
         "start:node": "npm run start --workspace=scraper-node -- ./config.json",
         "start:docker": "docker compose up --build",
-        "stop:docker": "docker compose down",
-        "test": "npm run test --workspaces --if-present",
-        "test:e2e": "jest --config jest.config.e2e.js"
+        "stop:docker": "docker compose down"
     },
     "devDependencies": {
         "@swc/core": "^1.10.18",
