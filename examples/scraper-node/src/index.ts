@@ -24,7 +24,7 @@ registerSources()
 registerExporters()
 registerCsvExporter()
 registerGoogleSheetsPlugin()
-registerBuiltInCheerioSources()
+// registerBuiltInCheerioSources()
 
 async function bootstrap() {
     const app = new CmdNodeApp({
