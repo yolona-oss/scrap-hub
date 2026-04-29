@@ -34,7 +34,6 @@ function isInside($a: cheerio.Cheerio<any>, selector: string): boolean {
 
 export function scoreContactLink(
     $a: cheerio.Cheerio<any>,
-    _$: cheerio.CheerioAPI,
     baseUrl: string,
 ): ScoredLink | null {
     const href = ($a.attr('href') ?? '').trim()
@@ -67,7 +66,6 @@ export function scoreContactLink(
 
 export function scoreAggregatorLink(
     $a: cheerio.Cheerio<any>,
-    _$: cheerio.CheerioAPI,
     baseUrl: string,
 ): ScoredLink | null {
     const href = ($a.attr('href') ?? '').trim()
