@@ -91,25 +91,35 @@ Don't try to "stop early" — keep pushing for breadth. The next phase needs as 
 
 export function buildDeepenReviewInstructions(query: SearchQuery): string {
     return `Phase: DEEPEN+REVIEW for "${query.query}".
-Goal: promote partial records in the work queue to verified status. The harvest phase populated the queue with partials (org records with at least a name and some contacts, but with gaps in phone/email/address).
+Goal: drive partial records in the work queue to verified (emitted) or rejected. The harvest phase populated the queue with partials (records with at least a name and some contacts, but with gaps in phone/email/address).
+
+Emission model: records become user-visible only when review_org verifies them (or freeze_org finalizes them at run end). Saturated records — those whose gaps are filled but not yet reviewed — are NOT yet visible. You must call review_org on saturated records, otherwise they sit untriaged.
 
 Available tools:
-- list_orgs(filter?): inspect the work queue. Filter by status ('partial'/'saturated'/'verified'/'rejected') and limit. Returns array of records with their gaps.
-- pick_next_partial(): server-side picker that returns the highest-priority partial record (fewest gaps first). Prefer this over list_orgs for the standard flow.
-- deepen_org(orgId): walk the record's frontier — classify + extract each candidate URL until gaps fill, frontier empties, or per-org budget runs out. When gaps clear, the record is auto-emitted as verified.
-- freeze_org(orgId): force-finalize a record. If it has any contact, transitions to verified and emits. If contactless, transitions to rejected. Use as last resort or when budget is tight.
+- list_orgs(filter?): inspect the work queue. Filter by status ('partial'/'saturated'/'verified'/'rejected') and limit.
+- pick_next_partial(): server-side picker that returns the highest-priority partial (fewest gaps first). Prefer this over list_orgs for the standard flow.
+- deepen_org(orgId): walk the record's frontier — classify + extract each candidate URL until gaps fill, frontier empties, or per-org budget runs out. When gaps clear, the record transitions to saturated (still NOT emitted; review_org gates emission).
+- fill_gap(orgId, field): targeted web search for a single missing field (phone | email | address). Per-(org, field) budget = 1 attempt. Use after deepen_org if a specific gap remains and you think the org's contacts are findable on the open web.
+- review_org(orgId): single-shot LLM judgment on a record. Decisions: verify (transitions to verified, emits OrgData), reject (drops the record), still-partial (leaves status unchanged so deepen_org / fill_gap can run again). Per-record terminal cap = 1; still-partial does not consume the cap.
+- freeze_org(orgId): force-finalize a partial. If it has any contact → verified + emitted; otherwise rejected. Use at run end for stragglers you couldn't review.
 - revise_plan(reason): only after 2+ deepen+review turns; routes back to plan phase.
 
-Standard chain: pick_next_partial → deepen_org. Repeat. When deepen_org returns budgetExhausted=true and frontierEmpty=false, that record's deepening hit its per-org cap — move on; do not retry it.
+Standard chain: pick_next_partial → deepen_org → (optional fill_gap on remaining gaps) → review_org. Repeat.
+
+Heuristics:
+- A saturated record with no conflicts and clean sources is usually a fast verify — call review_org without delay.
+- A saturated record with conflicts needs review_org to pick a chosenIndex from each conflict's existing values. The model cannot invent values; pick the most-trustworthy source's value.
+- still-partial review tells you "keep deepening" — try one more deepen_org or fill_gap, then re-review.
+- When you've exhausted partials or budget, call freeze_org on remaining un-reviewed records.
 
 Stopping conditions (any of):
-- list_orgs({status:'partial'}) returns empty — all records are terminal.
+- list_orgs({status:'partial'}) and list_orgs({status:'saturated'}) both empty.
 - Total tool budget exhausted.
-- A few unresolvable partials remain — call freeze_org on each to finalize them as verified (if any contact survived) or rejected.
+- A few unresolvable records remain — freeze_org each to finalize.
 
-When done, send a final assistant message (no tool calls) with one short Russian sentence summarizing the run. Do NOT enumerate the orgs — they were already emitted.
+When done, send a final assistant message (no tool calls) with one short Russian sentence summarizing the run. Do NOT enumerate the orgs — verified ones were already emitted.
 
-Goal restated: maximum exploration. Don't leave partials un-deepened if budget remains.`
+Goal restated: maximize verified emissions. Don't leave saturated records un-reviewed.`
 }
 
 export function buildPlanPin(planText: string): { role: 'system', content: string } {
