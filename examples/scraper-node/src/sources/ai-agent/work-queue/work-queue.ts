@@ -92,6 +92,9 @@ export class WorkQueue {
             gaps: [...r.gaps],
             frontier: r.frontier.map(f => ({ ...f })),
             notes: [...r.notes],
+            conflicts: r.conflicts
+                ? r.conflicts.map(c => ({ ...c, values: c.values.map(v => ({ ...v })) }))
+                : undefined,
         }
     }
 

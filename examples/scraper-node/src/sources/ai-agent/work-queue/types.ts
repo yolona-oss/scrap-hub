@@ -1,5 +1,5 @@
 import type { ClassifiedPage } from '../page-types'
-import type { OrgData, OrgSourceRef, OrgStatus } from '../../../types'
+import type { OrgConflict, OrgData, OrgSourceRef, OrgStatus } from '../../../types'
 
 export type OrgRecordStatus = 'partial' | 'saturated' | 'verified' | 'rejected'
 
@@ -25,6 +25,9 @@ export interface OrgRecord {
     extractionMethod: 'deterministic' | 'extractor-llm' | 'mixed'
     notes: string[]
     perOrgToolCallsUsed: number
+    /** Cross-source disagreements on a field. Populated by fill_gap when its
+     *  extraction differs from an existing value, and resolved by review_org. */
+    conflicts?: OrgConflict[]
 }
 
 /** Extraction result the queue tools consume — shaped like extract_contacts return. */
@@ -59,5 +62,8 @@ export function orgRecordToOrgData(record: OrgRecord): OrgData {
         confidence: record.confidence,
         extractionMethod: record.extractionMethod,
         notes: record.notes.length ? [...record.notes] : undefined,
+        conflicts: record.conflicts?.length
+            ? record.conflicts.map(c => ({ ...c, values: c.values.map(v => ({ ...v })) }))
+            : undefined,
     }
 }

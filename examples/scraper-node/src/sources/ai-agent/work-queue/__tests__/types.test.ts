@@ -3,6 +3,7 @@ import type {
 } from '../types'
 import { orgRecordToOrgData } from '../types'
 import type { ClassifiedPage } from '../../page-types'
+import type { OrgConflict } from '../../../../types'
 
 function makeRecord(overrides: Partial<OrgRecord> = {}): OrgRecord {
     return {
@@ -104,6 +105,50 @@ describe('work-queue types', () => {
         const data = orgRecordToOrgData(r)
         data.phones.push('mutated')
         expect(r.phones).toEqual(['+78121001010'])
+    })
+
+    it('OrgRecord supports optional conflicts field', () => {
+        const conflict: OrgConflict = {
+            field: 'phone',
+            values: [
+                { value: '+78121001010', sourceUrl: 'https://a.ru' },
+                { value: '+78122002020', sourceUrl: 'https://b.ru' },
+            ],
+            resolution: 'unresolved',
+        }
+        const r = makeRecord({ conflicts: [conflict] })
+        expect(r.conflicts?.[0].field).toBe('phone')
+        expect(r.conflicts?.[0].values.length).toBe(2)
+    })
+
+    it('orgRecordToOrgData propagates conflicts when present', () => {
+        const conflict: OrgConflict = {
+            field: 'email',
+            values: [{ value: 'a@x.ru', sourceUrl: 'u1' }, { value: 'b@x.ru', sourceUrl: 'u2' }],
+            resolution: 'unresolved',
+        }
+        const data = orgRecordToOrgData(makeRecord({ conflicts: [conflict] }))
+        expect(data.conflicts?.length).toBe(1)
+        expect(data.conflicts?.[0].field).toBe('email')
+    })
+
+    it('orgRecordToOrgData omits conflicts when absent', () => {
+        const data = orgRecordToOrgData(makeRecord())
+        expect(data.conflicts).toBeUndefined()
+    })
+
+    it('orgRecordToOrgData clones conflicts so mutations do not leak', () => {
+        const conflict: OrgConflict = {
+            field: 'phone',
+            values: [{ value: 'v1', sourceUrl: 's1' }],
+            resolution: 'unresolved',
+        }
+        const r = makeRecord({ conflicts: [conflict] })
+        const data = orgRecordToOrgData(r)
+        data.conflicts!.push({ field: 'email', values: [], resolution: 'unresolved' })
+        expect(r.conflicts!.length).toBe(1)
+        data.conflicts![0].values.push({ value: 'leaked', sourceUrl: '' })
+        expect(r.conflicts![0].values.length).toBe(1)
     })
 
     it('WorkQueueContext provides classifyPage and extractContacts callbacks', () => {
