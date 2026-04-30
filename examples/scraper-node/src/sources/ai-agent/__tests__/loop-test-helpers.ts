@@ -1,6 +1,7 @@
-import { WorkQueue, type WorkQueueContext, type ExtractContactsResult } from '../work-queue'
+import { WorkQueue, type WorkQueueContext, type ExtractContactsResult, type LLMJudgeContext } from '../work-queue'
 import type { ClassifiedPage } from '../page-types'
 import type { AgentLoopDeps } from '../loop'
+import type { FillGapContext } from '../tools/fill-gap'
 
 /** Stub WorkQueueContext: classifyPage returns 'other' (no extraction triggered),
  *  extractContacts returns empty. Override per-test by passing replacements. */
@@ -17,5 +18,13 @@ export function makeStubDeps(overrides: Partial<WorkQueueContext> = {}): AgentLo
         }),
         ...overrides,
     }
-    return { workQueue, workQueueContext }
+    const fillGapContext: FillGapContext = {
+        webSearch: async () => ({ results: [] }),
+        classifyPage: workQueueContext.classifyPage,
+        extractContacts: workQueueContext.extractContacts,
+    }
+    const llmJudgeContext: LLMJudgeContext = {
+        callJudge: async () => ({ content: null }),
+    }
+    return { workQueue, workQueueContext, fillGapContext, llmJudgeContext }
 }

@@ -9,9 +9,12 @@ import { makeFreezeOrgTool } from "./freeze-org"
 import { makeDiscoverOrgCandidatesTool } from "./discover-org-candidates"
 import { makeHarvestSerpTool } from "./harvest-serp"
 import { makeDeepenOrgTool } from "./deepen-org"
+import { makeFillGapTool } from "./fill-gap"
+import type { FillGapContext } from "./fill-gap"
+import { makeReviewOrgTool } from "./review-org"
 import { SearchQuery, OrgData } from "../../../types"
 import { AsyncQueue } from "../async-queue"
-import type { WorkQueue, WorkQueueContext } from "../work-queue"
+import type { WorkQueue, WorkQueueContext, LLMJudgeContext } from "../work-queue"
 import { log } from "@cmd-hub/common"
 
 export type { ReportState } from "./emit"
@@ -26,6 +29,10 @@ export interface BuildToolsOptions {
     workQueueContext?: WorkQueueContext
     /** Per-org deepening budget for deepen_org. Required when workQueue is set. */
     maxToolCallsPerOrg?: number
+    /** Required during deepen+review: web-search adapter for fill_gap. */
+    fillGapContext?: FillGapContext
+    /** Required during deepen+review: JSON-output completion seam for review_org. */
+    llmJudgeContext?: LLMJudgeContext
 }
 
 export async function buildTools(
@@ -63,11 +70,16 @@ export async function buildTools(
     }
 
     // deepen+review
+    if (!opts.fillGapContext || !opts.llmJudgeContext) {
+        throw new Error('buildTools: deepen+review phase requires fillGapContext + llmJudgeContext')
+    }
     const budget = opts.maxToolCallsPerOrg ?? 5
     const tools: Tool[] = [
         makeListOrgsTool(wq),
         makePickNextPartialTool(wq),
         makeDeepenOrgTool(wq, ctx, budget, query),
+        makeFillGapTool(wq, opts.fillGapContext, query),
+        makeReviewOrgTool(wq, opts.llmJudgeContext, emitQueue),
         makeFreezeOrgTool(wq, emitQueue),
         makeRevisePlanTool(),
     ]

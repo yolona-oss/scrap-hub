@@ -15,7 +15,8 @@ import {
 import { SearchQuery, OrgData } from "../../types"
 import { AsyncQueue } from "./async-queue"
 import type { ReportState } from "./tools"
-import type { WorkQueue, WorkQueueContext } from "./work-queue"
+import type { WorkQueue, WorkQueueContext, LLMJudgeContext } from "./work-queue"
+import type { FillGapContext } from "./tools/fill-gap"
 import { log } from "@cmd-hub/common"
 
 const RECON_BUDGET = 10
@@ -23,11 +24,12 @@ const REVISE_MIN_PHASE_TURNS = 2
 /** Tools whose calls always run fresh — never replayed from cache.
  *  - end_recon, revise_plan: signaling tools whose effect is the phase transition,
  *    not the returned payload.
- *  - harvest_serp, deepen_org, freeze_org: mutate the work queue and emit to the
- *    user queue; replaying would re-emit duplicates and double-count budget. */
+ *  - harvest_serp, deepen_org, fill_gap, freeze_org, review_org: mutate the work
+ *    queue and (for review_org/freeze_org) emit to the user queue; replaying
+ *    would re-mutate state and double-emit. */
 const NON_CACHEABLE_TOOLS = new Set([
     'end_recon', 'revise_plan',
-    'harvest_serp', 'deepen_org', 'freeze_org',
+    'harvest_serp', 'deepen_org', 'fill_gap', 'freeze_org', 'review_org',
 ])
 
 interface ProgressFields {
@@ -86,6 +88,8 @@ export interface AgentLoopHooks {
 export interface AgentLoopDeps {
     workQueue: WorkQueue
     workQueueContext: WorkQueueContext
+    fillGapContext: FillGapContext
+    llmJudgeContext: LLMJudgeContext
 }
 
 /** True when an error came from `signal.abort()` propagating through the
@@ -134,6 +138,8 @@ export async function runAgentLoop(
         extractorRunner,
         workQueue: deps.workQueue,
         workQueueContext: deps.workQueueContext,
+        fillGapContext: deps.fillGapContext,
+        llmJudgeContext: deps.llmJudgeContext,
         maxToolCallsPerOrg: cfg.maxToolCallsPerOrg,
     }
 

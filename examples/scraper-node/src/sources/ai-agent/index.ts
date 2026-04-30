@@ -6,8 +6,10 @@ import { createClient } from "./client"
 import { AsyncQueue } from "./async-queue"
 import { ReportState } from "./tools"
 import { makeExtractContactsTool, type ExtractorRunner } from "./tools/extract-contacts"
+import { makeWebSearchTool } from "./tools/web-search"
+import type { FillGapContext } from "./tools/fill-gap"
 import { classifyPage } from "./classify-page"
-import { WorkQueue, type WorkQueueContext, type ExtractContactsResult } from "./work-queue"
+import { WorkQueue, type WorkQueueContext, type ExtractContactsResult, type LLMJudgeContext, type JudgeMessage } from "./work-queue"
 import { runExtractor } from "./extractor"
 import { runAgentLoop, AgentToolCallInfo } from "./loop"
 import { log } from "@cmd-hub/common"
@@ -76,9 +78,40 @@ export class AIAgentSource implements IScraperSource {
             },
         }
 
+        // fill_gap shim over the existing web_search tool. The tool's hint/error
+        // surface is collapsed: callers see results-or-empty, not the diagnostic
+        // strings — fill_gap retries-on-failure are not in scope (per-record budget=1).
+        const webSearchTool = makeWebSearchTool(query)
+        const fillGapContext: FillGapContext = {
+            webSearch: async (args, opts) => {
+                const r: any = await webSearchTool.handler(
+                    { query: args.query, limit: args.limit ?? 3 },
+                    opts?.signal,
+                )
+                return { results: Array.isArray(r?.results) ? r.results : [] }
+            },
+            classifyPage: workQueueContext.classifyPage,
+            extractContacts: workQueueContext.extractContacts,
+        }
+
+        const llmJudgeContext: LLMJudgeContext = {
+            callJudge: async (messages: JudgeMessage[], opts) => {
+                const response = await client.chat.completions.create(
+                    {
+                        model: cfg.model,
+                        temperature: cfg.temperature,
+                        messages,
+                        response_format: { type: 'json_object' },
+                    },
+                    { signal: opts?.signal },
+                )
+                return { content: response.choices?.[0]?.message?.content ?? null }
+            },
+        }
+
         const loopPromise = runAgentLoop(
             client, query, queue, reportState, cfg,
-            { workQueue, workQueueContext },
+            { workQueue, workQueueContext, fillGapContext, llmJudgeContext },
             { onToolCall, signal },
         )
             .catch(e => log.error(`ai-agent.search: loop error: ${e?.message ?? e}`))
