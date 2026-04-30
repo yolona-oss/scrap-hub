@@ -67,7 +67,7 @@ export async function buildTools(
     const tools: Tool[] = [
         makeListOrgsTool(wq),
         makePickNextPartialTool(wq),
-        makeDeepenOrgTool(wq, ctx, budget, emitQueue, query),
+        makeDeepenOrgTool(wq, ctx, budget, query),
         makeFreezeOrgTool(wq, emitQueue),
         makeRevisePlanTool(),
     ]

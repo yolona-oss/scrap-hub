@@ -1,19 +1,10 @@
 import { makeDeepenOrgTool } from '../deepen-org'
 import { WorkQueue } from '../../work-queue'
-import { AsyncQueue } from '../../async-queue'
 import type { ClassifiedPage } from '../../page-types'
 import type { OrgGap } from '../../work-queue'
-import type { OrgData, SearchQuery } from '../../../../types'
+import type { SearchQuery } from '../../../../types'
 
 const baseQuery: SearchQuery = { query: 'q', sources: [], maxResults: 5 }
-
-function newEmit(): AsyncQueue<OrgData> { return new AsyncQueue<OrgData>() }
-async function drain(emit: AsyncQueue<OrgData>): Promise<OrgData[]> {
-    emit.close()
-    const out: OrgData[] = []
-    for await (const x of emit) out.push(x)
-    return out
-}
 
 function fakePage(partial: Partial<ClassifiedPage> = {}): ClassifiedPage {
     return {
@@ -50,8 +41,7 @@ describe('deepen_org tool', () => {
                 phones: ['+78121001010'], emails: [], addresses: [], candidateName: '',
             }),
         }
-        const emit = newEmit()
-        const tool = makeDeepenOrgTool(wq, ctx, MAX_BUDGET, emit, baseQuery)
+        const tool = makeDeepenOrgTool(wq, ctx, MAX_BUDGET, baseQuery)
         const out: any = await tool.handler({ orgId: r.id })
         expect(out.error).toBeUndefined()
         const after = wq.get(r.id)!
@@ -60,7 +50,7 @@ describe('deepen_org tool', () => {
         expect(after.perOrgToolCallsUsed).toBeGreaterThan(0)
     })
 
-    it('transitions to saturated when all gaps fill and emits OrgData', async () => {
+    it('transitions to saturated when all gaps fill but does NOT emit (review_org gates emit)', async () => {
         const wq = new WorkQueue()
         const r = wq.insert(seed())
         const ctx = {
@@ -70,18 +60,15 @@ describe('deepen_org tool', () => {
                 candidateName: '',
             }),
         }
-        const emit = newEmit()
-        const tool = makeDeepenOrgTool(wq, ctx, MAX_BUDGET, emit, baseQuery)
+        const tool = makeDeepenOrgTool(wq, ctx, MAX_BUDGET, baseQuery)
         await tool.handler({ orgId: r.id })
-        expect(wq.get(r.id)?.status).toBe('saturated')
-        const yielded = await drain(emit)
-        expect(yielded).toHaveLength(1)
-        expect(yielded[0].name).toBe('Acme')
-        expect(yielded[0].phones).toEqual(['+78121001010'])
-        expect(yielded[0].emails).toEqual(['info@acme.ru'])
-        // address gets normalized via validateAndNormalizeAddress (street marker present).
-        expect(yielded[0].addresses[0]).toContain('Ленина')
-        expect(yielded[0].status).toBe('partial')  // saturated maps to OrgStatus 'partial'
+        const after = wq.get(r.id)!
+        expect(after.status).toBe('saturated')
+        // Saturated record carries the merged contacts but is not user-visible
+        // until review_org verifies (or freeze_org finalizes).
+        expect(after.phones).toEqual(['+78121001010'])
+        expect(after.emails).toEqual(['info@acme.ru'])
+        expect(after.addresses[0]).toContain('Ленина')
     })
 
     it('drops off-target-city addresses during deepen', async () => {
@@ -94,9 +81,8 @@ describe('deepen_org tool', () => {
                 candidateName: '',
             }),
         }
-        const emit = newEmit()
         const queryWithCity: SearchQuery = { ...baseQuery, city: 'Санкт-Петербург' }
-        const tool = makeDeepenOrgTool(wq, ctx, MAX_BUDGET, emit, queryWithCity)
+        const tool = makeDeepenOrgTool(wq, ctx, MAX_BUDGET, queryWithCity)
         await tool.handler({ orgId: r.id })
         const after = wq.get(r.id)!
         expect(after.addresses).toEqual([])
@@ -117,8 +103,7 @@ describe('deepen_org tool', () => {
             classifyPage: async () => { calls++; return fakePage() },
             extractContacts: async () => { calls++; return { phones: [], emails: [], addresses: [], candidateName: '' } },
         }
-        const emit = newEmit()
-        const tool = makeDeepenOrgTool(wq, ctx, 4, emit, baseQuery)  // budget = 4 → 2 hops max
+        const tool = makeDeepenOrgTool(wq, ctx, 4, baseQuery)  // budget = 4 → 2 hops max
         const out: any = await tool.handler({ orgId: r.id })
         expect(out.budgetExhausted).toBe(true)
         const after = wq.get(r.id)!
@@ -138,8 +123,7 @@ describe('deepen_org tool', () => {
             classifyPage: async (url: string) => { visited.push(url); return fakePage({ url }) },
             extractContacts: async () => ({ phones: [], emails: [], addresses: [], candidateName: '' }),
         }
-        const emit = newEmit()
-        const tool = makeDeepenOrgTool(wq, ctx, 4, emit, baseQuery)
+        const tool = makeDeepenOrgTool(wq, ctx, 4, baseQuery)
         await tool.handler({ orgId: r.id })
         expect(visited[0]).toContain('/high')
     })
@@ -154,8 +138,7 @@ describe('deepen_org tool', () => {
             classifyPage: async () => fakePage({ pageType: 'other' }),
             extractContacts: async () => { extractCalls++; return { phones: [], emails: [], addresses: [], candidateName: '' } },
         }
-        const emit = newEmit()
-        const tool = makeDeepenOrgTool(wq, ctx, 5, emit, baseQuery)
+        const tool = makeDeepenOrgTool(wq, ctx, 5, baseQuery)
         await tool.handler({ orgId: r.id })
         expect(extractCalls).toBe(0)
     })
@@ -166,8 +149,7 @@ describe('deepen_org tool', () => {
             classifyPage: async () => fakePage(),
             extractContacts: async () => ({ phones: [], emails: [], addresses: [], candidateName: '' }),
         }
-        const emit = newEmit()
-        const tool = makeDeepenOrgTool(wq, ctx, 5, emit, baseQuery)
+        const tool = makeDeepenOrgTool(wq, ctx, 5, baseQuery)
         const out: any = await tool.handler({ orgId: 'nope' })
         expect(out.error).toMatch(/not found/i)
     })
@@ -179,8 +161,7 @@ describe('deepen_org tool', () => {
             classifyPage: async () => fakePage(),
             extractContacts: async () => ({ phones: [], emails: [], addresses: [], candidateName: '' }),
         }
-        const emit = newEmit()
-        const tool = makeDeepenOrgTool(wq, ctx, 5, emit, baseQuery)
+        const tool = makeDeepenOrgTool(wq, ctx, 5, baseQuery)
         const out: any = await tool.handler({ orgId: r.id })
         expect(out.frontierEmpty).toBe(true)
         expect(out.budgetExhausted).toBe(false)
@@ -199,8 +180,7 @@ describe('deepen_org tool', () => {
             }),
             extractContacts: async () => ({ phones: [], emails: [], addresses: [], candidateName: '' }),
         }
-        const emit = newEmit()
-        const tool = makeDeepenOrgTool(wq, ctx, 5, emit, baseQuery)
+        const tool = makeDeepenOrgTool(wq, ctx, 5, baseQuery)
         await tool.handler({ orgId: r.id })
         const after = wq.get(r.id)!
         const urls = after.frontier.map(f => f.url)
@@ -215,8 +195,7 @@ describe('deepen_org tool', () => {
             classifyPage: async () => fakePage(),
             extractContacts: async () => ({ phones: [], emails: [], addresses: [], candidateName: '' }),
         }
-        const emit = newEmit()
-        const tool = makeDeepenOrgTool(wq, ctx, 5, emit, baseQuery)
+        const tool = makeDeepenOrgTool(wq, ctx, 5, baseQuery)
         const out: any = await tool.handler({ orgId: r.id })
         expect(out.error).toMatch(/not partial|already terminal/i)
     })

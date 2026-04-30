@@ -1,8 +1,6 @@
 import type { Tool } from './types'
 import type { WorkQueue, WorkQueueContext, OrgFrontierEntry, OrgGap } from '../work-queue'
-import { orgRecordToOrgData } from '../work-queue'
-import type { AsyncQueue } from '../async-queue'
-import type { OrgData, OrgSourceRef, SearchQuery } from '../../../types'
+import type { OrgSourceRef, SearchQuery } from '../../../types'
 import { validateAndNormalizeAddress } from './emit'
 import { log } from '@cmd-hub/common'
 
@@ -20,7 +18,6 @@ export function makeDeepenOrgTool(
     workQueue: WorkQueue,
     ctx: WorkQueueContext,
     maxToolCallsPerOrg: number,
-    emitQueue: AsyncQueue<OrgData>,
     query: SearchQuery,
 ): Tool {
     return {
@@ -152,13 +149,13 @@ export function makeDeepenOrgTool(
                     draft.frontier.push(...newFrontier)
                 })
 
-                // If gaps cleared, transition saturated and emit.
+                // If gaps cleared, transition to saturated. Emission is deferred to
+                // review_org (which decides verify/reject) or freeze_org (run-end
+                // fallback) — saturated records are not yet user-visible.
                 const after = workQueue.get(orgId)!
                 if (after.gaps.length === 0) {
                     workQueue.transition(orgId, 'saturated')
-                    const saturated = workQueue.get(orgId)!
-                    emitQueue.push(orgRecordToOrgData(saturated))
-                    log.debug(`ai-agent.deepen_org: id=${orgId} saturated → emitted`)
+                    log.debug(`ai-agent.deepen_org: id=${orgId} → saturated (awaiting review)`)
                     break
                 }
             }
