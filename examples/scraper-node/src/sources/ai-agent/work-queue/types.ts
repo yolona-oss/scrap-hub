@@ -44,6 +44,18 @@ export interface WorkQueueContext {
     extractContacts: (html: string, opts?: { signal?: AbortSignal, pageUrl?: string }) => Promise<ExtractContactsResult>
 }
 
+export interface JudgeMessage {
+    role: 'system' | 'user' | 'assistant'
+    content: string
+}
+
+/** Single-shot completion that forces JSON output. Used by review_org so the
+ *  parent OpenAI client can be swapped for a fake in tests without dragging
+ *  in the full SDK surface. */
+export interface LLMJudgeContext {
+    callJudge(messages: JudgeMessage[], opts?: { signal?: AbortSignal }): Promise<{ content: string | null }>
+}
+
 /** Convert a queue record into the user-facing OrgData yielded by the source.
  *  Drops queue-internal fields (id, frontier, gaps, perOrgToolCallsUsed) and
  *  maps OrgRecordStatus to OrgStatus — 'saturated' surfaces as 'partial' for

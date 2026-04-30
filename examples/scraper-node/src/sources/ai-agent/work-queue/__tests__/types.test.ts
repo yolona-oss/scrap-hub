@@ -151,6 +151,14 @@ describe('work-queue types', () => {
         expect(r.conflicts![0].values.length).toBe(1)
     })
 
+    it('LLMJudgeContext exposes a JSON-output callJudge function', async () => {
+        const ctx: import('../types').LLMJudgeContext = {
+            callJudge: async (_messages) => ({ content: '{}' }),
+        }
+        const out = await ctx.callJudge([{ role: 'system', content: 'x' }])
+        expect(out.content).toBe('{}')
+    })
+
     it('WorkQueueContext provides classifyPage and extractContacts callbacks', () => {
         const fakeClassify = async (_url: string): Promise<ClassifiedPage> => ({
             url: _url, pageType: 'org-site', confidence: 0.5, signals: [],
