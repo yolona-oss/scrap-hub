@@ -1,15 +1,5 @@
-import { OrgData, OrgSourceRef, SearchQuery } from "../../../types"
-import { AsyncQueue } from "../async-queue"
-import { log } from "@cmd-hub/common"
-
 export interface ReportState {
     yielded: number
-}
-
-export interface EmitOutcome {
-    accepted: number
-    rejected: number
-    totalYielded: number
 }
 
 /** Lowercased stem of `city` for substring comparison against an address.
@@ -101,93 +91,4 @@ export function validateAndNormalizeAddress(raw: string, queryCity?: string): st
     }
 
     return canonical
-}
-
-/**
- * Validate a single candidate and, if valid, push it to the agent's output
- * queue. Returns whether the org was accepted; updates `state.yielded`.
- *
- * "Valid" means: a non-empty name AND at least one contact channel
- * (phone/email/address). Bad addresses (URL, email, phone, breadcrumb, off-target
- * city, etc.) are dropped from the address field but the org is still accepted
- * if phone or email survive.
- */
-export function emitOrg(
-    raw: any,
-    queue: AsyncQueue<OrgData>,
-    state: ReportState,
-    query: SearchQuery,
-    fallbackSource: string,
-): boolean {
-    if (state.yielded >= query.maxResults) {
-        log.trace(`emit.emitOrg: skipped — maxResults (${query.maxResults}) reached`)
-        return false
-    }
-    const name = typeof raw?.name === 'string' ? raw.name.trim() : ''
-    const phone = raw?.phone ? String(raw.phone) : null
-    const email = raw?.email ? String(raw.email) : null
-    const rawAddress = raw?.address ? String(raw.address) : null
-    const source = typeof raw?.source === 'string' && raw.source.trim() ? raw.source.trim() : fallbackSource
-    const url = typeof raw?.url === 'string' ? raw.url : undefined
-
-    if (!name) {
-        log.trace(`emit.emitOrg: rejected — empty name`)
-        return false
-    }
-
-    // Validate + normalize address. Bad addresses become null — the org may
-    // still pass if phone or email is present.
-    const address = rawAddress ? validateAndNormalizeAddress(rawAddress, query.city) : null
-    if (rawAddress && !address) {
-        log.trace(`emit.emitOrg: address rejected as not-an-address or off-city (rawLen=${rawAddress.length})`)
-    }
-
-    if (!phone && !email && !address) {
-        log.debug(`emit.emitOrg: rejected — no contact channel survived (name="${name.slice(0, 60)}" hadRawAddress=${Boolean(rawAddress)})`)
-        return false
-    }
-
-    // `fallbackSource` (= source) is kept for traceability; not pushed to v2 record (deprecated in PR5).
-    log.trace(`emit.emitOrg: accepted fallbackSource=${source} hasPhone=${Boolean(phone)} hasEmail=${Boolean(email)} hasAddress=${Boolean(address)} yielded=${state.yielded + 1}/${query.maxResults}`)
-
-    const sources: OrgSourceRef[] = url
-        ? [{
-            url,
-            kind: 'org-site',
-            extractedAt: new Date().toISOString(),
-            extractionMethod: 'extractor-llm',
-        }]
-        : []
-    const orgData: OrgData = {
-        name,
-        phones: phone ? [phone] : [],
-        emails: email ? [email] : [],
-        addresses: address ? [address] : [],
-        sources,
-        status: 'partial',
-        confidence: 0.7,
-        extractionMethod: 'extractor-llm',
-    }
-    queue.push(orgData)
-    state.yielded++
-    return true
-}
-
-export function emitMany(
-    orgs: any[],
-    queue: AsyncQueue<OrgData>,
-    state: ReportState,
-    query: SearchQuery,
-    fallbackSource: string,
-): EmitOutcome {
-    log.debug(`emit.emitMany: source=${fallbackSource} batch=${orgs.length}`)
-    let accepted = 0
-    let rejected = 0
-    for (const raw of orgs) {
-        if (emitOrg(raw, queue, state, query, fallbackSource)) accepted++
-        else rejected++
-        if (state.yielded >= query.maxResults) break
-    }
-    log.debug(`emit.emitMany: source=${fallbackSource} done accepted=${accepted} rejected=${rejected} totalYielded=${state.yielded}`)
-    return { accepted, rejected, totalYielded: state.yielded }
 }

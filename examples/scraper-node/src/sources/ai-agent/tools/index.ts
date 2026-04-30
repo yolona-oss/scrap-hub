@@ -1,9 +1,6 @@
 import { Tool } from "./types"
 import { makeWebSearchTool } from "./web-search"
-import { makeFetchUrlTool } from "./fetch-url"
-import { makeParseHtmlTool } from "./parse-html"
-import { makeReportResultsTool } from "./report-results"
-import { makeExtractContactsTool, type ExtractorRunner } from "./extract-contacts"
+import { type ExtractorRunner } from "./extract-contacts"
 import { makeEndReconTool } from "./end-recon"
 import { makeRevisePlanTool } from "./revise-plan"
 import { makeListOrgsTool } from "./list-orgs"
@@ -14,19 +11,17 @@ import { makeHarvestSerpTool } from "./harvest-serp"
 import { makeDeepenOrgTool } from "./deepen-org"
 import { SearchQuery, OrgData } from "../../../types"
 import { AsyncQueue } from "../async-queue"
-import type { ReportState } from "./emit"
 import type { WorkQueue, WorkQueueContext } from "../work-queue"
 import { log } from "@cmd-hub/common"
 
 export type { ReportState } from "./emit"
 export type { ExtractorRunner } from "./extract-contacts"
-export type AgentPhase = 'recon' | 'plan' | 'execute'
+export type AgentPhase = 'recon' | 'plan' | 'harvest' | 'deepen+review'
 
 export interface BuildToolsOptions {
     extractorRunner?: ExtractorRunner
-    /** When provided, queue tools (list_orgs, pick_next_partial, freeze_org,
-     *  discover_org_candidates, harvest_serp, deepen_org) are added to the toolset.
-     *  PR4b adds the option; PR4c wires the loop to provide it during harvest+deepen+review phases. */
+    /** Required during harvest + deepen+review phases. The work queue carries
+     *  partial → saturated → verified records; phase tools mutate it. */
     workQueue?: WorkQueue
     workQueueContext?: WorkQueueContext
     /** Per-org deepening budget for deepen_org. Required when workQueue is set. */
@@ -35,8 +30,7 @@ export interface BuildToolsOptions {
 
 export async function buildTools(
     query: SearchQuery,
-    queue: AsyncQueue<OrgData>,
-    state: ReportState,
+    emitQueue: AsyncQueue<OrgData>,
     phase: AgentPhase,
     opts: BuildToolsOptions = {},
 ): Promise<Tool[]> {
@@ -50,30 +44,34 @@ export async function buildTools(
         log.debug(`ai-agent.tools.buildTools: recon phase → ${tools.map(t => t.name).join(', ')}`)
         return tools
     }
-    const tools: Tool[] = [
-        makeWebSearchTool(query),
-        makeFetchUrlTool(),
-        makeParseHtmlTool(),
-        makeExtractContactsTool({ extractorRunner: opts.extractorRunner }),
-        makeReportResultsTool(queue, query, state),
-        makeRevisePlanTool(),
-    ]
 
-    if (opts.workQueue && opts.workQueueContext) {
-        const wq = opts.workQueue
-        const ctx = opts.workQueueContext
-        const budget = opts.maxToolCallsPerOrg ?? 5
-        tools.push(
-            makeListOrgsTool(wq),
-            makePickNextPartialTool(wq),
-            makeFreezeOrgTool(wq),
+    if (!opts.workQueue || !opts.workQueueContext) {
+        throw new Error(`buildTools: phase ${phase} requires workQueue + workQueueContext`)
+    }
+    const wq = opts.workQueue
+    const ctx = opts.workQueueContext
+
+    if (phase === 'harvest') {
+        const tools: Tool[] = [
+            makeWebSearchTool(query),
+            makeHarvestSerpTool(wq, ctx, query),
             makeDiscoverOrgCandidatesTool(ctx),
-            makeHarvestSerpTool(wq, ctx),
-            makeDeepenOrgTool(wq, ctx, budget),
-        )
+            makeRevisePlanTool(),
+        ]
+        log.debug(`ai-agent.tools.buildTools: harvest phase → ${tools.map(t => t.name).join(', ')}`)
+        return tools
     }
 
-    log.debug(`ai-agent.tools.buildTools: execute phase → ${tools.map(t => t.name).join(', ')}`)
+    // deepen+review
+    const budget = opts.maxToolCallsPerOrg ?? 5
+    const tools: Tool[] = [
+        makeListOrgsTool(wq),
+        makePickNextPartialTool(wq),
+        makeDeepenOrgTool(wq, ctx, budget, emitQueue, query),
+        makeFreezeOrgTool(wq, emitQueue),
+        makeRevisePlanTool(),
+    ]
+    log.debug(`ai-agent.tools.buildTools: deepen+review phase → ${tools.map(t => t.name).join(', ')}`)
     return tools
 }
 

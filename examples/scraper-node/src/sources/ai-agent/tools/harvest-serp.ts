@@ -1,7 +1,8 @@
 import type { Tool } from './types'
 import type { WorkQueue, OrgGap } from '../work-queue'
 import type { WorkQueueContext } from '../work-queue'
-import type { OrgSourceRef } from '../../../types'
+import type { OrgSourceRef, SearchQuery } from '../../../types'
+import { validateAndNormalizeAddress } from './emit'
 import { log } from '@cmd-hub/common'
 
 const LOCAL_BUSINESS_TYPE_RE = /LocalBusiness|Organization|MedicalBusiness|Dentist/i
@@ -42,7 +43,7 @@ function computeGaps(phones: string[], emails: string[], addresses: string[]): O
     return gaps
 }
 
-export function makeHarvestSerpTool(workQueue: WorkQueue, ctx: WorkQueueContext): Tool {
+export function makeHarvestSerpTool(workQueue: WorkQueue, ctx: WorkQueueContext, query: SearchQuery): Tool {
     return {
         name: 'harvest_serp',
         description: 'Classify the URL and extract all LocalBusiness JSON-LD entries from an aggregator search-results page. Creates one partial org record per card. Returns the count of records created. Does NOT create records for non-aggregator-serp pages.',
@@ -79,8 +80,9 @@ export function makeHarvestSerpTool(workQueue: WorkQueue, ctx: WorkQueueContext)
 
                 const phones: string[] = typeof b.telephone === 'string' ? [normalizePhone(b.telephone)] : []
                 const emails: string[] = typeof b.email === 'string' ? [b.email.toLowerCase()] : []
-                const addr = flattenAddress(b.address)
-                const addresses: string[] = addr ? [addr] : []
+                const rawAddr = flattenAddress(b.address)
+                const normalizedAddr = rawAddr ? validateAndNormalizeAddress(rawAddr, query.city) : null
+                const addresses: string[] = normalizedAddr ? [normalizedAddr] : []
 
                 const sourceRef: OrgSourceRef = {
                     url: page.url,

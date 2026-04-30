@@ -7,22 +7,28 @@ import {
     buildRolePrompt,
     buildReconInstructions,
     buildPlanInstructions,
-    buildExecuteInstructions,
+    buildHarvestInstructions,
+    buildDeepenReviewInstructions,
     buildPlanPin,
     buildUserPrompt,
 } from "./prompts"
 import { SearchQuery, OrgData } from "../../types"
 import { AsyncQueue } from "./async-queue"
 import type { ReportState } from "./tools"
+import type { WorkQueue, WorkQueueContext } from "./work-queue"
 import { log } from "@cmd-hub/common"
 
 const RECON_BUDGET = 10
-const REVISE_MIN_EXECUTE_TURNS = 2
+const REVISE_MIN_PHASE_TURNS = 2
 /** Tools whose calls always run fresh — never replayed from cache.
- *  - report_results: emits to the user queue; replaying would re-emit duplicates.
  *  - end_recon, revise_plan: signaling tools whose effect is the phase transition,
- *    not the returned payload. */
-const NON_CACHEABLE_TOOLS = new Set(['report_results', 'end_recon', 'revise_plan'])
+ *    not the returned payload.
+ *  - harvest_serp, deepen_org, freeze_org: mutate the work queue and emit to the
+ *    user queue; replaying would re-emit duplicates and double-count budget. */
+const NON_CACHEABLE_TOOLS = new Set([
+    'end_recon', 'revise_plan',
+    'harvest_serp', 'deepen_org', 'freeze_org',
+])
 
 interface ProgressFields {
     yielded: number
@@ -50,7 +56,8 @@ function buildSystemMessage(
     switch (phase) {
         case 'recon': phaseBlock = buildReconInstructions(query); break
         case 'plan': phaseBlock = buildPlanInstructions(); break
-        case 'execute': phaseBlock = buildExecuteInstructions(query); break
+        case 'harvest': phaseBlock = buildHarvestInstructions(query); break
+        case 'deepen+review': phaseBlock = buildDeepenReviewInstructions(query); break
     }
     return { role: 'system', content: `${role}\n\n${phaseBlock}` }
 }
@@ -76,6 +83,11 @@ export interface AgentLoopHooks {
     signal?: AbortSignal
 }
 
+export interface AgentLoopDeps {
+    workQueue: WorkQueue
+    workQueueContext: WorkQueueContext
+}
+
 /** True when an error came from `signal.abort()` propagating through the
  *  OpenAI SDK or a tool's HTTP layer (axios). Both rethrow with `name`
  *  set to one of these values; checking `signal.aborted` is a fallback
@@ -92,6 +104,7 @@ export async function runAgentLoop(
     queue: AsyncQueue<OrgData>,
     state: ReportState,
     cfg: ResolvedAIAgentConfig,
+    deps: AgentLoopDeps,
     hooks?: AgentLoopHooks,
 ): Promise<void> {
     const signal = hooks?.signal
@@ -99,7 +112,7 @@ export async function runAgentLoop(
     let phase: AgentPhase = 'recon'
     let toolCallsUsed = 0
     let reconSearches = 0
-    let executePhaseTurnsSinceLastPlan = 0
+    let phaseTurnsSinceLastPlan = 0
     let turn = 0
     const startTime = Date.now()
     /** Per-run cache of (tool, args) → successful result. Cache hits are
@@ -108,16 +121,28 @@ export async function runAgentLoop(
     const seenResults = new Map<string, unknown>()
     let planPinned = false
 
+    /** Harvest phase ends when toolCallsUsed reaches this threshold (Q4 lock:
+     *  ~50% of total). Floored so cfg.maxToolCalls=1 still yields a non-zero
+     *  budget for the rest of the run. */
+    const harvestBudget = Math.max(1, Math.floor(cfg.maxToolCalls / 2))
+
     const extractorRunner: ExtractorRunner | undefined = cfg.extractor
         ? (input, sig) => runExtractor(input, cfg.extractor!, sig)
         : undefined
+
+    const buildToolsOpts = {
+        extractorRunner,
+        workQueue: deps.workQueue,
+        workQueueContext: deps.workQueueContext,
+        maxToolCallsPerOrg: cfg.maxToolCallsPerOrg,
+    }
 
     const messages: ChatCompletionMessageParam[] = [
         buildSystemMessage(query, 'recon', cfg),
         { role: 'user', content: buildUserPrompt(query) },
     ]
 
-    let tools = await buildTools(query, queue, state, phase, { extractorRunner })
+    let tools = await buildTools(query, queue, phase, buildToolsOpts)
     let toolByName = new Map(tools.map(t => [t.name, t]))
 
     function pushToolResult(id: string, result: any) {
@@ -129,14 +154,30 @@ export async function runAgentLoop(
         pushToolResult(id, { error })
     }
     async function transitionToPlan(reason: string) {
-        log.info(`ai-agent.loop: recon→plan after ${reconSearches} searches (${reason})`)
+        log.info(`ai-agent.loop: → plan after ${reconSearches} recon searches (${reason})`)
         phase = 'plan'
         messages[0] = buildSystemMessage(query, 'plan', cfg)
-        tools = await buildTools(query, queue, state, 'plan', { extractorRunner })
+        tools = await buildTools(query, queue, 'plan', buildToolsOpts)
+        toolByName = new Map(tools.map(t => [t.name, t]))
+    }
+    async function transitionToHarvest(reason: string) {
+        log.info(`ai-agent.loop: plan→harvest (${reason})`)
+        phase = 'harvest'
+        phaseTurnsSinceLastPlan = 0
+        messages[0] = buildSystemMessage(query, 'harvest', cfg)
+        tools = await buildTools(query, queue, 'harvest', buildToolsOpts)
+        toolByName = new Map(tools.map(t => [t.name, t]))
+    }
+    async function transitionToDeepenReview(reason: string) {
+        log.info(`ai-agent.loop: harvest→deepen+review (${reason}) — toolsUsed=${toolCallsUsed}`)
+        phase = 'deepen+review'
+        phaseTurnsSinceLastPlan = 0
+        messages[0] = buildSystemMessage(query, 'deepen+review', cfg)
+        tools = await buildTools(query, queue, 'deepen+review', buildToolsOpts)
         toolByName = new Map(tools.map(t => [t.name, t]))
     }
 
-    log.debug(`ai-agent.loop: starting phase=recon model=${cfg.model} maxToolCalls=${cfg.maxToolCalls}`)
+    log.debug(`ai-agent.loop: starting phase=recon model=${cfg.model} maxToolCalls=${cfg.maxToolCalls} harvestBudget=${harvestBudget}`)
 
     while (true) {
         if (signal?.aborted) return
@@ -303,23 +344,19 @@ export async function runAgentLoop(
                 planPinned = true
                 log.debug(`ai-agent.loop: plan pin inserted`)
             }
-            log.info(`ai-agent.loop: plan→execute, plan ${planText.length} chars`)
+            log.info(`ai-agent.loop: plan→harvest, plan ${planText.length} chars`)
             // Full plan dump — multi-line so log readers see the whole text
             // verbatim. Use an explicit divider so the plan stands out from
             // the surrounding tool-call lines.
             log.info(`ai-agent.loop: ── plan ──\n${planText}\n── /plan ──`)
 
-            phase = 'execute'
-            executePhaseTurnsSinceLastPlan = 0
-            messages[0] = buildSystemMessage(query, 'execute', cfg)
-            tools = await buildTools(query, queue, state, 'execute', { extractorRunner })
-            toolByName = new Map(tools.map(t => [t.name, t]))
+            await transitionToHarvest('plan-emitted')
             continue
         }
 
-        if ((phase as AgentPhase) === 'execute') {
+        if ((phase as AgentPhase) === 'harvest' || (phase as AgentPhase) === 'deepen+review') {
             turn++
-            executePhaseTurnsSinceLastPlan++
+            phaseTurnsSinceLastPlan++
             const requestTools: ChatCompletionTool[] = tools.map(toOpenAISchema)
             const reqStart = Date.now()
             let response
@@ -336,10 +373,10 @@ export async function runAgentLoop(
                 )
             } catch (e: any) {
                 if (isAbortError(e, signal)) return
-                log.error(`ai-agent.loop: LLM request failed (execute turn ${turn}): ${e.message ?? e}`)
+                log.error(`ai-agent.loop: LLM request failed (${phase} turn ${turn}): ${e.message ?? e}`)
                 return
             }
-            log.trace(`ai-agent.loop: execute turn ${turn} response in ${Date.now() - reqStart}ms`)
+            log.trace(`ai-agent.loop: ${phase} turn ${turn} response in ${Date.now() - reqStart}ms`)
 
             const choice = response.choices?.[0]
             if (!choice) { log.warn('ai-agent.loop: LLM returned no choices'); return }
@@ -352,9 +389,9 @@ export async function runAgentLoop(
                 return
             }
 
-            let revisedThisTurn = false
+            let phaseChangedThisTurn = false
             for (const call of toolCalls) {
-                if (revisedThisTurn) break
+                if (phaseChangedThisTurn) break
                 if (call.type !== 'function') {
                     pushToolError(call.id, 'unsupported tool call type')
                     continue
@@ -366,27 +403,27 @@ export async function runAgentLoop(
                 catch (e: any) { pushToolError(call.id, `invalid arguments: ${e.message ?? e}`); continue }
 
                 if (name === 'revise_plan') {
-                    if (executePhaseTurnsSinceLastPlan < REVISE_MIN_EXECUTE_TURNS) {
-                        log.debug(`ai-agent.loop: revise_plan rejected (only ${executePhaseTurnsSinceLastPlan} execute turns elapsed)`)
-                        pushToolError(call.id, `revise_plan unavailable: give the current plan at least ${REVISE_MIN_EXECUTE_TURNS} execute turns before revising. Try the plan; if it still fails, revise then.`)
+                    if (phaseTurnsSinceLastPlan < REVISE_MIN_PHASE_TURNS) {
+                        log.debug(`ai-agent.loop: revise_plan rejected (only ${phaseTurnsSinceLastPlan} ${phase} turns elapsed)`)
+                        pushToolError(call.id, `revise_plan unavailable: give the current plan at least ${REVISE_MIN_PHASE_TURNS} turns before revising. Try the plan; if it still fails, revise then.`)
                         continue
                     }
                     const tool = toolByName.get('revise_plan')!
                     const result = await tool.handler(parsed, signal)
                     pushToolResult(call.id, result)
-                    log.warn(`ai-agent.loop: execute→plan via revise_plan after ${executePhaseTurnsSinceLastPlan} turns. reason: ${parsed?.reason ?? '(none)'}`)
+                    log.warn(`ai-agent.loop: ${phase}→plan via revise_plan after ${phaseTurnsSinceLastPlan} turns. reason: ${parsed?.reason ?? '(none)'}`)
                     phase = 'plan'
                     messages[0] = buildSystemMessage(query, 'plan', cfg)
-                    tools = await buildTools(query, queue, state, 'plan', { extractorRunner })
+                    tools = await buildTools(query, queue, 'plan', buildToolsOpts)
                     toolByName = new Map(tools.map(t => [t.name, t]))
-                    revisedThisTurn = true
+                    phaseChangedThisTurn = true
                     continue
                 }
 
                 const tool = toolByName.get(name)
                 if (!tool) {
-                    log.warn(`ai-agent.loop: agent called unknown tool "${name}"`)
-                    pushToolError(call.id, `unknown tool "${name}"`)
+                    log.warn(`ai-agent.loop: agent called unknown tool "${name}" in ${phase}`)
+                    pushToolError(call.id, `unknown tool "${name}" in phase ${phase}`)
                     continue
                 }
 
@@ -402,7 +439,7 @@ export async function runAgentLoop(
                 }
 
                 if (toolCallsUsed >= cfg.maxToolCalls) {
-                    pushToolError(call.id, 'max tool calls reached, wrap up with report_results')
+                    pushToolError(call.id, 'max tool calls reached')
                     continue
                 }
                 toolCallsUsed++
@@ -415,6 +452,12 @@ export async function runAgentLoop(
                 else if (cacheable) seenResults.set(dedupKey, result)
                 hooks?.onToolCall?.({ name: tool.name, args: JSON.stringify(parsed), durationMs, ok: !result?.error, error: result?.error })
                 pushToolResult(call.id, result)
+
+                if ((phase as AgentPhase) === 'harvest' && toolCallsUsed >= harvestBudget) {
+                    await transitionToDeepenReview(`harvest budget reached (${toolCallsUsed}/${harvestBudget})`)
+                    phaseChangedThisTurn = true
+                    break
+                }
             }
             continue
         }

@@ -5,6 +5,10 @@ import { resolveAIAgentConfig } from "./config"
 import { createClient } from "./client"
 import { AsyncQueue } from "./async-queue"
 import { ReportState } from "./tools"
+import { makeExtractContactsTool, type ExtractorRunner } from "./tools/extract-contacts"
+import { classifyPage } from "./classify-page"
+import { WorkQueue, type WorkQueueContext, type ExtractContactsResult } from "./work-queue"
+import { runExtractor } from "./extractor"
 import { runAgentLoop, AgentToolCallInfo } from "./loop"
 import { log } from "@cmd-hub/common"
 
@@ -49,7 +53,34 @@ export class AIAgentSource implements IScraperSource {
             ])
             : undefined
 
-        const loopPromise = runAgentLoop(client, query, queue, reportState, cfg, { onToolCall, signal })
+        // Build the WorkQueueContext: shared classify + extract entry points
+        // used by harvest_serp and deepen_org. extract_contacts here is a
+        // thin reuse of the same tool the LLM used to call directly; the
+        // result shape matches WorkQueueContext.extractContacts via the
+        // first four fields of the tool's return.
+        const workQueue = new WorkQueue()
+        const extractorRunner: ExtractorRunner | undefined = cfg.extractor
+            ? (input, sig) => runExtractor(input, cfg.extractor!, sig)
+            : undefined
+        const extractTool = makeExtractContactsTool({ extractorRunner })
+        const workQueueContext: WorkQueueContext = {
+            classifyPage: (url, opts) => classifyPage(url, { signal: opts?.signal }),
+            extractContacts: async (html, opts): Promise<ExtractContactsResult> => {
+                const r: any = await extractTool.handler({ html }, opts?.signal)
+                return {
+                    phones: Array.isArray(r?.phones) ? r.phones : [],
+                    emails: Array.isArray(r?.emails) ? r.emails : [],
+                    addresses: Array.isArray(r?.addresses) ? r.addresses : [],
+                    candidateName: typeof r?.candidateName === 'string' ? r.candidateName : '',
+                }
+            },
+        }
+
+        const loopPromise = runAgentLoop(
+            client, query, queue, reportState, cfg,
+            { workQueue, workQueueContext },
+            { onToolCall, signal },
+        )
             .catch(e => log.error(`ai-agent.search: loop error: ${e?.message ?? e}`))
             .finally(() => {
                 queue.close()

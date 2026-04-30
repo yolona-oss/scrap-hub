@@ -1,8 +1,14 @@
 import type { Tool } from './types'
 import type { WorkQueue } from '../work-queue'
+import { orgRecordToOrgData } from '../work-queue'
+import type { AsyncQueue } from '../async-queue'
+import type { OrgData } from '../../../types'
 import { log } from '@cmd-hub/common'
 
-export function makeFreezeOrgTool(workQueue: WorkQueue): Tool {
+export function makeFreezeOrgTool(
+    workQueue: WorkQueue,
+    emitQueue: AsyncQueue<OrgData>,
+): Tool {
     return {
         name: 'freeze_org',
         description: 'Force-finalize an org record. If it has at least one contact (phone/email/address), transition to verified; otherwise to rejected. Used at run end when budget runs out.',
@@ -30,7 +36,13 @@ export function makeFreezeOrgTool(workQueue: WorkQueue): Tool {
             }
             workQueue.transition(orgId, finalStatus)
 
-            log.debug(`ai-agent.freeze_org: id=${orgId} → ${finalStatus} (hadContact=${Boolean(hasContact)})`)
+            if (finalStatus === 'verified') {
+                const final = workQueue.get(orgId)!
+                emitQueue.push(orgRecordToOrgData(final))
+                log.debug(`ai-agent.freeze_org: id=${orgId} → verified, emitted`)
+            } else {
+                log.debug(`ai-agent.freeze_org: id=${orgId} → rejected`)
+            }
             return { orgId, finalStatus }
         },
     }

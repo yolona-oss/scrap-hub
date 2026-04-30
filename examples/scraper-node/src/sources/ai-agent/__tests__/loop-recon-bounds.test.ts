@@ -3,6 +3,7 @@ import { AsyncQueue } from '../async-queue'
 import type { OrgData, SearchQuery } from '../../../types'
 import type { ResolvedAIAgentConfig } from '../config'
 import type { ReportState } from '../tools'
+import { makeStubDeps } from './loop-test-helpers'
 
 class FakeOpenAIClient {
     private script: any[]
@@ -60,7 +61,7 @@ describe('runAgentLoop — recon bounds', () => {
             planMessage,
             finishMessage,
         ])
-        await runAgentLoop(client as any, baseQuery, queue, state, cfg)
+        await runAgentLoop(client as any, baseQuery, queue, state, cfg, makeStubDeps())
 
         const secondReq = client.requests[1]
         const toolMsgs = secondReq.messages.filter((m: any) => m.role === 'tool')
@@ -79,7 +80,7 @@ describe('runAgentLoop — recon bounds', () => {
             planMessage,
             finishMessage,
         ])
-        await runAgentLoop(client as any, baseQuery, queue, state, cfg)
+        await runAgentLoop(client as any, baseQuery, queue, state, cfg, makeStubDeps())
 
         const planReq = client.requests[10]
         expect(planReq.tool_choice).toBe('none')
@@ -98,7 +99,7 @@ describe('runAgentLoop — recon bounds', () => {
             planMessage,
             finishMessage,
         ])
-        await runAgentLoop(client as any, baseQuery, queue, state, cfg)
+        await runAgentLoop(client as any, baseQuery, queue, state, cfg, makeStubDeps())
 
         // After the second (cached) web_search and the end_recon, the plan
         // request should show toolsUsed=1 (only the first real web_search).

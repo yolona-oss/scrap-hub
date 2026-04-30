@@ -1,6 +1,9 @@
 import type { Tool } from './types'
 import type { WorkQueue, WorkQueueContext, OrgFrontierEntry, OrgGap } from '../work-queue'
-import type { OrgSourceRef } from '../../../types'
+import { orgRecordToOrgData } from '../work-queue'
+import type { AsyncQueue } from '../async-queue'
+import type { OrgData, OrgSourceRef, SearchQuery } from '../../../types'
+import { validateAndNormalizeAddress } from './emit'
 import { log } from '@cmd-hub/common'
 
 const FRONTIER_MAX_ADD = 3
@@ -17,6 +20,8 @@ export function makeDeepenOrgTool(
     workQueue: WorkQueue,
     ctx: WorkQueueContext,
     maxToolCallsPerOrg: number,
+    emitQueue: AsyncQueue<OrgData>,
+    query: SearchQuery,
 ): Tool {
     return {
         name: 'deepen_org',
@@ -116,8 +121,10 @@ export function makeDeepenOrgTool(
                     for (const x of extracted.emails) {
                         if (!draft.emails.includes(x)) draft.emails.push(x)
                     }
-                    for (const x of extracted.addresses) {
-                        if (!draft.addresses.includes(x)) draft.addresses.push(x)
+                    for (const raw of extracted.addresses) {
+                        const normalized = validateAndNormalizeAddress(raw, query.city)
+                        if (!normalized) continue
+                        if (!draft.addresses.includes(normalized)) draft.addresses.push(normalized)
                     }
                     if (!draft.name && extracted.candidateName) draft.name = extracted.candidateName
 
@@ -145,10 +152,13 @@ export function makeDeepenOrgTool(
                     draft.frontier.push(...newFrontier)
                 })
 
-                // If gaps cleared, transition saturated.
+                // If gaps cleared, transition saturated and emit.
                 const after = workQueue.get(orgId)!
                 if (after.gaps.length === 0) {
                     workQueue.transition(orgId, 'saturated')
+                    const saturated = workQueue.get(orgId)!
+                    emitQueue.push(orgRecordToOrgData(saturated))
+                    log.debug(`ai-agent.deepen_org: id=${orgId} saturated → emitted`)
                     break
                 }
             }
